@@ -13,7 +13,9 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/matrix/init.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <rmm/device_uvector.hpp>
 
@@ -128,10 +130,10 @@ inline auto leaf_pick_range(raft::resources const& res,
 
   rmm::device_uvector<id_t> sel_ids(n_members * k, stream);
   rmm::device_uvector<float> sel_dists(n_members * k, stream);
-  thrust::fill(raft::resource::get_thrust_policy(res),
-               sel_ids.data(),
-               sel_ids.data() + sel_ids.size(),
-               kInvalidId);
+  raft::matrix::fill(res,
+                     raft::make_device_vector_view<id_t, int64_t>(
+                       sel_ids.data(), static_cast<int64_t>(sel_ids.size())),
+                     kInvalidId);
 
   const id_t* members = leaves.members.data() + base;
   auto members_view   = raft::make_device_vector_view<const id_t, int64_t>(members, n_members);
@@ -151,9 +153,17 @@ inline auto leaf_pick_range(raft::resources const& res,
   out.targets.resize(n_slots, stream);
   const int64_t threads = 256;
   const int64_t blocks  = (n_members * k + threads - 1) / threads;
-  emit_edge_records_kernel<<<blocks, threads, 0, stream>>>(
-    members, sel_ids.data(), sel_dists.data(), n_members, k, out.keys.data(), out.targets.data());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(res,
+                      blocks,
+                      threads,
+                      emit_edge_records_kernel,
+                      members,
+                      sel_ids.data(),
+                      sel_dists.data(),
+                      n_members,
+                      k,
+                      out.keys.data(),
+                      out.targets.data());
 
   const int64_t n_invalid = thrust::count(raft::resource::get_thrust_policy(res),
                                           out.keys.data(),

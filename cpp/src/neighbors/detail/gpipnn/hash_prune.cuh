@@ -13,8 +13,10 @@
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/gemm.cuh>
+#include <raft/matrix/init.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <rmm/device_uvector.hpp>
 
@@ -67,11 +69,12 @@ inline auto make_accumulator(raft::resources const& res, int64_t n_rows, int64_t
 {
   auto stream = raft::resource::get_cuda_stream(res).get();
   accumulator acc(stream, n_rows, l_max);
-  RAFT_CUDA_TRY(cudaMemsetAsync(acc.counts.data(), 0, n_rows * sizeof(uint32_t), stream));
-  thrust::fill(raft::resource::get_thrust_policy(res),
-               acc.ids.data(),
-               acc.ids.data() + acc.ids.size(),
-               kInvalidId);
+  raft::matrix::fill(
+    res, raft::make_device_vector_view<uint32_t, int64_t>(acc.counts.data(), n_rows), uint32_t{0});
+  raft::matrix::fill(res,
+                     raft::make_device_vector_view<id_t, int64_t>(
+                       acc.ids.data(), static_cast<int64_t>(acc.ids.size())),
+                     kInvalidId);
   return acc;
 }
 
@@ -338,18 +341,21 @@ inline void hash_prune_merge(raft::resources const& res,
   const size_t smem =
     static_cast<size_t>(((1 << hash_bits) + 31) / 32) * sizeof(uint32_t) +
     static_cast<size_t>(l_max) * (sizeof(id_t) + sizeof(float) + sizeof(uint16_t));
-  hash_prune_merge_kernel<<<n_rows, 32, smem, stream>>>(records.keys.data(),
-                                                        records.targets.data(),
-                                                        row_begin.data(),
-                                                        sketches.data_handle(),
-                                                        n_rows,
-                                                        hash_bits,
-                                                        l_max,
-                                                        acc.ids.data(),
-                                                        acc.dists.data(),
-                                                        acc.hashes.data(),
-                                                        acc.counts.data());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel({res, smem},
+                      n_rows,
+                      32,
+                      hash_prune_merge_kernel,
+                      records.keys.data(),
+                      records.targets.data(),
+                      row_begin.data(),
+                      sketches.data_handle(),
+                      n_rows,
+                      hash_bits,
+                      l_max,
+                      acc.ids.data(),
+                      acc.dists.data(),
+                      acc.hashes.data(),
+                      acc.counts.data());
 }
 
 }  // namespace cuvs::neighbors::experimental::gpipnn::detail

@@ -11,9 +11,13 @@
 #include "segmented_topk.cuh"
 
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/map.cuh>
+#include <raft/matrix/init.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <thrust/fill.h>
 #include <thrust/sequence.h>
@@ -231,14 +235,20 @@ inline auto build_prune_order(raft::resources const& res, const runs& leaves, in
   const auto unlabelled = static_cast<uint32_t>(n_leaves);
   const int end_bit     = key_bits(n_leaves);
 
-  auto policy = raft::resource::get_thrust_policy(res);
   rmm::device_uvector<uint32_t> label(n_rows, stream);
   rmm::device_uvector<id_t> ids(n_rows, stream);
-  thrust::fill(policy, label.data(), label.data() + n_rows, unlabelled);
-  thrust::sequence(policy, ids.data(), ids.data() + n_rows, id_t{0});
-  first_leaf_kernel<<<n_leaves, 256, 0, stream>>>(
-    leaves.members.data(), leaves.offsets.data(), n_leaves, label.data());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::matrix::fill(
+    res, raft::make_device_vector_view<uint32_t, int64_t>(label.data(), n_rows), unlabelled);
+  raft::linalg::map_offset(
+    res, raft::make_device_vector_view<id_t, int64_t>(ids.data(), n_rows), raft::cast_op<id_t>{});
+  raft::launch_kernel(res,
+                      n_leaves,
+                      256,
+                      first_leaf_kernel,
+                      leaves.members.data(),
+                      leaves.offsets.data(),
+                      n_leaves,
+                      label.data());
 
   rmm::device_uvector<uint32_t> label_out(n_rows, stream);
   radix_sort_pairs(
@@ -282,17 +292,20 @@ inline void direct_edge_prune(raft::resources const& res,
     &b_large, direct_edge_prune_kernel, 128, smem_for(large)));
   const int64_t slots = b_large >= b_small ? large : small;
   const size_t smem   = smem_for(slots);
-  direct_edge_prune_kernel<<<n_rows, 128, smem, stream>>>(acc.ids.data(),
-                                                          acc.dists.data(),
-                                                          acc.counts.data(),
-                                                          row_order,
-                                                          n_rows,
-                                                          l_max,
-                                                          static_cast<int32_t>(slots),
-                                                          degree,
-                                                          params.alpha,
-                                                          graph.data_handle());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel({res, smem},
+                      n_rows,
+                      128,
+                      direct_edge_prune_kernel,
+                      acc.ids.data(),
+                      acc.dists.data(),
+                      acc.counts.data(),
+                      row_order,
+                      n_rows,
+                      l_max,
+                      static_cast<int32_t>(slots),
+                      degree,
+                      params.alpha,
+                      graph.data_handle());
 }
 
 }  // namespace cuvs::neighbors::experimental::gpipnn::detail

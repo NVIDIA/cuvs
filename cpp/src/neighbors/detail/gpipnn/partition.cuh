@@ -9,11 +9,14 @@
 #include "segmented_topk.cuh"
 
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
@@ -363,9 +366,14 @@ inline void assign_then_sort_round(
   raft::update_device(d_plan.data(), h_plan.data(), n_runs, stream);
 
   rmm::device_uvector<id_t> leaders(total_slots, stream);
-  sample_leaders_kernel<<<n_runs, 128, 0, stream>>>(
-    in.members.data(), d_plan.data(), n_runs, leaders.data());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(res,
+                      n_runs,
+                      128,
+                      sample_leaders_kernel,
+                      in.members.data(),
+                      d_plan.data(),
+                      n_runs,
+                      leaders.data());
 
   // Chunk each run's queries so no segment's working set overruns the L2 cache budget. All chunks
   // of a run share its leader range, which lets one dense call serve every run at once.
@@ -418,9 +426,17 @@ inline void assign_then_sort_round(
     const int64_t slices =
       std::clamp<int64_t>(want_blocks / std::max<int64_t>(1, n_runs), 1, 65535);
     const dim3 emit_grid(static_cast<unsigned>(n_runs), static_cast<unsigned>(slices));
-    emit_pairs_kernel<<<emit_grid, 128, 0, stream>>>(
-      in.members.data(), d_plan.data(), sel_slots.data(), n_runs, fanout, keys.data(), vals.data());
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    raft::launch_kernel(res,
+                        emit_grid,
+                        128,
+                        emit_pairs_kernel,
+                        in.members.data(),
+                        d_plan.data(),
+                        sel_slots.data(),
+                        n_runs,
+                        fanout,
+                        keys.data(),
+                        vals.data());
   }
 
   const int64_t n_invalid = thrust::count(
@@ -525,10 +541,9 @@ inline auto ball_carve(raft::resources const& res,
   // Seed with a single run holding every point in id order.
   runs cur(stream);
   cur.members.resize(n_rows, stream);
-  thrust::sequence(raft::resource::get_thrust_policy(res),
-                   cur.members.data(),
-                   cur.members.data() + n_rows,
-                   id_t{0});
+  raft::linalg::map_offset(res,
+                           raft::make_device_vector_view<id_t, int64_t>(cur.members.data(), n_rows),
+                           raft::cast_op<id_t>{});
   set_layout(res, cur, std::vector<int64_t>{0, n_rows}, std::vector<int64_t>{0});
 
   // A dataset that already fits in one leaf needs no carving.

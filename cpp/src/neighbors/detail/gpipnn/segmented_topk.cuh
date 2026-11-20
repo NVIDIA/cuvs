@@ -16,6 +16,7 @@
 #include <raft/linalg/detail/cublas_wrappers.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 #include <raft/util/warp_primitives.cuh>
 
 #include <rmm/device_uvector.hpp>
@@ -666,20 +667,23 @@ inline void segmented_topk(
     const int threads            = kWarpsPerBlock * 32;
     const int64_t blocks         = (rows + kWarpsPerBlock - 1) / kWarpsPerBlock;
     auto select                  = [&](auto tag) {
-      fused_topk_kernel<decltype(tag)::value><<<blocks, threads, 0, stream>>>(
-        dots.data(),
-        norms.data_handle(),
-        query_ids.data_handle(),
-        cand_ids.data_handle(),
-        b_seg,
-        rows,
-        query_pad,
-        cand_pad,
-        exclude_self,
-        k,
-        out_ids.data_handle(),
-        out_dists.has_value() ? out_dists->data_handle() : nullptr,
-        out_cand_slots.has_value() ? out_cand_slots->data_handle() : nullptr);
+      raft::launch_kernel(res,
+                          blocks,
+                          threads,
+                          fused_topk_kernel<decltype(tag)::value>,
+                          dots.data(),
+                          norms.data_handle(),
+                          query_ids.data_handle(),
+                          cand_ids.data_handle(),
+                          b_seg,
+                          rows,
+                          query_pad,
+                          cand_pad,
+                          exclude_self,
+                          k,
+                          out_ids.data_handle(),
+                          out_dists.has_value() ? out_dists->data_handle() : nullptr,
+                          out_cand_slots.has_value() ? out_cand_slots->data_handle() : nullptr);
     };
     if (k <= 1) {
       select(std::integral_constant<int, 1>{});

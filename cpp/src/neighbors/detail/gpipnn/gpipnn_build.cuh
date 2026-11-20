@@ -17,8 +17,12 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/dry_run_flag.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/matrix/init.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/cudart_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <rmm/device_uvector.hpp>
 
@@ -101,8 +105,14 @@ void build_graph(raft::resources const& res,
     // construction, since `half_cast_scale` lands it just under the top of the range.
     rmm::device_uvector<int> overflowed(0, stream);
     if (normalize) {
-      normalize_rows_to_half_kernel<DataT, 256>
-        <<<n_rows, 256, 0, stream>>>(dataset.data_handle(), half_storage.data(), n_rows, dim);
+      raft::launch_kernel(res,
+                          n_rows,
+                          256,
+                          normalize_rows_to_half_kernel<DataT, 256>,
+                          dataset.data_handle(),
+                          half_storage.data(),
+                          n_rows,
+                          dim);
     } else {
       // Only float can fall outside the range half represents: int8 and uint8 are bounded by
       // 255, and a half input is representable by definition.
@@ -111,7 +121,8 @@ void build_graph(raft::resources const& res,
         float max_abs = params.dataset_max_abs;
         if (max_abs > 0.0f) {
           overflowed.resize(1, stream);
-          RAFT_CUDA_TRY(cudaMemsetAsync(overflowed.data(), 0, sizeof(int), stream));
+          raft::matrix::fill(
+            res, raft::make_device_vector_view<int, int64_t>(overflowed.data(), 1), 0);
         } else {
           max_abs = finite_max_abs(res, dataset.data_handle(), n_rows * dim);
         }
@@ -131,14 +142,15 @@ void build_graph(raft::resources const& res,
                    scale,
                    overflowed.is_empty() ? nullptr : overflowed.data());
     }
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
-    if (!overflowed.is_empty()) {
+    // Reading the flag back is skipped under dry run, where `overflowed` aliases the shared probe
+    // buffer and holds nothing. It only decides whether to throw, never a size, so assuming no
+    // overflow leaves the measured footprint exactly what it would have been.
+    if (!overflowed.is_empty() && !raft::resource::get_dry_run_flag(res)) {
       // Costs a sync, but only on the path that skipped the one `finite_max_abs` does, so
       // asserting the peak still removes a pass over the dataset rather than trading for it.
       int flag = 0;
-      RAFT_CUDA_TRY(
-        cudaMemcpyAsync(&flag, overflowed.data(), sizeof(int), cudaMemcpyDeviceToHost, stream));
-      RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+      raft::update_host(&flag, overflowed.data(), 1, stream);
+      raft::resource::sync_stream(res);
       RAFT_EXPECTS(flag == 0,
                    "gpipnn: dataset_max_abs (%g) is below the dataset's actual peak, so the "
                    "conversion to half overflowed; every distance touching those elements would "
