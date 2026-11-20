@@ -16,10 +16,13 @@
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -71,6 +74,8 @@ class cuvs_ivf_flat : public algo<T>, public algo_gpu {
   void save(const std::string& file) const override;
   void load(const std::string&) override;
   std::unique_ptr<algo<T>> copy() override;
+  [[nodiscard]] auto estimate_work(int n_queries, int k) const
+    -> std::optional<work_estimate> override;
 
  private:
   // handle_ must go first to make sure it dies last and all memory allocated in pool
@@ -128,6 +133,36 @@ template <typename T, typename IdxT>
 std::unique_ptr<algo<T>> cuvs_ivf_flat<T, IdxT>::copy()
 {
   return std::make_unique<cuvs_ivf_flat<T, IdxT>>(*this);  // use copy constructor
+}
+
+template <typename T, typename IdxT>
+auto cuvs_ivf_flat<T, IdxT>::estimate_work(int n_queries, int k) const
+  -> std::optional<work_estimate>
+{
+  const double nlist  = index_->n_lists();
+  const double nprobe = std::min<double>(search_params_.n_probes, nlist);
+  const double n_rows = index_->size();
+  const double dim    = dimension_;
+
+  // Average number of vectors in one list (the lists are assumed to be equal-sized).
+  const double average_cluster_size = n_rows / nlist;
+
+  // Distance comparisons per query in the fine search: one per vector in the probed clusters.
+  const double comparisons_per_query = nprobe * average_cluster_size;
+
+  // Coarse search over the centroids + fine search over the probed lists.
+  const double flops = 2.0 * n_queries * dim * (nlist + comparisons_per_query);
+
+  // Expected number of distinct clusters probed in the batch if each query picks nprobe clusters
+  // uniformly at random. Each of them is read once per batch; the centroids are read once per batch.
+  const double distinct_clusters_probed =
+    nlist * (1.0 - std::pow(1.0 - nprobe / nlist, n_queries));
+  const size_t bytes = sizeof(float) * nlist * dim +
+                       sizeof(T) * (distinct_clusters_probed * average_cluster_size * dim +
+                                    n_queries * dim) +
+                       static_cast<size_t>(n_queries) * k *
+                         (sizeof(float) + sizeof(algo_base::index_type));
+  return work_estimate{flops, bytes};
 }
 
 template <typename T, typename IdxT>
