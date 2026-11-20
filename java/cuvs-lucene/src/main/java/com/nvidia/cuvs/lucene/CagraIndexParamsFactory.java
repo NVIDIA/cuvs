@@ -74,6 +74,7 @@ public class CagraIndexParamsFactory {
    */
   public static CagraIndexParams create(
       AcceleratedHNSWParams acceleratedHNSWParams, long rows, long dimension) {
+    var variableGraphDegreeFraction = acceleratedHNSWParams.getVariableGraphDegreeFraction();
     if (acceleratedHNSWParams.getStrategy().equals(AcceleratedHNSWParams.Strategy.HEURISTIC)) {
       // Delegate the derivation of the graph degrees, build algorithm and its parameters to cuVS,
       // expressed in terms of the HNSW-equivalent maxConn/beamWidth.
@@ -90,7 +91,8 @@ public class CagraIndexParamsFactory {
       // writerThreads for now but should fix this in cuVS in the future.
       return new CagraIndexParams.Builder()
           .withGraphDegree(derived.getGraphDegree())
-          .withVariableGraphDegreeFraction(derived.getVariableGraphDegreeFraction())
+          .withVariableGraphDegreeFraction(
+              variableGraphDegreeFraction.orElse(derived.getVariableGraphDegreeFraction()))
           .withIntermediateGraphDegree(derived.getIntermediateGraphDegree())
           .withCagraGraphBuildAlgo(derived.getCagraGraphBuildAlgo())
           .withCuVSIvfPqParams(derived.getCuVSIvfPqParams())
@@ -99,15 +101,17 @@ public class CagraIndexParamsFactory {
           .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
           .build();
     }
-    return new CagraIndexParams.Builder()
-        .withGraphDegree(acceleratedHNSWParams.getGraphdegree())
-        .withIntermediateGraphDegree(acceleratedHNSWParams.getIntermediateGraphDegree())
-        .withCagraGraphBuildAlgo(acceleratedHNSWParams.getCagraGraphBuildAlgo())
-        .withCuVSIvfPqParams(acceleratedHNSWParams.getCuVSIvfPqParams())
-        .withNNDescentNumIterations(acceleratedHNSWParams.getNNDescentNumIterations())
-        .withMetric(acceleratedHNSWParams.getCuvsDistanceType())
-        .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
-        .build();
+    var builder =
+        new CagraIndexParams.Builder()
+            .withGraphDegree(acceleratedHNSWParams.getGraphdegree())
+            .withIntermediateGraphDegree(acceleratedHNSWParams.getIntermediateGraphDegree())
+            .withCagraGraphBuildAlgo(acceleratedHNSWParams.getCagraGraphBuildAlgo())
+            .withCuVSIvfPqParams(acceleratedHNSWParams.getCuVSIvfPqParams())
+            .withNNDescentNumIterations(acceleratedHNSWParams.getNNDescentNumIterations())
+            .withMetric(acceleratedHNSWParams.getCuvsDistanceType())
+            .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads());
+    variableGraphDegreeFraction.ifPresent(builder::withVariableGraphDegreeFraction);
+    return builder.build();
   }
 
   /**

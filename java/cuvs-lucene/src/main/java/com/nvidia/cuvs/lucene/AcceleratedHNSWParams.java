@@ -10,6 +10,7 @@ import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import com.nvidia.cuvs.CagraIndexParams.HnswHeuristicType;
 import com.nvidia.cuvs.CuVSIvfPqParams;
 import java.util.Objects;
+import java.util.OptionalDouble;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
@@ -74,6 +75,9 @@ public class AcceleratedHNSWParams {
         return Executors.newFixedThreadPool(DEFAULT_NUM_MERGE_WORKERS);
       };
 
+  private static final OptionalDouble DEFAULT_VARIABLE_GRAPH_DEGREE_FRACTION =
+      OptionalDouble.empty();
+
   private final int writerThreads;
   private final int intermediateGraphDegree;
   private final int graphdegree;
@@ -88,6 +92,7 @@ public class AcceleratedHNSWParams {
   private final CuvsDistanceType cuvsDistanceType;
   private final int nnDescentNumIterations;
   private final HnswHeuristicType hnswHeuristicType;
+  private final OptionalDouble variableGraphDegreeFraction;
 
   /**
    * Constructs an instance of {@link AcceleratedHNSWParams} with specific parameter values.
@@ -107,6 +112,7 @@ public class AcceleratedHNSWParams {
    * @param cuvsDistanceType the cuvsDistanceType. The default option is L2Expanded.
    * @param nnDescentNumIterations the number of Iterations to run if building with NN_DESCENT.
    * @param hnswHeuristicType the heuristic cuVS applies when deriving the CAGRA build parameters from maxConn and beamWidth under the HEURISTIC strategy.
+   * @param variableGraphDegreeFraction explicit fraction for the GPU graph, when present
    */
   private AcceleratedHNSWParams(
       int writerThreads,
@@ -122,7 +128,8 @@ public class AcceleratedHNSWParams {
       Strategy strategy,
       CuvsDistanceType cuvsDistanceType,
       int nnDescentNumIterations,
-      HnswHeuristicType hnswHeuristicType) {
+      HnswHeuristicType hnswHeuristicType,
+      OptionalDouble variableGraphDegreeFraction) {
     super();
     this.writerThreads = writerThreads;
     this.intermediateGraphDegree = intermediateGraphDegree;
@@ -138,6 +145,7 @@ public class AcceleratedHNSWParams {
     this.cuvsDistanceType = cuvsDistanceType;
     this.nnDescentNumIterations = nnDescentNumIterations;
     this.hnswHeuristicType = hnswHeuristicType;
+    this.variableGraphDegreeFraction = variableGraphDegreeFraction;
   }
 
   /**
@@ -270,6 +278,16 @@ public class AcceleratedHNSWParams {
     return hnswHeuristicType;
   }
 
+  /**
+   * Gets the configured fraction that defines the minimum degree of the CAGRA output graph.
+   *
+   * @return the configured fraction, or an empty optional to use the strategy default
+   * @see Builder#withVariableGraphDegreeFraction(double)
+   */
+  OptionalDouble getVariableGraphDegreeFraction() {
+    return variableGraphDegreeFraction;
+  }
+
   @Override
   public String toString() {
     return "AcceleratedHNSWParams [writerThreads="
@@ -322,6 +340,7 @@ public class AcceleratedHNSWParams {
     private CuvsDistanceType cuvsDistanceType = DEFAULT_CUVS_DISTANCE_TYPE;
     private int nnDescentNumIterations = DEFAULT_NN_DESCENT_NUM_ITERATIONS;
     private HnswHeuristicType hnswHeuristicType = DEFAULT_HNSW_HEURISTIC_TYPE;
+    private OptionalDouble variableGraphDegreeFraction = DEFAULT_VARIABLE_GRAPH_DEGREE_FRACTION;
 
     /**
      * Set the number of cuVS writer threads while building the index
@@ -515,6 +534,22 @@ public class AcceleratedHNSWParams {
     }
 
     /**
+     * Sets the fraction of the CAGRA output graph degree that defines the minimum degree. A
+     * fraction of {@code 1.0} selects a fixed-degree graph.
+     *
+     * <p>When unset, {@link Strategy#HEURISTIC} uses the fraction derived by cuVS and {@link
+     * Strategy#CUSTOM} uses the CAGRA default. The fraction is validated when {@link #build()} is
+     * called.
+     *
+     * @param fraction a finite value in the inclusive range {@code [0, 1]}
+     * @return this builder
+     */
+    Builder withVariableGraphDegreeFraction(double fraction) {
+      variableGraphDegreeFraction = OptionalDouble.of(fraction);
+      return this;
+    }
+
+    /**
      * Validates the input parameters.
      *
      * @throws IllegalArgumentException
@@ -547,6 +582,13 @@ public class AcceleratedHNSWParams {
           nnDescentNumIterations,
           MIN_NN_DESCENT_NUM_ITERATIONS,
           MAX_NN_DESCENT_NUM_ITERATIONS);
+      if (variableGraphDegreeFraction.isPresent()) {
+        double fraction = variableGraphDegreeFraction.getAsDouble();
+        if (!(fraction >= 0.0 && fraction <= 1.0)) {
+          throw new IllegalArgumentException(
+              "variableGraphDegreeFraction must be in [0, 1], but was " + fraction);
+        }
+      }
       // The CAGRA graph is written as an HNSW graph with maxConn, which holds at most 2 * maxConn
       // neighbors per node on level 0. A wider graph is searched fine, but a CPU merge cannot copy
       // it. Under HEURISTIC, cuVS derives the degree from maxConn and stays within that; under
@@ -604,7 +646,8 @@ public class AcceleratedHNSWParams {
           strategy,
           cuvsDistanceType,
           nnDescentNumIterations,
-          hnswHeuristicType);
+          hnswHeuristicType,
+          variableGraphDegreeFraction);
     }
   }
 }

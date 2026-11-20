@@ -100,8 +100,10 @@ public class TestUtils {
    * 3 * topK} vectors, and up to {@code allowedMisses} results across all the queries may miss.
    * Calibrate {@code allowedMisses} by measuring misses over many random datasets: one query misses
    * too rarely on a broken graph to tell it from a good one, but the totals over several do.
+   *
+   * @return the number of results in the exact top {@code topK} across all queries
    */
-  public static void assertSearchFindsNearestNeighbors(
+  public static int assertSearchFindsNearestNeighbors(
       IndexSearcher searcher,
       String vectorField,
       String idField,
@@ -110,7 +112,7 @@ public class TestUtils {
       int topK,
       int allowedMisses)
       throws IOException {
-    assertSearchFindsNearestNeighbors(
+    return assertSearchFindsNearestNeighbors(
         searcher, vectorField, idField, dataset, null, queries, topK, allowedMisses);
   }
 
@@ -123,8 +125,10 @@ public class TestUtils {
    *
    * <p>Besides the approximate check, every query must return {@code min(topK, indexed rows)}
    * distinct indexed documents in order of decreasing score, each scored by its own vector.
+   *
+   * @return the number of results in the exact top {@code topK} across all queries
    */
-  public static void assertSearchFindsNearestNeighbors(
+  public static int assertSearchFindsNearestNeighbors(
       IndexSearcher searcher,
       String vectorField,
       String idField,
@@ -144,6 +148,7 @@ public class TestUtils {
     int expectedResults = Math.min(topK, indexedCount);
     int acceptableRank = topK * 3;
     int misses = 0;
+    int exactHits = 0;
     StringBuilder found = new StringBuilder();
     StoredFields storedFields = searcher.storedFields();
     for (int q = 0; q < queries.length; q++) {
@@ -176,6 +181,8 @@ public class TestUtils {
         resultRanks[i] = ranks[ids[i]];
         if (resultRanks[i] > acceptableRank) {
           misses++;
+        } else if (resultRanks[i] <= topK) {
+          exactHits++;
         }
       }
       found
@@ -195,6 +202,7 @@ public class TestUtils {
             + " allowed:"
             + found,
         misses <= allowedMisses);
+    return exactHits;
   }
 
   /**

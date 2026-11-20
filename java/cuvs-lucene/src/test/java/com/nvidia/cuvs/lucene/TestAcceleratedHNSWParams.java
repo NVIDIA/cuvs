@@ -93,6 +93,23 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   }
 
   @Test
+  public void testVariableGraphDegreeFractionValidatedAtBuildTime() {
+    for (double fraction : new double[] {0.0, 1.0}) {
+      AcceleratedHNSWParams params =
+          new AcceleratedHNSWParams.Builder().withVariableGraphDegreeFraction(fraction).build();
+      assertEquals(fraction, params.getVariableGraphDegreeFraction().getAsDouble(), 0.0);
+    }
+    for (double fraction :
+        new double[] {
+          -0.01, 1.01, Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY
+        }) {
+      AcceleratedHNSWParams.Builder builder =
+          new AcceleratedHNSWParams.Builder().withVariableGraphDegreeFraction(fraction);
+      expectThrows(IllegalArgumentException.class, builder::build);
+    }
+  }
+
+  @Test
   public void testCustomGraphDegreeAllowsNativeClamping() {
     AcceleratedHNSWParams params =
         new AcceleratedHNSWParams.Builder()

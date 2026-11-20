@@ -9,7 +9,9 @@ import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
+import com.carrotsearch.randomizedtesting.RandomSupplier;
 import java.nio.file.Path;
+import java.util.Random;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
@@ -36,6 +38,9 @@ import org.junit.Test;
 @SuppressSysoutChecks(bugUrl = "")
 public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
 
+  // The degree sweep used this method seed with the test runner's default RNG.
+  private static final long RECALL_SWEEP_TEST_SEED = 0xB76BE3D67B11916AL;
+
   private static Logger log =
       Logger.getLogger(TestCagraToHnswSerializationAndSearch.class.getName());
 
@@ -46,7 +51,42 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
 
   @Test
   public void testCagraToHnswSerializationAndSearch() throws Exception {
-    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
+    // At 0.50, at most one of the 50 results per run fell outside the brute-force top 15
+    // in the fixed-seed sweep. Allow four misses on randomized inputs. Randomly wired graphs
+    // in the original calibration produced at least five misses per run.
+    assertRoundTripSearch(0.50, 4, random());
+  }
+
+  @Test
+  public void testRecallWithGraphDegreeFraction06() throws Exception {
+    // Replay the sweep's dataset and queries to check exact top-5 recall at higher fractions.
+    // The fewest exact hits out of 50 results were 32 at 0.60 and 34 at 0.80 (below). Allow two fewer
+    // exact hits for build variability and at most three results outside their query's top 15.
+    assertExactRecall(0.60, 30, RandomSupplier.DEFAULT.get(RECALL_SWEEP_TEST_SEED));
+  }
+
+  @Test
+  public void testRecallWithGraphDegreeFraction08() throws Exception {
+    assertExactRecall(0.80, 32, RandomSupplier.DEFAULT.get(RECALL_SWEEP_TEST_SEED));
+  }
+
+  private void assertExactRecall(double fraction, int minimumExactHits, Random vectorRandom)
+      throws Exception {
+    int exactHits = assertRoundTripSearch(fraction, 3, vectorRandom);
+    assertTrue(
+        "Expected at least "
+            + minimumExactHits
+            + " exact top-5 hits at graph degree fraction "
+            + fraction
+            + ", got "
+            + exactHits,
+        exactHits >= minimumExactHits);
+  }
+
+  private int assertRoundTripSearch(double fraction, int allowedMisses, Random vectorRandom)
+      throws Exception {
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder().withVariableGraphDegreeFraction(fraction).build();
     Codec codec = CuVSCodecs.acceleratedHNSW(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
@@ -59,7 +99,7 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
     int topK = 5;
     int numQueries = 10;
     int count = COMMIT_FREQ;
-    float[][] dataset = generateDataset(random(), numDocs, dimension);
+    float[][] dataset = generateDataset(vectorRandom, numDocs, dimension);
     Path indexDirPath = createTempDir();
 
     // Indexing
@@ -104,12 +144,8 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
       log.log(Level.FINE, "Testing vector search queries...");
       IndexSearcher searcher = new IndexSearcher(reader);
 
-      float[][] queries = generateDataset(random(), numQueries, dimension);
-      // A correct CAGRA graph averaged 0.02 of the 50 results outside the closest 15, and never
-      // more than 3, over 3000+ random datasets. A randomly wired graph averaged 18, and never
-      // fewer than 5, over 500.
-      int allowedMisses = 4;
-      assertSearchFindsNearestNeighbors(
+      float[][] queries = generateDataset(vectorRandom, numQueries, dimension);
+      return assertSearchFindsNearestNeighbors(
           searcher, VECTOR_FIELD, ID_FIELD, dataset, queries, topK, allowedMisses);
     }
   }
