@@ -267,7 +267,8 @@ CUVS_EXPORT detail::Top1nnPlan<IdxT> probe_top_1_nn(
   const detail::Top1nnTuning& tuning,
   DistanceType metric,
   detail::Top1nnBackend backend = detail::Top1nnBackend::Auto,
-  bool store_indices            = true);
+  bool store_indices            = true,
+  bool accurate_distances       = false);
 
 /** Dispatch 1-NN using the native output representation recorded in a reusable plan. */
 template <typename DataT, typename IdxT, typename OutputT, typename NormT = DataT>
@@ -363,6 +364,7 @@ CUVS_EXTERN_TOP_1_NN_WORKSPACE_SIZE(half, int64_t);
     const detail::Top1nnTuning&,                                        \
     DistanceType,                                                       \
     detail::Top1nnBackend,                                              \
+    bool,                                                               \
     bool)
 
 CUVS_EXTERN_PROBE_TOP_1_NN(float, int);

@@ -13,7 +13,7 @@ public final class TieredIndexParams
 Configuration parameters for building a `TieredIndex`.
 Only CAGRA is currently supported as the underlying ANN algorithm.
 
-## Public Members
+## Public and Protected Members
 
 ### product
 
