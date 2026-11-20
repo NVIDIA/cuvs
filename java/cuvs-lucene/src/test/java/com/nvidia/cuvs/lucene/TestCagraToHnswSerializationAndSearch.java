@@ -60,8 +60,9 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
   @Test
   public void testRecallWithGraphDegreeFraction06() throws Exception {
     // Replay the sweep's dataset and queries to check exact top-5 recall at higher fractions.
-    // The fewest exact hits out of 50 results were 32 at 0.60 and 34 at 0.80 (below). Allow two fewer
-    // exact hits for build variability and at most three results outside their query's top 15.
+    // The fewest exact hits out of 50 results were 32 at 0.60 and 34 at 0.80 (below).
+    // Allow two fewer exact hits for build variability and at most three results outside
+    // their query's top 15.
     assertExactRecall(0.60, 30, RandomSupplier.DEFAULT.get(RECALL_SWEEP_TEST_SEED));
   }
 

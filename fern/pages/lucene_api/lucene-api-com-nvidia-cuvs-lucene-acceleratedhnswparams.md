@@ -529,6 +529,30 @@ instance of `Builder`
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:530`_
 
+### withVariableGraphDegreeFraction
+
+```java
+public Builder withVariableGraphDegreeFraction(double fraction)
+```
+
+Sets the fraction of the CAGRA output graph degree that defines the minimum node degree. A
+fraction of `1.0` selects a fixed-degree graph.
+
+A supplied fraction overrides the build strategy's default. By default, `Strategy#HEURISTIC` uses the fraction derived by cuVS and `Strategy#CUSTOM` uses the
+CAGRA default. `#build()` validates the supplied fraction.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `fraction` | a finite value in the inclusive range `[0, 1]` |
+
+**Returns**
+
+this builder
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:546`_
+
 ### build
 
 ```java

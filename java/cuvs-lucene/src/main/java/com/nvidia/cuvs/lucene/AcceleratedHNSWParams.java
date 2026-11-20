@@ -534,17 +534,17 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Sets the fraction of the CAGRA output graph degree that defines the minimum degree. A
+     * Sets the fraction of the CAGRA output graph degree that defines the minimum node degree. A
      * fraction of {@code 1.0} selects a fixed-degree graph.
      *
-     * <p>When unset, {@link Strategy#HEURISTIC} uses the fraction derived by cuVS and {@link
-     * Strategy#CUSTOM} uses the CAGRA default. The fraction is validated when {@link #build()} is
-     * called.
+     * <p>A supplied fraction overrides the build strategy's default. By default, {@link
+     * Strategy#HEURISTIC} uses the fraction derived by cuVS and {@link Strategy#CUSTOM} uses the
+     * CAGRA default. {@link #build()} validates the supplied fraction.
      *
      * @param fraction a finite value in the inclusive range {@code [0, 1]}
      * @return this builder
      */
-    Builder withVariableGraphDegreeFraction(double fraction) {
+    public Builder withVariableGraphDegreeFraction(double fraction) {
       variableGraphDegreeFraction = OptionalDouble.of(fraction);
       return this;
     }
