@@ -15,7 +15,7 @@ set -euo pipefail
 
 # Keep these in sync with the spotless-fmt hook's 'files'/'exclude' entries in
 # .pre-commit-config.yaml.
-JAVA_SRC_PATTERN='^(java|examples/java)/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$'
+JAVA_SRC_PATTERN='^(java|examples/java)/(cuvs-java|cuvs-lucene)/([^/]+/){0,2}src/.*\.java$'
 JAVA_SRC_EXCLUDE='.*/panama/.*'
 
 java_sources_modified() {
