@@ -27,13 +27,6 @@
 
 namespace cuvs::neighbors::experimental::gpipnn::detail {
 
-/** Candidate buffer budget per row when `index_params::leaf_batch_mib` is left on auto. */
-inline constexpr int64_t kAutoLeafBatchBytesPerRow = 256;
-
-/** Floor and ceiling on the auto budget: one batch for small builds, bounded reservation. */
-inline constexpr int64_t kMinLeafBatchBytes = int64_t{512} << 20;
-inline constexpr int64_t kMaxLeafBatchBytes = int64_t{6} << 30;
-
 /**
  * Leaf members one range may carry so the candidate buffer stays inside its budget.
  *
@@ -44,6 +37,12 @@ inline constexpr int64_t kMaxLeafBatchBytes = int64_t{6} << 30;
 inline auto leaf_batch_max_members(const index_params& params, int64_t n_rows, int64_t leaf_degree)
   -> int64_t
 {
+  // Candidate buffer budget per row when `index_params::leaf_batch_mib` is left on auto, with a
+  // floor and ceiling on the result: one batch for small builds, a bounded reservation for large.
+  constexpr int64_t kAutoLeafBatchBytesPerRow = 256;
+  constexpr int64_t kMinLeafBatchBytes        = int64_t{512} << 20;
+  constexpr int64_t kMaxLeafBatchBytes        = int64_t{6} << 30;
+
   const int64_t budget =
     params.leaf_batch_mib > 0
       ? static_cast<int64_t>(params.leaf_batch_mib) << 20

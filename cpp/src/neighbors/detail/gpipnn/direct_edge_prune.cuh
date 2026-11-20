@@ -21,11 +21,6 @@
 namespace cuvs::neighbors::experimental::gpipnn::detail {
 
 /**
- * Factor by which the occlusion threshold grows between rounds of the alpha ramp.
- */
-inline constexpr float kAlphaRampStep = 1.2f;
-
-/**
  * Sparsifies one accumulator row into a graph row using the alpha-occlusion rule.
  *
  * The rule is the alpha-RNG test of the reference implementation: candidate q is dropped once some
@@ -103,14 +98,14 @@ RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
     }
     table_idx[slot] = i;
   }
-  __syncthreads();
 
   __shared__ int32_t n_accepted;
   if (tid == 0) { n_accepted = 0; }
   __syncthreads();
 
   // The ramp: strictest threshold first, so the diverse edges get their slots before the
-  // near-duplicates do.
+  // near-duplicates do, growing by this factor between rounds.
+  constexpr float kAlphaRampStep = 1.2f;
   for (float cur_alpha = 1.0f; cur_alpha <= alpha && n_accepted < degree;
        cur_alpha *= kAlphaRampStep) {
     for (int32_t i = 0; i < c && n_accepted < degree; i++) {
