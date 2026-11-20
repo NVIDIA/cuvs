@@ -17,6 +17,9 @@ project(
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX C
 )
+
+# Find C++ libraries from RAPIDS wheels in site-packages.
+set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
 set(CMAKE_INSTALL_MESSAGE LAZY)
 
 # Disable C++20 module scanning (not using modules, just C++20 features)
