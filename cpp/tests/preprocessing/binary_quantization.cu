@@ -12,6 +12,10 @@
 #include <raft/util/itertools.hpp>
 #include <thrust/reduce.h>
 
+#include <type_traits>
+#include <variant>
+#include <vector>
+
 namespace cuvs::preprocessing::quantize::binary {
 
 template <typename T>
@@ -155,5 +159,75 @@ INSTANTIATE_TEST_CASE_P(BinaryQuantizationTest,
 INSTANTIATE_TEST_CASE_P(BinaryQuantizationTest,
                         QuantizationTest_half_uint8t,
                         ::testing::ValuesIn(generate_inputs<half>()));
+
+// Train a sampling-median quantizer on the same data on the device and on the host and compare the
+// thresholds. With sampling_ratio = 1 and an odd row count every row is sampled, so both
+// thresholds are the exact median of each column.
+template <typename T>
+void testSamplingMedianDeviceMatchesHost()
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  constexpr int64_t rows = 1001;
+  constexpr int64_t cols = 12;
+  // Column j holds a permutation of 2 * j + k / rows for k in [0, rows), so every column has its
+  // own median and a threshold taken from another column is easy to spot.
+  std::vector<T> host_data(rows * cols);
+  for (int64_t i = 0; i < rows; i++) {
+    for (int64_t j = 0; j < cols; j++) {
+      const int64_t k         = (i * 7919 + j * 104729) % rows;
+      host_data[i * cols + j] = static_cast<T>(2.0 * j + static_cast<double>(k) / rows);
+    }
+  }
+  auto device_data = raft::make_device_matrix<T, int64_t>(handle, rows, cols);
+  raft::update_device(device_data.data_handle(), host_data.data(), host_data.size(), stream);
+
+  params p;
+  p.threshold         = bit_threshold::sampling_median;
+  p.sampling_ratio    = 1.0;
+  auto device_trained = train(handle, p, raft::make_const_mdspan(device_data.view()));
+  auto host_trained   = train(
+    handle,
+    p,
+    raft::make_host_matrix_view<const T, int64_t, raft::row_major>(host_data.data(), rows, cols));
+
+  using threshold_type = typename quantizer<T>::threshold_type;
+  ASSERT_TRUE(std::holds_alternative<threshold_type>(device_trained.value));
+  ASSERT_TRUE(std::holds_alternative<threshold_type>(host_trained.value));
+  std::vector<T> device_thresholds(cols);
+  std::vector<T> host_thresholds(cols);
+  raft::update_host(device_thresholds.data(),
+                    std::get<threshold_type>(device_trained.value).data_handle(),
+                    cols,
+                    stream);
+  raft::update_host(host_thresholds.data(),
+                    std::get<threshold_type>(host_trained.value).data_handle(),
+                    cols,
+                    stream);
+  raft::resource::sync_stream(handle, stream);
+
+  for (int64_t j = 0; j < cols; j++) {
+    if constexpr (std::is_same_v<T, half>) {
+      EXPECT_EQ(static_cast<float>(device_thresholds[j]), static_cast<float>(host_thresholds[j]))
+        << "dim " << j;
+    } else {
+      EXPECT_EQ(device_thresholds[j], host_thresholds[j]) << "dim " << j;
+    }
+  }
+}
+
+TEST(BinaryQuantizationSamplingMedian, DeviceMatchesHostFloat)
+{
+  testSamplingMedianDeviceMatchesHost<float>();
+}
+TEST(BinaryQuantizationSamplingMedian, DeviceMatchesHostDouble)
+{
+  testSamplingMedianDeviceMatchesHost<double>();
+}
+TEST(BinaryQuantizationSamplingMedian, DeviceMatchesHostHalf)
+{
+  testSamplingMedianDeviceMatchesHost<half>();
+}
 
 }  // namespace cuvs::preprocessing::quantize::binary
