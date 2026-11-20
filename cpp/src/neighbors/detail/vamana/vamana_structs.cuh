@@ -1150,7 +1150,8 @@ __global__ void write_graph_edges_kernel(raft::device_matrix_view<IdxT, int64_t>
     static_cast<QueryCandidates<IdxT, accT>*>(query_list_ptr);
 
   for (int i = blockIdx.x; i < num_queries; i += gridDim.x) {
-    for (int j = threadIdx.x; j < query_list[i].size; j += blockDim.x) {
+    // Write the whole row. RobustPrune leaves the ids past size invalid, so this clears old edges.
+    for (int j = threadIdx.x; j < degree; j += blockDim.x) {
       graph(query_list[i].queryId, j) = query_list[i].ids[j];
     }
   }

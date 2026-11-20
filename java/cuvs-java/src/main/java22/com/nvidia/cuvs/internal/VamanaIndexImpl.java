@@ -8,8 +8,10 @@ import static com.nvidia.cuvs.internal.CuVSParamsHelper.createVamanaIndexParams;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.Util.buildMemorySegment;
 import static com.nvidia.cuvs.internal.common.Util.checkCuVSError;
+import static com.nvidia.cuvs.internal.common.Util.prepareTensor;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
+import com.nvidia.cuvs.CuVSHostMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.VamanaIndex;
@@ -148,6 +150,34 @@ public class VamanaIndexImpl implements VamanaIndex {
   }
 
   /**
+   * The initial graph as a rank-2 host tensor.
+   *
+   * <p>Built without strides rather than through {@code toTensor}, which emits
+   * {@code {rowStride, columnStride}} whenever a row stride is set and so would pass a column
+   * stride of -1, which the native conversion rejects. A graph with padded rows is rejected here
+   * instead, since the native build needs contiguous rows.
+   */
+  private static MemorySegment initialGraphTensor(CuVSHostMatrix graph, Arena arena) {
+    var internal = (CuVSMatrixInternal) graph;
+    long rowStride = internal.rowStride();
+    if (rowStride > 0 && rowStride != graph.columns()) {
+      throw new IllegalArgumentException(
+          "initialGraph must be contiguous, but its row stride ("
+              + rowStride
+              + ") does not match its column count ("
+              + graph.columns()
+              + ")");
+    }
+    return prepareTensor(
+        arena,
+        internal.memorySegment(),
+        new long[] {graph.size(), graph.columns()},
+        internal.code(),
+        internal.bits(),
+        kDLCPU());
+  }
+
+  /**
    * Invokes the native {@code cuvsVamanaBuild} function to build the
    * {@link VamanaIndex}.
    *
@@ -158,6 +188,11 @@ public class VamanaIndexImpl implements VamanaIndex {
         var localArena = Arena.ofConfined()) {
 
       var datasetTensor = dataset.toTensor(localArena);
+      var initialGraph = indexParameters == null ? null : indexParameters.getInitialGraph();
+      if (initialGraph != null) {
+        cuvsVamanaIndexParams.initial_graph(
+            indexParams.handle(), initialGraphTensor(initialGraph, localArena));
+      }
       var index = createVamanaIndex();
       try {
         try (var resourcesAccessor = resources.access()) {

@@ -78,6 +78,16 @@ struct index_params : cuvs::neighbors::index_params {
 
   /** Codebooks and related parameters */
   std::optional<codebook_params<float>> codebooks = std::nullopt;
+
+  /**
+   * Optional graph [n_rows, graph_degree] to start the insertion passes from instead of an empty
+   * graph, for example the graph of a CAGRA index built with NN-descent. Rows must be full, and
+   * each lists neighbor ids below n_rows other than the row's own id, in any order. The build
+   * rejects a graph with an id at or above n_rows or a row that lists itself, copies the graph,
+   * sorts each row by distance, and then inserts in full batches from the first pass.
+   */
+  std::optional<raft::host_matrix_view<const uint32_t, int64_t, raft::row_major>> initial_graph =
+    std::nullopt;
 };
 
 /**
