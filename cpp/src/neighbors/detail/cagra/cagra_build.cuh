@@ -508,12 +508,12 @@ template <typename IdxT = uint32_t,
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>,
           typename n_accessor =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>>
-void optimize(
+auto optimize(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, n_accessor> new_graph,
   const bool guarantee_connectivity           = false,
-  const double variable_graph_degree_fraction = 1.0)
+  const double variable_graph_degree_fraction = 1.0) -> uint64_t
 {
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;
 
@@ -534,12 +534,12 @@ void optimize(
       knn_graph.extent(0),
       knn_graph.extent(1));
 
-  cagra::detail::graph::optimize(res,
-                                 knn_graph_internal,
-                                 new_graph_internal,
-                                 guarantee_connectivity,
-                                 true,
-                                 variable_graph_degree_fraction);
+  return cagra::detail::graph::optimize(res,
+                                        knn_graph_internal,
+                                        new_graph_internal,
+                                        guarantee_connectivity,
+                                        true,
+                                        variable_graph_degree_fraction);
 }
 
 template <typename T, typename MathT>
@@ -850,6 +850,10 @@ auto iterative_build_graph(raft::resources const& res,
 
   bool flag_last       = false;
   auto curr_graph_size = initial_graph_size;
+  // VPQ inputs have no raw vectors to bridge with and keep the MST.
+  constexpr bool can_bridge = std::is_same_v<IdxT, uint32_t> &&
+                              !cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>;
+  const bool bridge = can_bridge && helpers::bridge_enabled();
 
   auto knn_prefix = [&](int64_t rows, int64_t degree) {
     return raft::make_device_matrix_view<IdxT, int64_t>(dev_knn_graph.data_handle(), rows, degree);
@@ -947,7 +951,7 @@ auto iterative_build_graph(raft::resources const& res,
                                       knn_view,
                                       next_graph_degree,
                                       max_chunk_size,
-                                      flag_last && params.guarantee_connectivity,
+                                      flag_last && params.guarantee_connectivity && !bridge,
                                       flag_last ? params.variable_graph_degree_fraction : 1.0);
     }
 
@@ -962,6 +966,16 @@ auto iterative_build_graph(raft::resources const& res,
     curr_graph_size      = next_graph_size;
   }
 
+  if constexpr (can_bridge) {
+    if (bridge) {
+      graph::bridge_components(res,
+                               params.metric,
+                               dev_dataset.data_handle(),
+                               true,
+                               dev_dataset.extent(1),
+                               dev_graph.view());
+    }
+  }
   return dev_graph;
 }
 
@@ -1069,13 +1083,25 @@ auto build_cagra_host_graph_from_knn_params(raft::resources const& res,
   auto cagra_graph = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
 
   RAFT_LOG_TRACE("optimizing graph");
-  optimize<IdxT>(res,
-                 knn_graph->view(),
-                 cagra_graph.view(),
-                 params.guarantee_connectivity,
-                 params.variable_graph_degree_fraction);
+  const bool bridge             = std::is_same_v<IdxT, uint32_t> && helpers::bridge_enabled();
+  const uint64_t num_components = optimize<IdxT>(res,
+                                                 knn_graph->view(),
+                                                 cagra_graph.view(),
+                                                 params.guarantee_connectivity && !bridge,
+                                                 params.variable_graph_degree_fraction);
 
   knn_graph.reset();
+  if constexpr (std::is_same_v<IdxT, uint32_t>) {
+    if (bridge && num_components > 1) {
+      using dataset_mdspan = std::remove_cvref_t<KnnGraphDatasetMdspan>;
+      graph::bridge_components(res,
+                               params.metric,
+                               knn_graph_dataset.data_handle(),
+                               dataset_mdspan::accessor_type::is_device_accessible,
+                               knn_graph_dataset.extent(1),
+                               cagra_graph.view());
+    }
+  }
   return cagra_graph;
 }
 

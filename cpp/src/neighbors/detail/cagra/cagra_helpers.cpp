@@ -88,6 +88,7 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
     combine_dev_fixed += 2 * batch_size * sizeof(uint32_t);  // d_mst_graph_num_edges(2*batch)
   }
   size_t combine_dev = combine_dev_fixed;
+  combine_dev += n_rows * index_size;  // d_uf_parent (connectivity check)
 
   size_t debug_host_size = 0;
   if (raft::default_logger().should_log(rapids_logger::level_enum::debug)) {
@@ -104,6 +105,20 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
   size_t total_dev_fixed  = std::max(prune_dev_fixed, combine_dev_fixed);
 
   return std::make_tuple(total_host, total_dev, total_host_fixed, total_dev_fixed);
+}
+
+// Per node: component labels, in-degrees, component sizes and sample flags. Per sampled node of
+// a pass: its vector (also staged in the dataset type for host data), graph row, id and label, m
+// links, and twice m symmetric link keys with their ranks. Plus one batch of candidate pools.
+size_t bridge_workspace_size(size_t n_rows, size_t dim, size_t dtype_size, size_t graph_degree)
+{
+  const size_t s        = std::min(n_rows, kBridgeMaxSample);
+  const size_t m        = std::max<size_t>(graph_degree / 4, 1);
+  const size_t per_node = 3 * sizeof(uint32_t) + sizeof(uint8_t);
+  const size_t per_sample =
+    dim * (sizeof(float) + dtype_size) + (graph_degree + 2) * sizeof(uint32_t) +
+    m * (sizeof(uint32_t) + sizeof(float)) + 4 * m * (sizeof(uint64_t) + sizeof(float));
+  return n_rows * per_node + s * per_sample + kBridgePoolBatchBytes;
 }
 
 // All sizes are in bytes
@@ -126,12 +141,18 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
     cuvs::neighbors::ivf_pq::helpers::compressed_dataset_size(res, dataset, params.build_params);
   size_t graph_host_mem = n_rows * (graph_degree + intermediate_graph_degree) * sizeof(uint32_t);
 
+  const bool bridge = bridge_enabled();
   auto [host_workspace_size,
         gpu_workspace_size,
         host_workspace_size_fixed,
         gpu_workspace_size_fixed] =
-    cuvs::neighbors::cagra::helpers::optimize_workspace_size(
-      n_rows, graph_degree, intermediate_graph_degree, sizeof(uint32_t), guarantee_connectivity);
+    cuvs::neighbors::cagra::helpers::optimize_workspace_size(n_rows,
+                                                             graph_degree,
+                                                             intermediate_graph_degree,
+                                                             sizeof(uint32_t),
+                                                             guarantee_connectivity && !bridge);
+  const size_t bridge_gpu_mem =
+    bridge ? bridge_workspace_size(n_rows, dim, dtype_size, graph_degree) : 0;
 
   size_t kmeans_trainset_ratio = std::max<size_t>(
     1,
@@ -177,9 +198,9 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
                                          + sizeof(int64_t) * gpu_top_k  // neighbors_host
                                          + (sizeof(float) + sizeof(int64_t)) * top_k);  // refined_*
 
-  // Phases run sequentially (train/extend -> search -> optimize)
-  size_t total_dev =
-    std::max({kmeans_gpu_mem, search_phase_dev, gpu_workspace_size, create_index_gpu_mem});
+  // Phases run sequentially (train/extend -> search -> optimize -> bridge)
+  size_t total_dev = std::max(
+    {kmeans_gpu_mem, search_phase_dev, gpu_workspace_size, bridge_gpu_mem, create_index_gpu_mem});
 
   // The graph (and its optimize workspace) stays resident across phases
   size_t total_host =
@@ -191,6 +212,7 @@ inline std::pair<size_t, size_t> ivf_pq_build_mem_usage(
 // All sizes are in bytes
 inline std::pair<size_t, size_t> nn_descent_build_mem_usage(raft::resources const& res,
                                                             raft::matrix_extent<int64_t> dataset,
+                                                            cudaDataType_t dtype,
                                                             size_t graph_degree,
                                                             size_t intermediate_graph_degree,
                                                             bool guarantee_connectivity)
@@ -198,18 +220,23 @@ inline std::pair<size_t, size_t> nn_descent_build_mem_usage(raft::resources cons
   auto [nnd_host, nnd_dev] = cuvs::neighbors::nn_descent::build_mem_usage(
     res, dataset, intermediate_graph_degree, sizeof(uint32_t));
 
+  const bool bridge = bridge_enabled();
   auto [host_workspace_size, gpu_workspace_size, host_ws_fixed, gpu_ws_fixed] =
     cuvs::neighbors::cagra::helpers::optimize_workspace_size(dataset.extent(0),
                                                              graph_degree,
                                                              intermediate_graph_degree,
                                                              sizeof(uint32_t),
-                                                             guarantee_connectivity);
+                                                             guarantee_connectivity && !bridge);
+  const size_t bridge_gpu_mem =
+    bridge ? bridge_workspace_size(
+               dataset.extent(0), dataset.extent(1), cuda_data_type_size(dtype), graph_degree)
+           : 0;
 
   size_t graph_host_mem =
     dataset.extent(0) * (graph_degree + intermediate_graph_degree) * sizeof(uint32_t);
 
   size_t total_host = nnd_host + graph_host_mem + host_workspace_size;
-  size_t total_dev  = std::max(nnd_dev, gpu_workspace_size);
+  size_t total_dev  = std::max({nnd_dev, gpu_workspace_size, bridge_gpu_mem});
   return std::make_pair(total_host, total_dev);
 }
 
@@ -239,6 +266,7 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
     RAFT_LOG_INFO("Considering CAGRA in memory build with NN-descent");
     std::tie(total_host, total_dev) = nn_descent_build_mem_usage(res,
                                                                  dataset,
+                                                                 dtype,
                                                                  cparams.graph_degree,
                                                                  cparams.intermediate_graph_degree,
                                                                  cparams.guarantee_connectivity);

@@ -473,8 +473,19 @@ auto merge_fastener(raft::resources const& handle,
     raft::make_device_matrix<uint32_t, int64_t>(handle, preflight.rows, params.graph_degree);
   {
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> scope("cagra::merge/optimize");
-    cagra::detail::graph::optimize_device_graph(
-      handle, merged_graph.view(), optimized_graph.view(), params.guarantee_connectivity);
+    const bool bridge = cagra::helpers::bridge_enabled();
+    cagra::detail::graph::optimize_device_graph(handle,
+                                                merged_graph.view(),
+                                                optimized_graph.view(),
+                                                params.guarantee_connectivity && !bridge);
+    if (bridge) {
+      cagra::detail::graph::bridge_components(handle,
+                                              params.metric,
+                                              dataset_view.data_handle(),
+                                              true,
+                                              dataset_view.extent(1),
+                                              optimized_graph.view());
+    }
   }
 
   // The caller owns merged_dataset; the returned index holds only a view of it.
