@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -179,10 +179,20 @@ public class BruteForceQuery {
     }
 
     /**
-     * Sets the prefilters data for building the {@link BruteForceQuery}.
+     * Sets the prefilters for building the {@link BruteForceQuery}. Bit {@code i} set includes
+     * dataset vector {@code i} in the results; bit {@code i} clear excludes it.
      *
-     * @param prefilters array of bitsets, as many as queries, each containing as
-     *        many bits as there are vectors in the index
+     * <p>Pass either one {@code BitSet}, which applies to every query, or one per query; bitsets
+     * beyond the number of queries are ignored. A {@code BitSet} with no bits set excludes every
+     * vector, so its queries return no results, while a {@code null} entry applies no filtering
+     * to its query. A {@code null} or empty array applies no filtering at all. The search throws
+     * {@link IllegalArgumentException} if there are several bitsets but fewer than queries.
+     *
+     * @param prefilters one bitset shared by every query, or one per query
+     * @param numDocs the number of vectors in the index, which each bitset covers. It must equal
+     *     that number: cuVS reads each bitset over the index's rows, and the bitsets of a
+     *     per-query array are placed {@code numDocs} bits apart, so any other value reads the
+     *     wrong bits or past the end of the filter. Bits at or beyond {@code numDocs} are ignored.
      * @return an instance of this Builder
      */
     public Builder withPrefilters(BitSet[] prefilters, int numDocs) {
