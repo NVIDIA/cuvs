@@ -196,7 +196,8 @@ The shared code never refers to a Lucene API that differs between releases. Inst
   methods whose signatures changed and forward to a method with the same signature on every release. They live in `compat/`, one
   directory per variant, and each module picks its variants in its `pom.xml`.
 - `CompatFilterKnnVectorsReader` and `CompatFilterKnnVectorsWriter`, in the same variants as the first two, which
-  forward to another reader or writer with the signatures of their release (the reader leaves the merge methods
+  forward to another reader or writer the methods whose signatures differ between releases. They extend
+  `FilterKnnVectorsReader` and `FilterKnnVectorsWriter`, which forward the rest (the reader leaves the merge methods
   `getMergeInstance` and `finishMerge` to Lucene's defaults).
 
 Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants

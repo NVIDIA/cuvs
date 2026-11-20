@@ -6,46 +6,21 @@ package com.nvidia.cuvs.lucene;
 
 import java.io.IOException;
 import org.apache.lucene.codecs.KnnVectorsReader;
-import org.apache.lucene.index.ByteVectorValues;
-import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.util.Bits;
 
 /**
- * Base class of the readers that forward to another {@link KnnVectorsReader}, such as the view of a
- * source segment of a merge in {@code FallbackHnswVectorsWriter}. It forwards the methods of its Lucene
- * release, whose signatures differ between releases: Lucene 10.2 passes the documents a search may
- * return as {@link Bits}; Lucene 10.3 changed that parameter to {@code AcceptDocs}.
- *
- * <p>It does not close the reader it forwards to, which it does not own, and leaves {@code
- * getMergeInstance} and {@code finishMerge} to Lucene's defaults: its subclasses only stand for a
- * source segment inside a merge, whose reader is already the merge instance.
+ * The part of {@link FilterKnnVectorsReader} whose signatures differ between Lucene releases:
+ * Lucene 10.2 passes the documents a search may return as {@link Bits}; Lucene 10.3 changed that
+ * parameter to {@code AcceptDocs}.
  */
-abstract class CompatFilterKnnVectorsReader extends KnnVectorsReader {
-
-  /** The reader this one forwards to. */
-  final KnnVectorsReader in;
+abstract class CompatFilterKnnVectorsReader extends FilterKnnVectorsReader {
 
   /**
    * @param in the reader to forward to
    */
   CompatFilterKnnVectorsReader(KnnVectorsReader in) {
-    this.in = in;
-  }
-
-  @Override
-  public void checkIntegrity() throws IOException {
-    in.checkIntegrity();
-  }
-
-  @Override
-  public FloatVectorValues getFloatVectorValues(String field) throws IOException {
-    return in.getFloatVectorValues(field);
-  }
-
-  @Override
-  public ByteVectorValues getByteVectorValues(String field) throws IOException {
-    return in.getByteVectorValues(field);
+    super(in);
   }
 
   @Override
@@ -59,7 +34,4 @@ abstract class CompatFilterKnnVectorsReader extends KnnVectorsReader {
       throws IOException {
     in.search(field, target, knnCollector, acceptDocs);
   }
-
-  @Override
-  public void close() {}
 }

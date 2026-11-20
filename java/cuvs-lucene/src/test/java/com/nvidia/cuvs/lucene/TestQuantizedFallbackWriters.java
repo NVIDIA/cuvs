@@ -25,7 +25,6 @@ import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.SerialMergeScheduler;
 import org.apache.lucene.index.TieredMergePolicy;
@@ -55,10 +54,12 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
   private static final int DOCS_PER_SEGMENT = 250;
   private static final int DIMENSIONS = 16;
   private static final int TOP_K = 10;
-  // The size of each source segment of the merges in checkMergesGraphsWithOtherM: enough vectors
-  // for Lucene 10.4+ to build a graph when it flushes the segment, which it does only over more
-  // than 100 * ln(n) vectors.
-  private static final int OTHER_M_SEGMENT_DOCS = 700;
+  // The sizes of the source segments of the merges in checkMergesGraphsWithOtherM: enough vectors
+  // for Lucene 10.4+ to build a graph when it flushes a segment, which it does only over more than
+  // 100 * ln(n) vectors. The first is larger, so that Lucene would start the merged graph from it;
+  // where the second records the fallback's maxConn, only the first records another M, as where
+  // the large merged segments of an index were written by an earlier release.
+  private static final int[] OTHER_M_SEGMENT_DOCS = {1000, 700};
 
   /** Creates a codec that writes with an accelerated HNSW format, and names it for messages. */
   private record CodecFactory(String name, Function<AcceleratedHNSWParams, Codec> codecWith) {}
@@ -154,7 +155,16 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
    * here are written with a smaller maxConn.
    */
   public void testFallbackWritersMergeGraphsWithSmallerM() throws Exception {
-    checkMergesGraphsWithOtherM(4, 32, false);
+    checkMergesGraphsWithOtherM(4, 32, false, false);
+  }
+
+  /**
+   * Like {@link #testFallbackWritersMergeGraphsWithSmallerM}, but merges a segment whose graph
+   * records a smaller M with one whose graph records the fallback's maxConn, as after an upgrade
+   * from cuvs-lucene 26.10 or earlier.
+   */
+  public void testFallbackWritersMergeGraphsWithSmallerAndSameM() throws Exception {
+    checkMergesGraphsWithOtherM(4, 32, false, true);
   }
 
   /**
@@ -166,19 +176,28 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
    * written with a larger maxConn.
    */
   public void testFallbackWritersMergeGraphsWithLargerM() throws Exception {
-    checkMergesGraphsWithOtherM(32, 16, true);
+    checkMergesGraphsWithOtherM(32, 16, true, false);
   }
 
   /**
-   * Writes two segments with {@code sourceMaxConn} and merges them with {@code maxConn}, with each
-   * of {@link #CODEC_FACTORIES}. Lucene 10.4 only merges from the graph of a segment whose vectors
-   * reader is not per field, so with the formats set per field, it checks there only that the
-   * merge is right.
-   *
-   * @param wideSourceNodes whether to check that the source graphs have nodes with more neighbors
-   *     than a graph with {@code maxConn} holds, which the merge must not keep
+   * Like {@link #testFallbackWritersMergeGraphsWithLargerM}, but merges a segment whose graph
+   * records a larger M with one whose graph records the fallback's maxConn.
    */
-  private void checkMergesGraphsWithOtherM(int sourceMaxConn, int maxConn, boolean wideSourceNodes)
+  public void testFallbackWritersMergeGraphsWithLargerAndSameM() throws Exception {
+    checkMergesGraphsWithOtherM(32, 16, true, true);
+  }
+
+  /**
+   * Writes two segments with {@code sourceMaxConn}, or the second with {@code maxConn} if {@code
+   * secondWithMaxConn}, and merges them with {@code maxConn}, with each of {@link
+   * #CODEC_FACTORIES}. Lucene 10.4 only merges from the graph of a segment whose vectors reader is
+   * not per field, so with the formats set per field, it checks there only that the merge is right.
+   *
+   * @param wideSourceNodes whether to check that the graphs with {@code sourceMaxConn} have nodes
+   *     with more neighbors than a graph with {@code maxConn} holds, which the merge must not keep
+   */
+  private void checkMergesGraphsWithOtherM(
+      int sourceMaxConn, int maxConn, boolean wideSourceNodes, boolean secondWithMaxConn)
       throws Exception {
     AcceleratedHNSWParams params =
         new AcceleratedHNSWParams.Builder().withMaxConn(maxConn).withBeamWidth(100).build();
@@ -189,24 +208,36 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
       // High-dimensional random vectors pass HNSW's diversity check often enough to fill a node's
       // neighbors.
       float[][] vectors =
-          randomVectors(new Random(random().nextLong()), 2 * OTHER_M_SEGMENT_DOCS, 64);
+          randomVectors(
+              new Random(random().nextLong()),
+              OTHER_M_SEGMENT_DOCS[0] + OTHER_M_SEGMENT_DOCS[1],
+              64);
       try (Directory dir = newDirectory()) {
-        IndexWriterConfig sourceConfig =
-            new IndexWriterConfig()
-                .setCodec(factory.codecWith().apply(sourceParams))
-                .setMaxBufferedDocs(OTHER_M_SEGMENT_DOCS)
-                .setMergePolicy(NoMergePolicy.INSTANCE);
-        try (IndexWriter writer = new IndexWriter(dir, sourceConfig)) {
-          addDocuments(writer, vectors);
+        // One segment per writer, so that each can have its own maxConn.
+        for (int segment = 0; segment < 2; segment++) {
+          int segmentMaxConn = secondWithMaxConn && segment == 1 ? maxConn : sourceMaxConn;
+          IndexWriterConfig sourceConfig =
+              new IndexWriterConfig()
+                  .setCodec(
+                      factory.codecWith().apply(segmentMaxConn == maxConn ? params : sourceParams))
+                  .setMergePolicy(NoMergePolicy.INSTANCE);
+          try (IndexWriter writer = new IndexWriter(dir, sourceConfig)) {
+            int from = segment == 0 ? 0 : OTHER_M_SEGMENT_DOCS[0];
+            addDocuments(writer, vectors, from, from + OTHER_M_SEGMENT_DOCS[segment]);
+          }
         }
         try (DirectoryReader reader = DirectoryReader.open(dir)) {
           assertEquals(name, 2, reader.leaves().size());
           int widest = 0;
-          for (LeafReaderContext leaf : reader.leaves()) {
-            HnswGraph graph = graphOf(leaf.reader(), "vector");
-            assertEquals(name, OTHER_M_SEGMENT_DOCS, graph.size());
-            assertEquals(name, sourceMaxConn, graph.maxConn());
-            widest = Math.max(widest, mostNeighbors(graph));
+          for (int segment = 0; segment < 2; segment++) {
+            HnswGraph graph = graphOf(reader.leaves().get(segment).reader(), "vector");
+            assertEquals(name, OTHER_M_SEGMENT_DOCS[segment], graph.size());
+            if (secondWithMaxConn && segment == 1) {
+              assertEquals(name, maxConn, graph.maxConn());
+            } else {
+              assertEquals(name, sourceMaxConn, graph.maxConn());
+              widest = Math.max(widest, mostNeighbors(graph, 0));
+            }
           }
           if (wideSourceNodes) {
             assertTrue(
@@ -230,26 +261,36 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
           assertEquals(name, 1, reader.leaves().size());
           HnswGraph graph = graphOf(reader.leaves().get(0).reader(), "vector");
           assertEquals(name, vectors.length, graph.size());
-          // A reader reads up to 2 * M neighbors per node, and fails on a node with more.
-          int mostNeighbors = mostNeighbors(graph);
-          assertTrue(
-              name + ": a node of the merged graph has " + mostNeighbors + " neighbors",
-              mostNeighbors <= 2 * graph.maxConn());
+          assertEquals(name, maxConn, graph.maxConn());
+          // Lucene's builder gives a node up to 2 * M neighbors on level 0 and up to M above it. A
+          // reader fails on a node with more than 2 * M on any level, and a later merge starting
+          // from this graph fails on a node above level 0 with more than M.
+          for (int level = 0; level < graph.numLevels(); level++) {
+            int limit = level == 0 ? 2 * maxConn : maxConn;
+            int most = mostNeighbors(graph, level);
+            assertTrue(
+                name
+                    + ": a node on level "
+                    + level
+                    + " of the merged graph has "
+                    + most
+                    + " neighbors, more than "
+                    + limit,
+                most <= limit);
+          }
         }
         assertVectorsFindThemselves(dir, name, vectors);
       }
     }
   }
 
-  /** Returns the most neighbors that a node of {@code graph} has, on any level. */
-  private static int mostNeighbors(HnswGraph graph) throws IOException {
+  /** Returns the most neighbors that a node of {@code graph} has on {@code level}. */
+  private static int mostNeighbors(HnswGraph graph, int level) throws IOException {
     int most = 0;
-    for (int level = 0; level < graph.numLevels(); level++) {
-      HnswGraph.NodesIterator nodes = graph.getNodesOnLevel(level);
-      while (nodes.hasNext()) {
-        graph.seek(level, nodes.nextInt());
-        most = Math.max(most, graph.neighborCount());
-      }
+    HnswGraph.NodesIterator nodes = graph.getNodesOnLevel(level);
+    while (nodes.hasNext()) {
+      graph.seek(level, nodes.nextInt());
+      most = Math.max(most, graph.neighborCount());
     }
     return most;
   }
@@ -344,7 +385,16 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
 
   /** Indexes one document per vector, with its position as the stored "id". */
   private static void addDocuments(IndexWriter writer, float[][] vectors) throws Exception {
-    for (int i = 0; i < vectors.length; i++) {
+    addDocuments(writer, vectors, 0, vectors.length);
+  }
+
+  /**
+   * Indexes one document per vector from {@code from} (inclusive) to {@code to} (exclusive), with
+   * its position as the stored "id".
+   */
+  private static void addDocuments(IndexWriter writer, float[][] vectors, int from, int to)
+      throws Exception {
+    for (int i = from; i < to; i++) {
       Document doc = new Document();
       doc.add(new StoredField("id", i));
       doc.add(new KnnFloatVectorField("vector", vectors[i], EUCLIDEAN));

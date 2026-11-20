@@ -112,7 +112,10 @@ If not, override it in the `Compat*` class of the variant the new release uses, 
 if older releases share that one (see how `compat/knn-vectors-reader-103-acceptdocs` overrides
 `getOffHeapByteSize`). `CompatFilterKnnVectorsReader` and `CompatFilterKnnVectorsWriter` forward
 to another reader or writer, so they also have to forward a new method, unless Lucene's default only
-calls methods they already forward. The reader leaves `getMergeInstance` and `finishMerge` to Lucene's
+calls methods they already forward. They extend `FilterKnnVectorsReader` and `FilterKnnVectorsWriter`
+in the shared sources, which forward the methods that are the same on every supported release; forward
+a new method in the variant, and move a forward to the shared class only once every supported release
+has the same signature. The reader leaves `getMergeInstance` and `finishMerge` to Lucene's
 defaults: it only stands for a source segment inside a merge, whose reader is already the merge
 instance. To refresh the class list, run `javap` on the classes in
 `lucene-10.7/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes,
@@ -144,8 +147,8 @@ apache/lucene#14118), but not on the 10.x branches: a merge there builds and rec
 with the M of the graph it starts from. For a release that has that change (Lucene 11, or a 10.x
 release if it is backported), check that a CPU merge of segments recording another M succeeds and can
 be searched without `FallbackHnswVectorsWriter`, then have the fallback use Lucene's writer directly in
-that release's module, and drop `FallbackHnswVectorsWriter` and the `CompatFilter*` classes once no
-supported release needs them. Lucene 10.5 also
+that release's module, and drop `FallbackHnswVectorsWriter`, the `FilterKnnVectors*` and the
+`CompatFilter*` classes once no supported release needs them. Lucene 10.5 also
 stopped calling `KnnVectorsReader.finishMerge()`, so on 10.5 the sequential read hint that
 `getMergeInstance()` sets on the raw vectors stays after a merge, for Lucene's own formats as for
 cuvs-lucene's; Lucene 10.6 calls it again. Lucene 10.6 changed two more things: the flat format no
