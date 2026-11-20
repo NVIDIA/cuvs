@@ -8,6 +8,7 @@
 #include <cuvs/neighbors/gpipnn.hpp>
 
 #include <raft/core/detail/macros.hpp>
+#include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -410,10 +411,15 @@ void radix_sort_pairs_inplace(cudaStream_t stream,
   if (d_vals.Current() != vals.data()) { vals = std::move(vals_alt); }
 }
 
-/** Validates user-provided parameters. */
-inline void check_params(const index_params& params, int64_t n_rows, int64_t dim)
+/** Validates user-provided parameters against the dataset and output graph they describe. */
+inline void check_params(const index_params& params,
+                         int64_t n_rows,
+                         int64_t dim,
+                         raft::device_matrix_view<id_t, int64_t, raft::row_major> graph)
 {
   RAFT_EXPECTS(n_rows > 0, "gpipnn: dataset must be non-empty");
+  RAFT_EXPECTS(n_rows < static_cast<int64_t>(kInvalidId),
+               "gpipnn: dataset is too large to address with 32-bit ids");
   RAFT_EXPECTS(dim > 0, "gpipnn: dataset dimension must be positive");
   // Cosine is served by normalizing on the way in; see `normalize_rows_to_half_kernel`.
   RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
@@ -427,6 +433,14 @@ inline void check_params(const index_params& params, int64_t n_rows, int64_t dim
                "dimension before building",
                static_cast<size_t>(dim));
   RAFT_EXPECTS(params.graph_degree > 0, "gpipnn: graph_degree must be positive");
+  RAFT_EXPECTS(graph.extent(0) == n_rows,
+               "gpipnn: graph must have the same number of rows as the dataset");
+  RAFT_EXPECTS(graph.extent(1) == static_cast<int64_t>(params.graph_degree),
+               "gpipnn: graph must have exactly params.graph_degree columns");
+  RAFT_EXPECTS(n_rows > static_cast<int64_t>(params.graph_degree),
+               "gpipnn: dataset must have more rows (%zu) than graph_degree (%u)",
+               static_cast<size_t>(n_rows),
+               params.graph_degree);
   RAFT_EXPECTS(params.max_candidates >= params.graph_degree,
                "gpipnn: max_candidates (%u) must be >= graph_degree (%u)",
                params.max_candidates,

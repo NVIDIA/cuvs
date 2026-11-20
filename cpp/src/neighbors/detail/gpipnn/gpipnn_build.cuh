@@ -79,17 +79,7 @@ void build_graph(raft::resources const& res,
 
   const int64_t n_rows = dataset.extent(0);
   const int64_t dim    = dataset.extent(1);
-  check_params(params, n_rows, dim);
-  RAFT_EXPECTS(graph.extent(0) == n_rows,
-               "gpipnn: graph must have the same number of rows as the dataset");
-  RAFT_EXPECTS(graph.extent(1) == static_cast<int64_t>(params.graph_degree),
-               "gpipnn: graph must have exactly params.graph_degree columns");
-  RAFT_EXPECTS(n_rows > static_cast<int64_t>(params.graph_degree),
-               "gpipnn: dataset must have more rows (%zu) than graph_degree (%u)",
-               static_cast<size_t>(n_rows),
-               params.graph_degree);
-  RAFT_EXPECTS(n_rows < static_cast<int64_t>(kInvalidId),
-               "gpipnn: dataset is too large to address with 32-bit ids");
+  check_params(params, n_rows, dim, graph);
 
   auto stream = raft::resource::get_cuda_stream(res).get();
 
