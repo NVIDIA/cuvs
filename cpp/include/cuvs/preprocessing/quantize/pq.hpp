@@ -27,6 +27,64 @@ namespace pq {
  * @{
  */
 
+/** Parameters for VPQ compression. */
+struct vpq_params {
+  /**
+   * The bit length of the vector element after compression by PQ.
+   *
+   * Possible values: [4, 5, 6, 7, 8].
+   *
+   * Hint: the smaller the 'pq_bits', the smaller the index size and the better the search
+   * performance, but the lower the recall.
+   */
+  uint32_t pq_bits = 8;
+  /**
+   * The dimensionality of the vector after compression by PQ.
+   * When zero, an optimal value is selected using a heuristic.
+   *
+   * TODO: at the moment `dim` must be a multiple `pq_dim`.
+   */
+  uint32_t pq_dim = 0;
+  /**
+   * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
+   * When zero, an optimal value is selected using a heuristic.
+   */
+  uint32_t vq_n_centers = 0;
+  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
+  uint32_t kmeans_n_iters = 25;
+  /**
+   * The fraction of data to use during iterative kmeans building (VQ phase).
+   * When zero, an optimal value is selected using a heuristic.
+   * @deprecated Prefer using `max_train_points_per_vq_cluster` instead.
+   */
+  double vq_kmeans_trainset_fraction = 0;
+  /**
+   * The fraction of data to use during iterative kmeans building (PQ phase).
+   * When zero, an optimal value is selected using a heuristic.
+   * @deprecated Prefer using `max_train_points_per_pq_code` instead.
+   */
+  double pq_kmeans_trainset_fraction = 0;
+  /**
+   * Type of k-means algorithm for PQ training.
+   * Balanced k-means tends to be faster than regular k-means for PQ training, for
+   * problem sets where the number of points per cluster are approximately equal.
+   * Regular k-means may be better for skewed cluster distributions.
+   */
+  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
+    cuvs::cluster::kmeans::kmeans_type::KMeansBalanced;
+  /**
+   * The max number of data points to use per PQ code during PQ codebook training. Using more data
+   * points per PQ code may increase the quality of PQ codebook but may also increase the build
+   * time. We will use `pq_n_centers * max_train_points_per_pq_code` training
+   * points to train each PQ codebook.
+   */
+  uint32_t max_train_points_per_pq_code = 256;
+  /**
+   * The max number of data points to use per VQ cluster during training.
+   */
+  uint32_t max_train_points_per_vq_cluster = 1024;
+};
+
 /** Alias for the variant holding either balanced or regular k-means parameters. */
 using kmeans_params_variant =
   std::variant<cuvs::cluster::kmeans::balanced_params, cuvs::cluster::kmeans::params>;
@@ -150,7 +208,7 @@ struct quantizer {
   /** Parameters used to build this quantizer. */
   params params_quantizer;
   /** VPQ codebooks produced during training. */
-  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
+  cuvs::device_vpq_dataset<T, int64_t> vpq_codebooks;
 };
 
 /**
@@ -255,9 +313,9 @@ namespace detail {
 // default visibility, an instantiation cannot be exported from the shared library when one of its
 // template arguments (`half`, or any mdspan type) is itself hidden, because the visibility of an
 // instantiation is capped by that of its template arguments.
-[[nodiscard]] CUVS_EXPORT cuvs::neighbors::device_vpq_dataset<half, int64_t> vpq_train_from_rows(
+[[nodiscard]] CUVS_EXPORT cuvs::device_vpq_dataset<half, int64_t> vpq_train_from_rows(
   raft::resources const& res,
-  cuvs::neighbors::vpq_params const& params,
+  cuvs::preprocessing::quantize::pq::vpq_params const& params,
   void const* src_ptr,
   cudaDataType_t dtype,
   int64_t n_rows,
@@ -270,7 +328,7 @@ namespace detail {
  * @brief Train VPQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dataset.
  *
  * Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same
- * pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset
+ * pattern as `cuvs::make_device_padded_dataset`), or any cuVS dense dataset / dataset
  * view exposing `data_const_view`, in which case the logical `dim()` is quantized and the row
  * padding is skipped. The rows may be device-accessible or host-resident. Device-accessible
  * rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension)
@@ -288,16 +346,15 @@ namespace detail {
  * #include <cuvs/preprocessing/quantize/pq.hpp>
  *
  * // `padded` is a `device_padded_dataset_view<float, int64_t>` over the source rows.
- * cuvs::neighbors::vpq_params vpq_params{};
+ * cuvs::preprocessing::quantize::pq::vpq_params vpq_params{};
  * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded);
  * auto idx = cuvs::neighbors::cagra::build(res, cagra_params, vpq.view());
  * @endcode
  */
 template <typename SrcT>
 [[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
-                                    cuvs::neighbors::vpq_params const& params,
-                                    SrcT const& src)
-  -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+                                    cuvs::preprocessing::quantize::pq::vpq_params const& params,
+                                    SrcT const& src) -> cuvs::device_vpq_dataset<half, int64_t>
 {
   // A cuVS dataset hands out its rows as an mdspan, which spans the logical width only.
   if constexpr (requires { src.data_const_view(); }) {

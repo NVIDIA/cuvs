@@ -101,16 +101,16 @@ void cuvs_mg_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
   auto dataset_mds =
     raft::make_host_matrix_view<const T, int64_t, raft::row_major>(dataset, nrow, dim_);
   auto idx = [&] {
-    if (cuvs::neighbors::matrix_row_width_matches_cagra_required(dataset_mds)) {
+    if (cuvs::matrix_has_padded_row_width(dataset_mds)) {
       // The rows are aligned already: view the input without a copy.
       query_dim_ = static_cast<uint32_t>(dim_);
       return cuvs::neighbors::cagra::build(
-        clique_, build_params, cuvs::neighbors::make_host_padded_dataset_view(dataset_mds));
+        clique_, build_params, cuvs::make_host_padded_dataset_view(dataset_mds));
     }
     // A padded view cannot wrap rows that are not aligned, so the host rows get padded in a copy.
     // The copy is only needed while building. The index takes the padded row width as its
     // dimension; the padding is zero, which leaves the distances unchanged.
-    auto dataset_padded     = cuvs::neighbors::make_host_padded_dataset(clique_, dataset_mds);
+    auto dataset_padded     = cuvs::make_host_padded_dataset(clique_, dataset_mds);
     auto const& padded_view = std::as_const(*dataset_padded).view();
     query_dim_              = static_cast<uint32_t>(padded_view.data_const_view().stride(0));
     return cuvs::neighbors::cagra::build(clique_, build_params, padded_view);

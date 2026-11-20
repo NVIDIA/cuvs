@@ -25,6 +25,9 @@
 #include <cuvs/core/bitmap.hpp>
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/core/dataset/dense.hpp>
+#include <cuvs/core/dataset/empty.hpp>
+#include <cuvs/core/dataset/factories.hpp>
+#include <cuvs/core/dataset/traits.hpp>
 #include <cuvs/core/dataset/vpq.hpp>
 #include <cuvs/core/export.hpp>
 #include <raft/core/detail/macros.hpp>
@@ -67,64 +70,6 @@ namespace neighbors {
 /* Graph build algo used in cagra and all_neighbors */
 enum GRAPH_BUILD_ALGO { BRUTE_FORCE = 0, IVF_PQ = 1, NN_DESCENT = 2, ACE = 3 };
 
-/** Parameters for VPQ compression. */
-struct vpq_params {
-  /**
-   * The bit length of the vector element after compression by PQ.
-   *
-   * Possible values: [4, 5, 6, 7, 8].
-   *
-   * Hint: the smaller the 'pq_bits', the smaller the index size and the better the search
-   * performance, but the lower the recall.
-   */
-  uint32_t pq_bits = 8;
-  /**
-   * The dimensionality of the vector after compression by PQ.
-   * When zero, an optimal value is selected using a heuristic.
-   *
-   * TODO: at the moment `dim` must be a multiple `pq_dim`.
-   */
-  uint32_t pq_dim = 0;
-  /**
-   * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
-   * When zero, an optimal value is selected using a heuristic.
-   */
-  uint32_t vq_n_centers = 0;
-  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
-  uint32_t kmeans_n_iters = 25;
-  /**
-   * The fraction of data to use during iterative kmeans building (VQ phase).
-   * When zero, an optimal value is selected using a heuristic.
-   * @deprecated Prefer using `max_train_points_per_vq_cluster` instead.
-   */
-  double vq_kmeans_trainset_fraction = 0;
-  /**
-   * The fraction of data to use during iterative kmeans building (PQ phase).
-   * When zero, an optimal value is selected using a heuristic.
-   * @deprecated Prefer using `max_train_points_per_pq_code` instead.
-   */
-  double pq_kmeans_trainset_fraction = 0;
-  /**
-   * Type of k-means algorithm for PQ training.
-   * Balanced k-means tends to be faster than regular k-means for PQ training, for
-   * problem sets where the number of points per cluster are approximately equal.
-   * Regular k-means may be better for skewed cluster distributions.
-   */
-  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
-    cuvs::cluster::kmeans::kmeans_type::KMeansBalanced;
-  /**
-   * The max number of data points to use per PQ code during PQ codebook training. Using more data
-   * points per PQ code may increase the quality of PQ codebook but may also increase the build
-   * time. We will use `pq_n_centers * max_train_points_per_pq_code` training
-   * points to train each PQ codebook.
-   */
-  uint32_t max_train_points_per_pq_code = 256;
-  /**
-   * The max number of data points to use per VQ cluster during training.
-   */
-  uint32_t max_train_points_per_vq_cluster = 1024;
-};
-
 /** @} */  // end group cagra_cpp_index_params
 
 /**
@@ -166,7 +111,7 @@ enum class MergeStrategy {
  * Each container defines nested `owning_storage` then `view_storage` (aliases into `detail::*`
  * storage types shared by device/host). Accessibility (device vs host) is selected by the
  * `Accessor` template parameter on `dataset` / `dataset_view`, not by duplicating containers.
- * Layout kinds: empty, padded, standard, VPQ. `dataset` / `dataset_view` only express ownership
+ * Layout kinds: empty, padded, contiguous, VPQ. `dataset` / `dataset_view` only express ownership
  * vs view.
  */
 
@@ -203,38 +148,10 @@ using dataset_owning_accessor_for_view = std::conditional_t<Accessor::is_device_
                                                             device_owning_accessor<DataT>,
                                                             host_owning_accessor<DataT>>;
 
-// -----------------------------------------------------------------------------
-// empty
-// -----------------------------------------------------------------------------
-
-template <typename IdxT>
-struct empty_dataset_storage {
-  uint32_t suggested_dim{};
-  empty_dataset_storage() noexcept = default;
-  explicit empty_dataset_storage(uint32_t dim) noexcept : suggested_dim(dim) {}
-  [[nodiscard]] auto n_rows() const noexcept -> IdxT { return 0; }
-  [[nodiscard]] auto dim() const noexcept -> uint32_t { return suggested_dim; }
-};
-
-template <typename IdxT>
-using empty_dataset_owning_storage = empty_dataset_storage<IdxT>;
-
-template <typename IdxT>
-using empty_dataset_view_storage = empty_dataset_storage<IdxT>;
-
 }  // namespace detail
 
-// -----------------------------------------------------------------------------
-// empty
-// -----------------------------------------------------------------------------
-
-struct empty_dataset_container {
-  template <typename IdxT, typename Accessor>
-  using owning_storage = detail::empty_dataset_owning_storage<IdxT>;
-  template <typename IdxT, typename Accessor>
-  using view_storage = detail::empty_dataset_view_storage<IdxT>;
-};
-
+// The kinds that are not spec-based yet (BBQ) specialize these primaries; every other dataset is
+// `cuvs::dataset` / `cuvs::dataset_view` over a spec (cuvs/core/dataset).
 template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct dataset {
   static_assert(!std::is_same_v<ContainerType, ContainerType>,
@@ -248,117 +165,8 @@ struct dataset_view {
 };
 
 // -----------------------------------------------------------------------------
-// empty
-// -----------------------------------------------------------------------------
-
-template <typename IdxT, typename Accessor>
-struct dataset<empty_dataset_container, void, IdxT, Accessor>
-  : empty_dataset_container::template owning_storage<IdxT, Accessor> {
-  using container_type      = empty_dataset_container;
-  using owning_storage_type = typename container_type::template owning_storage<IdxT, Accessor>;
-  using owning_storage_type::owning_storage_type;
-
-  [[nodiscard]] auto view() const noexcept
-    -> dataset_view<empty_dataset_container,
-                    void,
-                    IdxT,
-                    detail::dataset_view_accessor_for_owning<char, Accessor>>
-  {
-    return dataset_view<empty_dataset_container,
-                        void,
-                        IdxT,
-                        detail::dataset_view_accessor_for_owning<char, Accessor>>{this->dim()};
-  }
-};
-
-template <typename IdxT, typename Accessor>
-struct dataset_view<empty_dataset_container, void, IdxT, Accessor>
-  : empty_dataset_container::template view_storage<IdxT, Accessor> {
-  using container_type    = empty_dataset_container;
-  using view_storage_type = typename container_type::template view_storage<IdxT, Accessor>;
-  using view_storage_type::view_storage_type;
-};
-
-/**
- * @brief Aliases for concrete `dataset` / `dataset_view` layouts.
- */
-template <typename IdxT>
-using device_empty_dataset =
-  dataset<empty_dataset_container, void, IdxT, detail::device_owning_accessor<char>>;
-
-template <typename IdxT>
-using device_empty_dataset_view =
-  dataset_view<empty_dataset_container, void, IdxT, detail::device_view_accessor<char>>;
-
-template <typename IdxT>
-using host_empty_dataset =
-  dataset<empty_dataset_container, void, IdxT, detail::host_owning_accessor<char>>;
-
-template <typename IdxT>
-using host_empty_dataset_view =
-  dataset_view<empty_dataset_container, void, IdxT, detail::host_view_accessor<char>>;
-
-// -----------------------------------------------------------------------------
-// Compatibility spellings of the dataset types, so that the code written against the former
-// `cuvs::neighbors` dataset API keeps compiling on top of `cuvs::dataset` and `cuvs::dataset_view`
-// (the headers under cuvs/core/dataset). It is all names, with the `standard` dataset as the only
-// new kind. Once the callers spell the types `cuvs::...` directly, this section can be deleted.
-// -----------------------------------------------------------------------------
-
-using cuvs::device_padded_dataset;
-using cuvs::host_padded_dataset;
-
-/* The `standard` dataset: densely packed row-major rows (the row stride equals the dimension), no
- * alignment. It is the contiguous dataset; use the padded dataset for rows that have padding. */
-template <typename T, typename IdxT>
-using device_standard_dataset = cuvs::device_contiguous_dataset<T, IdxT>;
-template <typename T, typename IdxT>
-using host_standard_dataset = cuvs::host_contiguous_dataset<T, IdxT>;
-
-/* The former spelling carried the math type as an optional third argument. */
-template <typename T, typename IdxT, typename MathT = T>
-using device_vpq_dataset = cuvs::device_vpq_dataset<T, IdxT, MathT>;
-template <typename T, typename IdxT, typename MathT = T>
-using host_vpq_dataset = cuvs::host_vpq_dataset<T, IdxT, MathT>;
-
-/* The read-only views are the const views of the owning types. */
-template <typename T, typename IdxT>
-using device_padded_dataset_view = typename device_padded_dataset<T, IdxT>::const_view_type;
-template <typename T, typename IdxT>
-using host_padded_dataset_view = typename host_padded_dataset<T, IdxT>::const_view_type;
-template <typename T, typename IdxT>
-using device_standard_dataset_view = typename device_standard_dataset<T, IdxT>::const_view_type;
-template <typename T, typename IdxT>
-using host_standard_dataset_view = typename host_standard_dataset<T, IdxT>::const_view_type;
-template <typename T, typename IdxT, typename MathT = T>
-using device_vpq_dataset_view = typename device_vpq_dataset<T, IdxT, MathT>::const_view_type;
-template <typename T, typename IdxT, typename MathT = T>
-using host_vpq_dataset_view = typename host_vpq_dataset<T, IdxT, MathT>::const_view_type;
-
-// Maps a dataset view type to its owning (allocating) dataset counterpart.
-// Used by serialize/deserialize to type the out_dataset output parameter;
-// adding a new dataset type only requires adding a new specialization here.
-template <typename DatasetViewT>
-struct owning_dataset_for_view;
-
-template <typename T, typename IdxT, typename SpecT>
-struct owning_dataset_for_view<cuvs::dataset_view<const T, IdxT, SpecT>> {
-  using type = cuvs::dataset<T, IdxT, SpecT>;
-};
-
-template <typename DatasetViewT>
-using owning_dataset_for_view_t = typename owning_dataset_for_view<DatasetViewT>::type;
-
-// -----------------------------------------------------------------------------
 // Dataset view compile-time classification (replaces runtime std::variant dispatch).
 // -----------------------------------------------------------------------------
-
-/** Any non-owning dataset view exposing row count and logical dimension. */
-template <typename V, typename IdxT = int64_t>
-concept ann_dataset_view = requires(V const& v) {
-  { v.n_rows() } -> std::convertible_to<IdxT>;
-  { v.dim() } -> std::convertible_to<uint32_t>;
-};
 
 enum class dataset_view_kind {
   // TODO(removal): Remove `unknown` once all deprecated host_matrix_view / device_matrix_view /
@@ -368,7 +176,7 @@ enum class dataset_view_kind {
   unknown,
   empty,
   padded,
-  standard,
+  contiguous,
   vpq_f16,
   vpq_f32,
   bbq,
@@ -381,8 +189,8 @@ struct dataset_view_kind_of {
   static constexpr dataset_view_kind value = dataset_view_kind::unknown;
 };
 
-template <typename IdxT, typename Accessor>
-struct dataset_view_kind_of<dataset_view<empty_dataset_container, void, IdxT, Accessor>> {
+template <template <typename, typename, typename> class DatasetT, typename DataT, typename IdxT>
+struct dataset_view_kind_of<DatasetT<DataT, IdxT, empty_spec>> {
   static constexpr dataset_view_kind value = dataset_view_kind::empty;
 };
 
@@ -402,7 +210,7 @@ template <template <typename, typename, typename> class DatasetT,
           typename ContainerPolicy>
 struct dataset_view_kind_of<
   DatasetT<DataT, IdxT, mdarray_spec<raft::layout_c_contiguous, ContainerPolicy>>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::standard;
+  static constexpr dataset_view_kind value = dataset_view_kind::contiguous;
 };
 
 template <template <typename, typename, typename> class DatasetT,
@@ -435,6 +243,12 @@ struct dataset_view_is_device_accessible<cuvs::dataset_view<DataT, IdxT, SpecT>>
       cuvs::dataset_view<DataT, IdxT, SpecT>::data_view_type::accessor_type::is_device_accessible> {
 };
 
+// The empty dataset holds no data and so has no accessor; it stands in for "no dataset yet" and is
+// treated as device-resident, as it always was.
+template <typename DataT, typename IdxT>
+struct dataset_view_is_device_accessible<cuvs::dataset_view<DataT, IdxT, empty_spec>>
+  : std::true_type {};
+
 template <typename V>
 inline constexpr bool dataset_view_is_device_accessible_v =
   dataset_view_is_device_accessible<dataset_view_type_t<V>>::value;
@@ -447,24 +261,12 @@ template <typename V>
 inline constexpr bool is_padded_dataset_v = dataset_view_kind_v<V> == dataset_view_kind::padded;
 
 template <typename V>
-inline constexpr bool is_standard_dataset_v = dataset_view_kind_v<V> == dataset_view_kind::standard;
+inline constexpr bool is_contiguous_dataset_v =
+  dataset_view_kind_v<V> == dataset_view_kind::contiguous;
 
 template <typename V>
 inline constexpr bool is_vpq_dataset_v = dataset_view_kind_v<V> == dataset_view_kind::vpq_f16 ||
                                          dataset_view_kind_v<V> == dataset_view_kind::vpq_f32;
-
-template <typename V>
-inline constexpr bool is_device_empty_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::empty && dataset_view_is_device_accessible_v<V>;
-
-template <typename V>
-inline constexpr bool is_host_empty_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::empty && !dataset_view_is_device_accessible_v<V>;
-
-/** True for any empty dataset view (device or host). */
-template <typename V>
-inline constexpr bool is_empty_dataset_view_v =
-  is_device_empty_dataset_view_v<V> || is_host_empty_dataset_view_v<V>;
 
 template <typename V>
 inline constexpr bool is_device_padded_dataset_view_v =
@@ -480,17 +282,18 @@ inline constexpr bool is_padded_dataset_view_v =
   is_device_padded_dataset_view_v<V> || is_host_padded_dataset_view_v<V>;
 
 template <typename V>
-inline constexpr bool is_device_standard_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::standard && dataset_view_is_device_accessible_v<V>;
+inline constexpr bool is_device_contiguous_dataset_view_v =
+  dataset_view_kind_v<V> == dataset_view_kind::contiguous && dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
-inline constexpr bool is_host_standard_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::standard && !dataset_view_is_device_accessible_v<V>;
+inline constexpr bool is_host_contiguous_dataset_view_v =
+  dataset_view_kind_v<V> == dataset_view_kind::contiguous &&
+  !dataset_view_is_device_accessible_v<V>;
 
-/** True for either `device_standard_dataset_view` or `host_standard_dataset_view`. */
+/** True for either `device_contiguous_dataset_view` or `host_contiguous_dataset_view`. */
 template <typename V>
-inline constexpr bool is_standard_dataset_view_v =
-  is_device_standard_dataset_view_v<V> || is_host_standard_dataset_view_v<V>;
+inline constexpr bool is_contiguous_dataset_view_v =
+  is_device_contiguous_dataset_view_v<V> || is_host_contiguous_dataset_view_v<V>;
 
 template <typename V>
 inline constexpr bool is_device_vpq_f16_dataset_view_v =
@@ -538,15 +341,15 @@ template <typename V>
 inline constexpr bool is_host_dataset_view_v =
   dataset_view_kind_v<V> != dataset_view_kind::unknown && !dataset_view_is_device_accessible_v<V>;
 
-/** True for device padded or standard views accepted by dense graph build (VPQ excluded). */
+/** True for device padded or contiguous views accepted by dense graph build (VPQ excluded). */
 template <typename V>
 inline constexpr bool is_dense_row_major_device_dataset_view_v =
-  is_device_padded_dataset_view_v<V> || is_device_standard_dataset_view_v<V>;
+  is_device_padded_dataset_view_v<V> || is_device_contiguous_dataset_view_v<V>;
 
-/** True for host or device padded/standard views (dense graph build; VPQ excluded). */
+/** True for host or device padded/contiguous views (dense graph build; VPQ excluded). */
 template <typename V>
 inline constexpr bool is_dense_row_major_dataset_view_v =
-  is_padded_dataset_view_v<V> || is_standard_dataset_view_v<V>;
+  is_padded_dataset_view_v<V> || is_contiguous_dataset_view_v<V>;
 
 /** Element type `T` for `cagra::build(res, params, dataset_view)` (deduced, not a template arg). */
 template <typename V, typename = void>
@@ -559,382 +362,6 @@ struct cagra_view_element_type<cuvs::dataset_view<T, IdxT, SpecT>> {
 
 template <typename V>
 using cagra_view_element_type_t = typename cagra_view_element_type<dataset_view_type_t<V>>::type;
-
-// -----------------------------------------------------------------------------
-// CAGRA row width in elements (same for make_device_padded_dataset* and index layout checks).
-// -----------------------------------------------------------------------------
-
-/**
- * @brief Required row width in elements for CAGRA: minimum leading dimension (LDA) per row for the
- *        default per-row byte alignment (16 bytes, combined with `sizeof` element type), given
- *        `logical_columns` feature columns.
- */
-[[nodiscard]] inline uint32_t cagra_required_row_width(uint32_t logical_columns,
-                                                       std::size_t sizeof_value,
-                                                       uint32_t align_bytes = 16)
-{
-  return static_cast<uint32_t>(
-    raft::round_up_safe<std::size_t>(static_cast<std::size_t>(logical_columns) * sizeof_value,
-                                     std::lcm(align_bytes, static_cast<uint32_t>(sizeof_value))) /
-    sizeof_value);
-}
-
-template <typename ValueT>
-[[nodiscard]] inline uint32_t cagra_required_row_width(uint32_t logical_columns,
-                                                       uint32_t align_bytes = 16)
-{
-  return cagra_required_row_width(logical_columns, sizeof(ValueT), align_bytes);
-}
-
-/** Actual row width in elements (leading dimension) of a 2D row-major matrix view. */
-template <typename T, typename I, typename L>
-[[nodiscard]] inline uint32_t matrix_actual_row_width(raft::device_matrix_view<T, I, L> m)
-{
-  return m.stride(0) > 0 ? static_cast<uint32_t>(m.stride(0)) : static_cast<uint32_t>(m.extent(1));
-}
-
-template <typename T, typename I, typename L>
-[[nodiscard]] inline uint32_t matrix_actual_row_width(raft::host_matrix_view<T, I, L> m)
-{
-  return m.stride(0) > 0 ? static_cast<uint32_t>(m.stride(0)) : static_cast<uint32_t>(m.extent(1));
-}
-
-/**
- * @brief True if the matrix's row width in elements matches `cagra_required_row_width` for
- *        `m.extent(1)` and element type `T` (CAGRA row layout is satisfied for this view).
- */
-template <typename T, typename I, typename L>
-[[nodiscard]] inline bool matrix_row_width_matches_cagra_required(
-  raft::device_matrix_view<T, I, L> m, uint32_t align_bytes = 16)
-{
-  using value_type = std::remove_const_t<T>;
-  const uint32_t need =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(m.extent(1)), align_bytes);
-  return matrix_actual_row_width(m) == need;
-}
-
-template <typename T, typename I, typename L>
-[[nodiscard]] inline bool matrix_row_width_matches_cagra_required(raft::host_matrix_view<T, I, L> m,
-                                                                  uint32_t align_bytes = 16)
-{
-  using value_type = std::remove_const_t<T>;
-  const uint32_t need =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(m.extent(1)), align_bytes);
-  return matrix_actual_row_width(m) == need;
-}
-
-namespace detail {
-
-template <typename SrcT>
-[[nodiscard]] inline uint32_t mdspan_row_stride_elements(SrcT const& src)
-{
-  return src.stride(0) > 0 ? static_cast<uint32_t>(src.stride(0))
-                           : static_cast<uint32_t>(src.extent(1));
-}
-
-/**
- * The mapping of `rows x dim` elements. The dense layouts (contiguous and padded) derive the row
- * stride from the dimension alone; callers that need it read it from the mapping (or from the
- * array allocated with it) and compare it with the stride they expect, if any.
- */
-template <typename MappingT>
-[[nodiscard]] inline auto make_dense_mapping(int64_t rows, uint32_t dim) -> MappingT
-{
-  return MappingT{raft::make_extents<int64_t>(rows, dim)};
-}
-
-template <typename ViewT>
-[[nodiscard]] inline auto make_dense_view(typename ViewT::data_view_type::data_handle_type ptr,
-                                          int64_t rows,
-                                          uint32_t dim,
-                                          uint32_t stride) -> ViewT
-{
-  using data_view_type = typename ViewT::data_view_type;
-  auto mapping         = make_dense_mapping<typename data_view_type::mapping_type>(rows, dim);
-  RAFT_EXPECTS(rows == 0 || static_cast<uint32_t>(mapping.stride(0)) == stride,
-               "make_dense_view: the row stride %u does not match the stride %u of the layout "
-               "(a contiguous dataset has no padding; use a padded dataset for padded rows)",
-               stride,
-               static_cast<uint32_t>(mapping.stride(0)));
-  return ViewT{data_view_type{ptr, mapping}};
-}
-
-}  // namespace detail
-
-/**
- * The rows of a dense dataset (or its view) as a plain row-major matrix, as wide as the row stride:
- * `extent(1)` spans the padding too, unlike `data_const_view()`, which spans the logical dimension.
- *
- * The result has `rows * stride` elements. That is within `required_span_size()` of the storage,
- * the only amount of memory a mapping owns: both dense layouts (contiguous and padded) include the
- * padding of every row, including the last one, in their span.
- */
-template <typename DatasetT>
-[[nodiscard]] inline auto dense_row_major_view(DatasetT const& dataset)
-{
-  auto v       = dataset.data_const_view();
-  using view_t = raft::mdspan<typename decltype(v)::element_type,
-                              raft::matrix_extent<int64_t>,
-                              raft::row_major,
-                              typename decltype(v)::accessor_type>;
-  return view_t{v.data_handle(), raft::make_extents<int64_t>(v.extent(0), v.stride(0))};
-}
-
-namespace detail {
-
-/** A zero-row view of the given dimension, standing in for a dataset that is not there (yet). */
-template <typename ViewT>
-[[nodiscard]] inline auto make_empty_dataset_view(uint32_t dim = 0) -> ViewT
-{
-  if constexpr (is_dense_row_major_dataset_view_v<ViewT>) {
-    return make_dense_view<ViewT>(nullptr, 0, dim, dim);
-  } else if constexpr (is_empty_dataset_view_v<ViewT>) {
-    return ViewT{dim};
-  } else {
-    return ViewT{};
-  }
-}
-
-template <typename DatasetT>
-[[nodiscard]] inline auto make_dense_array(raft::resources const& res, int64_t rows, uint32_t dim)
-  -> typename DatasetT::data_type
-{
-  using data_type = typename DatasetT::data_type;
-  auto mapping    = make_dense_mapping<typename data_type::mapping_type>(rows, dim);
-  return data_type{res, mapping, typename data_type::container_policy_type{}};
-}
-
-template <typename ValueT, typename SrcT>
-[[nodiscard]] inline ValueT* expect_device_accessible_data_handle(SrcT const& src,
-                                                                  char const* error_msg)
-{
-  // Device and managed allocations (including those owned by another device, which the multi-GPU
-  // paths use once the owning device is current), pinned host memory (through its device mapping)
-  // and pageable memory on ATS systems are device accessible. HMM pageable memory is not.
-  auto* device_ptr = raft::get_pointer_memory_info(src.data_handle()).device_pointer;
-  RAFT_EXPECTS(device_ptr != nullptr, "%s", error_msg);
-  return const_cast<ValueT*>(device_ptr);
-}
-
-template <typename ValueT, typename ViewT, typename SrcT>
-[[nodiscard]] inline ViewT make_device_dense_row_major_view_from_src(SrcT const& src,
-                                                                     uint32_t logical_dim)
-{
-  auto* device_ptr = expect_device_accessible_data_handle<ValueT>(
-    src, "make_device_*_dataset_view: source must be device-accessible.");
-  return make_dense_view<ViewT>(
-    device_ptr, src.extent(0), logical_dim, mdspan_row_stride_elements(src));
-}
-
-template <typename ValueT, typename ViewT, typename SrcT>
-[[nodiscard]] inline ViewT make_host_dense_row_major_view_from_src(SrcT const& src,
-                                                                   uint32_t logical_dim)
-{
-  RAFT_EXPECTS(raft::get_device_for_address(src.data_handle()) == -1,
-               "make_host_*_dataset_view: source must be host-accessible.");
-  return make_dense_view<ViewT>(
-    src.data_handle(), src.extent(0), logical_dim, mdspan_row_stride_elements(src));
-}
-
-template <typename DatasetT, typename ValueT, typename SrcT>
-auto make_device_dense_row_major_dataset_from_src(raft::resources const& res,
-                                                  SrcT const& src,
-                                                  uint32_t logical_dim,
-                                                  uint32_t target_stride,
-                                                  char const* view_factory_name)
-  -> std::unique_ptr<DatasetT>
-{
-  uint32_t const src_stride = mdspan_row_stride_elements(src);
-  RAFT_EXPECTS(logical_dim <= target_stride,
-               "logical dim (%u) must not exceed row stride (%u).",
-               static_cast<unsigned>(logical_dim),
-               static_cast<unsigned>(target_stride));
-  RAFT_EXPECTS(static_cast<uint32_t>(src.extent(1)) <= target_stride,
-               "Source row length must not exceed required stride.");
-  cudaPointerAttributes ptr_attrs;
-  RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
-  bool const device_src =
-    (ptr_attrs.type == cudaMemoryTypeDevice) || (ptr_attrs.type == cudaMemoryTypeManaged);
-  if (device_src && src_stride == target_stride) {
-    RAFT_EXPECTS(false,
-                 "source is device and stride is already correct. "
-                 "Use %s() to get a view instead.",
-                 view_factory_name);
-  }
-  auto out_array = make_dense_array<DatasetT>(res, src.extent(0), logical_dim);
-  // The copy below writes `target_stride` columns per row: that has to be the stride of the layout,
-  // or the rows would not fit in `required_span_size()`.
-  RAFT_EXPECTS(
-    src.extent(0) == 0 || static_cast<uint32_t>(out_array.mapping().stride(0)) == target_stride,
-    "the row stride %u does not match the stride %u of the dataset layout",
-    target_stride,
-    static_cast<uint32_t>(out_array.mapping().stride(0)));
-  RAFT_CUDA_TRY(cudaMemsetAsync(out_array.data_handle(),
-                                0,
-                                out_array.mapping().required_span_size() * sizeof(ValueT),
-                                raft::resource::get_cuda_stream(res).get()));
-  raft::copy_matrix(out_array.data_handle(),
-                    target_stride,
-                    src.data_handle(),
-                    src_stride,
-                    logical_dim,
-                    src.extent(0),
-                    raft::resource::get_cuda_stream(res));
-  return std::make_unique<DatasetT>(std::move(out_array));
-}
-
-template <typename DatasetT, typename ValueT, typename SrcT>
-auto make_host_dense_row_major_dataset_from_src(raft::resources const& res,
-                                                SrcT const& src,
-                                                uint32_t logical_dim,
-                                                uint32_t target_stride,
-                                                char const* view_factory_name)
-  -> std::unique_ptr<DatasetT>
-{
-  uint32_t const src_stride = mdspan_row_stride_elements(src);
-  constexpr bool device_src = SrcT::accessor_type::is_device_accessible;
-  RAFT_EXPECTS(logical_dim <= target_stride,
-               "logical dim (%u) must not exceed row stride (%u).",
-               static_cast<unsigned>(logical_dim),
-               static_cast<unsigned>(target_stride));
-  if (!device_src && src_stride == target_stride) {
-    RAFT_EXPECTS(false,
-                 "source stride is already correct. Use %s() to get a view instead.",
-                 view_factory_name);
-  }
-  RAFT_EXPECTS(static_cast<uint32_t>(src.extent(1)) <= target_stride,
-               "Source row length must not exceed required stride.");
-  auto out_array = make_dense_array<DatasetT>(res, src.extent(0), logical_dim);
-  // The copy below writes `target_stride` columns per row: that has to be the stride of the layout,
-  // or the rows would not fit in `required_span_size()`.
-  RAFT_EXPECTS(
-    src.extent(0) == 0 || static_cast<uint32_t>(out_array.mapping().stride(0)) == target_stride,
-    "the row stride %u does not match the stride %u of the dataset layout",
-    target_stride,
-    static_cast<uint32_t>(out_array.mapping().stride(0)));
-  std::memset(
-    out_array.data_handle(), 0, out_array.mapping().required_span_size() * sizeof(ValueT));
-  raft::copy_matrix(out_array.data_handle(),
-                    target_stride,
-                    src.data_handle(),
-                    src_stride,
-                    logical_dim,
-                    src.extent(0),
-                    raft::resource::get_cuda_stream(res));
-  if (device_src) { raft::resource::sync_stream(res); }
-  return std::make_unique<DatasetT>(std::move(out_array));
-}
-
-}  // namespace detail
-
-template <typename SrcT>
-auto make_device_padded_dataset_view(const raft::resources& res, SrcT const& src)
-  -> device_padded_dataset_view<typename SrcT::value_type, typename SrcT::index_type>
-{
-  using value_type = typename SrcT::value_type;
-  using index_type = typename SrcT::index_type;
-  uint32_t required_stride =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(src.extent(1)));
-  RAFT_EXPECTS(
-    detail::mdspan_row_stride_elements(src) == required_stride,
-    "make_device_padded_dataset_view: stride is incorrect (required stride for alignment). "
-    "Use make_device_padded_dataset() to get an owning padded copy.");
-  return detail::make_device_dense_row_major_view_from_src<
-    value_type,
-    device_padded_dataset_view<value_type, index_type>>(src, static_cast<uint32_t>(src.extent(1)));
-}
-
-template <typename SrcT>
-auto make_device_padded_dataset(const raft::resources& res, SrcT const& src)
-  -> std::unique_ptr<device_padded_dataset<typename SrcT::value_type, typename SrcT::index_type>>
-{
-  using value_type               = typename SrcT::value_type;
-  using index_type               = typename SrcT::index_type;
-  uint32_t const logical_dim     = static_cast<uint32_t>(src.extent(1));
-  uint32_t const required_stride = cagra_required_row_width<value_type>(logical_dim);
-  return detail::make_device_dense_row_major_dataset_from_src<
-    device_padded_dataset<value_type, index_type>,
-    value_type>(res, src, logical_dim, required_stride, "make_device_padded_dataset_view");
-}
-
-template <typename SrcT>
-auto make_host_padded_dataset_view(SrcT const& src)
-  -> host_padded_dataset_view<typename SrcT::value_type, typename SrcT::index_type>
-{
-  using value_type = typename SrcT::value_type;
-  using index_type = typename SrcT::index_type;
-  uint32_t required_stride =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(src.extent(1)));
-  RAFT_EXPECTS(
-    detail::mdspan_row_stride_elements(src) == required_stride,
-    "make_host_padded_dataset_view: stride is incorrect (required stride for alignment). "
-    "Use make_host_padded_dataset() to get an owning padded copy.");
-  return detail::make_host_dense_row_major_view_from_src<
-    value_type,
-    host_padded_dataset_view<value_type, index_type>>(src, static_cast<uint32_t>(src.extent(1)));
-}
-
-template <typename SrcT>
-auto make_host_padded_dataset(const raft::resources& res, SrcT const& src)
-  -> std::unique_ptr<host_padded_dataset<typename SrcT::value_type, typename SrcT::index_type>>
-{
-  using value_type               = typename SrcT::value_type;
-  using index_type               = typename SrcT::index_type;
-  uint32_t const logical_dim     = static_cast<uint32_t>(src.extent(1));
-  uint32_t const required_stride = cagra_required_row_width<value_type>(logical_dim);
-  return detail::make_host_dense_row_major_dataset_from_src<
-    host_padded_dataset<value_type, index_type>,
-    value_type>(res, src, logical_dim, required_stride, "make_host_padded_dataset_view");
-}
-
-template <typename SrcT>
-auto make_device_standard_dataset_view(SrcT const& src)
-  -> device_standard_dataset_view<typename SrcT::value_type, typename SrcT::index_type>
-{
-  using value_type = typename SrcT::value_type;
-  using index_type = typename SrcT::index_type;
-  RAFT_EXPECTS(detail::mdspan_row_stride_elements(src) == static_cast<uint32_t>(src.extent(1)),
-               "make_device_standard_dataset_view: the rows must be densely packed (stride equals "
-               "the dimension). Use make_device_padded_dataset_view() or "
-               "make_device_padded_dataset() for rows with padding.");
-  return detail::make_device_dense_row_major_view_from_src<
-    value_type,
-    device_standard_dataset_view<value_type, index_type>>(src,
-                                                          static_cast<uint32_t>(src.extent(1)));
-}
-
-/**
- * @brief Create an owning device standard (densely packed) dataset as a copy of the source rows.
- *
- * Prefer `make_device_standard_dataset_view()` when the source is already densely packed device
- * memory; this function throws in that case.
- */
-template <typename SrcT>
-auto make_device_standard_dataset(const raft::resources& res, SrcT const& src)
-  -> std::unique_ptr<device_standard_dataset<typename SrcT::value_type, typename SrcT::index_type>>
-{
-  using value_type           = typename SrcT::value_type;
-  using index_type           = typename SrcT::index_type;
-  uint32_t const logical_dim = static_cast<uint32_t>(src.extent(1));
-  return detail::make_device_dense_row_major_dataset_from_src<
-    device_standard_dataset<value_type, index_type>,
-    value_type>(res, src, logical_dim, logical_dim, "make_device_standard_dataset_view");
-}
-
-template <typename SrcT>
-auto make_host_standard_dataset_view(SrcT const& src)
-  -> host_standard_dataset_view<typename SrcT::value_type, typename SrcT::index_type>
-{
-  using value_type = typename SrcT::value_type;
-  using index_type = typename SrcT::index_type;
-  RAFT_EXPECTS(detail::mdspan_row_stride_elements(src) == static_cast<uint32_t>(src.extent(1)),
-               "make_host_standard_dataset_view: the rows must be densely packed (stride equals "
-               "the dimension). Use make_host_padded_dataset_view() or "
-               "make_host_padded_dataset() for rows with padding.");
-  return detail::make_host_dense_row_major_view_from_src<
-    value_type,
-    host_standard_dataset_view<value_type, index_type>>(src, static_cast<uint32_t>(src.extent(1)));
-}
 
 namespace filtering {
 
@@ -1475,7 +902,7 @@ template <typename AnnIndexType, typename T, typename IdxT>
 struct iface {
   iface()
     : cagra_owned_padded_dataset_(nullptr),
-      cagra_owned_standard_dataset_(nullptr),
+      cagra_owned_contiguous_dataset_(nullptr),
       mutex_(std::make_shared<std::mutex>())
   {
   }
@@ -1485,10 +912,9 @@ struct iface {
   std::optional<AnnIndexType> index_;
   /** Used by CAGRA when deserializing an index that contains a dataset; keeps it alive for the
    * view. */
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> cagra_owned_padded_dataset_;
+  std::unique_ptr<cuvs::device_padded_dataset<T, int64_t>> cagra_owned_padded_dataset_;
   /** Used by CAGRA standard-layout paths to keep deserialized/attached dataset views alive. */
-  std::unique_ptr<cuvs::neighbors::device_standard_dataset<T, int64_t>>
-    cagra_owned_standard_dataset_;
+  std::unique_ptr<cuvs::device_contiguous_dataset<T, int64_t>> cagra_owned_contiguous_dataset_;
   std::shared_ptr<std::mutex> mutex_;
 };
 

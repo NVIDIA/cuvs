@@ -46,12 +46,11 @@ class mg_cagra_padded_host_test : public ::testing::Test {
     params.intermediate_graph_degree = 64;
 
     // The aligned rows are used in place; the other rows are padded in a copy.
-    bool const aligned = cuvs::neighbors::matrix_row_width_matches_cagra_required(dataset);
-    auto owned = aligned ? nullptr : cuvs::neighbors::make_host_padded_dataset(clique_, dataset);
-    auto index =
-      aligned
-        ? cagra::build(clique_, params, cuvs::neighbors::make_host_padded_dataset_view(dataset))
-        : cagra::build(clique_, params, std::as_const(*owned).view());
+    bool const aligned      = cuvs::matrix_has_padded_row_width(dataset);
+    auto owned              = aligned ? nullptr : cuvs::make_host_padded_dataset(clique_, dataset);
+    auto index              = aligned
+                                ? cagra::build(clique_, params, cuvs::make_host_padded_dataset_view(dataset))
+                                : cagra::build(clique_, params, std::as_const(*owned).view());
     int64_t const index_dim = index.ann_interfaces_[0].index_->dim();
     ASSERT_GE(index_dim, dim);
     ASSERT_EQ(aligned, index_dim == dim);

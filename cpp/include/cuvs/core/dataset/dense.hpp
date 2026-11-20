@@ -72,8 +72,8 @@ struct mdarray_spec {
 };
 
 /**
- * Row-major rows padded to 16 bytes, the alignment the CAGRA kernels require. A padded matrix keeps
- * the logical dimension as its second extent; the row stride follows from the layout.
+ * Row-major rows padded to 16 bytes, the alignment graph-search kernels require. A padded matrix
+ * keeps the logical dimension as its second extent; the row stride follows from the layout.
  */
 template <typename T>
 using padded_layout = cuda::std::layout_right_padded<16 / std::gcd<int, int>(16, sizeof(T))>;
@@ -95,5 +95,15 @@ using host_contiguous_dataset =
 template <typename T, typename IdxT>
 using host_padded_dataset =
   padded_dataset<T, IdxT, raft::host_accessor<raft::host_container_policy<T>>>;
+
+/** The read-only non-owning views of the dense datasets above. */
+template <typename T, typename IdxT>
+using device_contiguous_dataset_view = typename device_contiguous_dataset<T, IdxT>::const_view_type;
+template <typename T, typename IdxT>
+using device_padded_dataset_view = typename device_padded_dataset<T, IdxT>::const_view_type;
+template <typename T, typename IdxT>
+using host_contiguous_dataset_view = typename host_contiguous_dataset<T, IdxT>::const_view_type;
+template <typename T, typename IdxT>
+using host_padded_dataset_view = typename host_padded_dataset<T, IdxT>::const_view_type;
 
 }  // namespace CUVS_EXPORT cuvs

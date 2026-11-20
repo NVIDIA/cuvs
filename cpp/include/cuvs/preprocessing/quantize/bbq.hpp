@@ -347,11 +347,6 @@ template <typename DataT, typename IdxT>
 using device_bbq_dataset_view =
   dataset_view<bbq_dataset_container, DataT, IdxT, detail::device_view_accessor<DataT>>;
 
-template <typename DataT, typename IdxT>
-struct owning_dataset_for_view<device_bbq_dataset_view<DataT, IdxT>> {
-  using type = device_bbq_dataset<DataT, IdxT>;
-};
-
 template <typename DatasetT>
 struct is_bbq_dataset : std::false_type {};
 
@@ -384,5 +379,12 @@ inline constexpr bool is_bbq_dataset_view_v =
   is_device_bbq_dataset_view_v<V> || is_host_bbq_dataset_view_v<V>;
 
 }  // namespace neighbors
+
+// `owning_dataset_for_view` lives in `cuvs`, next to the spec-based datasets, so it is specialized
+// there; BBQ is not spec-based yet.
+template <typename DataT, typename IdxT>
+struct owning_dataset_for_view<neighbors::device_bbq_dataset_view<DataT, IdxT>> {
+  using type = neighbors::device_bbq_dataset<DataT, IdxT>;
+};
 
 }  // namespace CUVS_EXPORT cuvs

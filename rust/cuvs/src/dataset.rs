@@ -68,7 +68,7 @@ pub trait CuvsDataset: private::Sealed {
     }
 }
 
-/// Matches C++ `cagra_required_row_width` (16-byte default alignment).
+/// Matches C++ `cuvs::padded_row_width` (16-byte default alignment).
 fn cagra_required_row_width(logical_columns: u32, sizeof_value: usize) -> u32 {
     let align_bytes: usize = 16;
     let bytes = (logical_columns as usize) * sizeof_value;

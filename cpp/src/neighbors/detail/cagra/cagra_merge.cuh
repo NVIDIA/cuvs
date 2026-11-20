@@ -37,7 +37,7 @@
 
 namespace cuvs::neighbors::cagra::detail {
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::dataset_like DatasetViewT>
 int64_t merged_dataset_size(
   raft::resources const& handle,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
@@ -59,7 +59,7 @@ int64_t merged_dataset_size(
   return merged_rows;
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::dataset_like DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
   raft::resources const& handle,
   const cagra::index_params& params,
@@ -215,7 +215,7 @@ struct fastener_preflight_result {
 };
 
 /** Validate every input and option without mutating anything. */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::dataset_like DatasetViewT>
 auto preflight_fastener(
   raft::resources const& handle,
   cagra::index_params const& params,
@@ -371,7 +371,7 @@ auto preflight_fastener(
 /** Copy every input dataset into its row range of the caller-supplied merged dataset. Both sides
  *  carry a row pitch: the inputs share one stride (enforced by preflight) and the destination uses
  *  the merged dataset's own stride. */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::dataset_like DatasetViewT>
 void copy_input_datasets(
   raft::resources const& handle,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
@@ -392,7 +392,7 @@ void copy_input_datasets(
   }
 }
 
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::dataset_like DatasetViewT>
 auto merge_fastener(raft::resources const& handle,
                     cagra::index_params const& params,
                     cagra::merge_params const& merge_params,
@@ -487,7 +487,7 @@ auto merge_fastener(raft::resources const& handle,
   return merged_index;
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::dataset_like DatasetViewT>
 auto merge(raft::resources const& handle,
            cagra::index_params const& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,

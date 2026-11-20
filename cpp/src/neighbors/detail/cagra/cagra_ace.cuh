@@ -1336,7 +1336,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     params.graph_degree,
     npartitions);
 
-  auto dataset_view   = cuvs::neighbors::dense_row_major_view(dataset);
+  auto dataset_view   = cuvs::dense_row_major_view(dataset);
   size_t dataset_size = dataset.n_rows();
   size_t dataset_dim  = dataset.dim();
 
@@ -1568,9 +1568,9 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
       using host_sub_index_t    = cuvs::neighbors::cagra::host_standard_index<T, IdxT>;
       using sub_index_t         = std::variant<device_sub_index_t, host_sub_index_t>;
       auto build_host_sub_index = [&](auto& sub_dataset) -> sub_index_t {
-        read_end              = std::chrono::high_resolution_clock::now();
-        auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
-          raft::make_const_mdspan(sub_dataset.view()));
+        read_end = std::chrono::high_resolution_clock::now();
+        auto sub_dataset_view =
+          cuvs::make_host_contiguous_dataset_view(raft::make_const_mdspan(sub_dataset.view()));
         auto host_index = ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
         static_assert(std::is_same_v<decltype(host_index), host_sub_index_t>);
         return sub_index_t{std::in_place_type<host_sub_index_t>, std::move(host_index)};
@@ -1600,15 +1600,12 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                                             sub_dataset_tight.view());
               read_end              = std::chrono::high_resolution_clock::now();
               auto sub_dataset_view = raft::make_const_mdspan(sub_dataset_tight.view());
-              std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>
-                sub_dataset_padded;
-              auto sub_dataset_dev =
-                [&]() -> cuvs::neighbors::device_padded_dataset_view<T, int64_t> {
-                if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dataset_view)) {
-                  return cuvs::neighbors::make_device_padded_dataset_view(res, sub_dataset_view);
+              std::unique_ptr<cuvs::device_padded_dataset<T, int64_t>> sub_dataset_padded;
+              auto sub_dataset_dev = [&]() -> cuvs::device_padded_dataset_view<T, int64_t> {
+                if (cuvs::matrix_has_padded_row_width(sub_dataset_view)) {
+                  return cuvs::make_device_padded_dataset_view(res, sub_dataset_view);
                 }
-                sub_dataset_padded =
-                  cuvs::neighbors::make_device_padded_dataset(res, sub_dataset_view);
+                sub_dataset_padded = cuvs::make_device_padded_dataset(res, sub_dataset_view);
                 return sub_dataset_padded->view();
               }();
               auto direct_index =

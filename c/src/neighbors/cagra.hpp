@@ -36,7 +36,7 @@ void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx);
 c_api_dataset_layout cagra_c_api_index_layout(cuvsCagraIndex const* idx);
 
 namespace detail {
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::dataset_like DatasetViewT>
 int64_t merged_dataset_size(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,

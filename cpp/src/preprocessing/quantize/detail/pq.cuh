@@ -56,11 +56,11 @@ inline cuvs::distance::DistanceType get_kmeans_metric(
 }
 
 inline auto to_vpq_params(const cuvs::preprocessing::quantize::pq::params& params)
-  -> cuvs::neighbors::vpq_params
+  -> cuvs::preprocessing::quantize::pq::vpq_params
 {
   auto kmeans_type = is_balanced_kmeans(params) ? cuvs::cluster::kmeans::kmeans_type::KMeansBalanced
                                                 : cuvs::cluster::kmeans::kmeans_type::KMeans;
-  return cuvs::neighbors::vpq_params{
+  return cuvs::preprocessing::quantize::pq::vpq_params{
     .pq_bits                         = params.pq_bits,
     .pq_dim                          = params.pq_dim,
     .vq_n_centers                    = params.vq_n_centers,
@@ -193,7 +193,7 @@ quantizer<MathT> build(
       res, filled_params, dataset, raft::make_const_mdspan(vq_code_book.view()));
   }
   return {filled_params,
-          cuvs::neighbors::device_vpq_dataset<MathT, int64_t>{
+          cuvs::device_vpq_dataset<MathT, int64_t>{
             std::move(empty_codes), {std::move(vq_code_book), std::move(pq_code_book)}}};
 }
 
@@ -366,7 +366,7 @@ void inverse_transform(
                                             quant.params_quantizer.use_subspaces);
 }
 
-inline auto make_pq_params_from_vpq(const cuvs::neighbors::vpq_params& in_params,
+inline auto make_pq_params_from_vpq(const cuvs::preprocessing::quantize::pq::vpq_params& in_params,
                                     const uint64_t n_rows)
   -> cuvs::preprocessing::quantize::pq::params
 {
@@ -393,8 +393,8 @@ inline auto make_pq_params_from_vpq(const cuvs::neighbors::vpq_params& in_params
 // The codebooks are trained in `MathT` and stored in `StoreMathT`.
 template <typename DatasetT, typename MathT, typename IdxT, typename StoreMathT = MathT>
 auto vpq_build(const raft::resources& res,
-               const cuvs::neighbors::vpq_params& params,
-               const DatasetT& dataset) -> cuvs::neighbors::device_vpq_dataset<StoreMathT, IdxT>
+               const cuvs::preprocessing::quantize::pq::vpq_params& params,
+               const DatasetT& dataset) -> cuvs::device_vpq_dataset<StoreMathT, IdxT>
 {
   using label_t = uint32_t;
   // Use a heuristic to impute missing parameters.
@@ -435,14 +435,14 @@ auto vpq_build(const raft::resources& res,
       return stored;
     }
   };
-  return cuvs::neighbors::device_vpq_dataset<StoreMathT, IdxT>{
+  return cuvs::device_vpq_dataset<StoreMathT, IdxT>{
     std::move(codes), {stored_books(vq_code_book), stored_books(pq_code_book)}};
 }
 
 template <typename DatasetT>
 auto vpq_build_half(const raft::resources& res,
-                    const cuvs::neighbors::vpq_params& params,
-                    const DatasetT& dataset) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+                    const cuvs::preprocessing::quantize::pq::vpq_params& params,
+                    const DatasetT& dataset) -> cuvs::device_vpq_dataset<half, int64_t>
 {
   return vpq_build<decltype(dataset), float, int64_t, half>(res, params, dataset);
 }

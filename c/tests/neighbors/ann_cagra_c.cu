@@ -542,10 +542,10 @@ TEST(CagraC, UpdateHostPadded)
 
   cuvsDataset_t host_view;
   ASSERT_EQ(cuvsDatasetMakePaddedView(res, &host_tensor, &host_view), CUVS_SUCCESS);
-  float host_standard_dataset[8] = {0, 0, 1, 1, 2, 2, 3, 3};
+  float host_contiguous_dataset[8] = {0, 0, 1, 1, 2, 2, 3, 3};
   int64_t standard_shape[]       = {4, 2};
   DLManagedTensor host_standard_tensor = host_tensor;
-  host_standard_tensor.dl_tensor.data  = host_standard_dataset;
+  host_standard_tensor.dl_tensor.data  = host_contiguous_dataset;
   host_standard_tensor.dl_tensor.shape = standard_shape;
   cuvsDataset_t host_owner;
   ASSERT_EQ(cuvsDatasetMakePadded(
