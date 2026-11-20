@@ -28,10 +28,15 @@ on:
         type: string
         default: nightly
 
+# Maven release concurrency: branch and nightly runs can cancel an earlier run
+# in the same workflow group. Each tag run gets its own workflow group so a
+# competing run cannot cancel it as a whole. Selected build and gather jobs can
+# still cancel matching jobs for the same tag, with separate groups for matrix
+# variants where applicable.
+# The shared Maven publisher runs one job at a time per repository and artifact
+# and lets an active job finish. Canceling it during upload or promotion could
+# leave an incomplete release or prevent us from saving the recovery receipt.
 concurrency:
-  # Branch and nightly runs keep workflow-wide cancellation. Give each tag run
-  # its own group so matching jobs can cancel preparation without stopping an
-  # active Maven publisher.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}${{ github.ref_type == 'tag' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
@@ -55,8 +60,7 @@ jobs:
   build-details:
     uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@release/26.12
   cpp-build:
-    # Java needs this native build. A matching tag job can supersede it before
-    # publishing starts, which also stops jobs that need its output.
+    # See Maven release concurrency above. Java depends on this native build.
     concurrency:
       group: ${{ github.workflow }}-prep-cpp-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
       cancel-in-progress: ${{ github.ref_type == 'tag' }}
@@ -128,8 +132,7 @@ jobs:
       script: "ci/build_go.sh"
       matrix_type: nightly
   java-build:
-    # Group the whole reusable Java build by ref and trigger. Its CUDA variants
-    # run together, and a matching tag job can replace the build.
+    # See Maven release concurrency above.
     concurrency:
       group: ${{ github.workflow }}-prep-java-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
       cancel-in-progress: ${{ github.ref_type == 'tag' }}
@@ -154,8 +157,7 @@ jobs:
       file_to_upload: "java/cuvs-java/target/"
       matrix_type: nightly
   lucene-build:
-    # Use a separate group so a matching tag job can replace the Lucene build
-    # without canceling the Java build.
+    # See Maven release concurrency above.
     concurrency:
       group: ${{ github.workflow }}-prep-lucene-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
       cancel-in-progress: ${{ github.ref_type == 'tag' }}
@@ -183,7 +185,7 @@ jobs:
         java/cuvs-lucene/*/target/
       matrix_type: nightly
   java-maven-gather:
-    # Group by module so replacement tag jobs cancel only the matching gather.
+    # See Maven release concurrency above. Each module has its own group.
     concurrency:
       group: ${{ github.workflow }}-prep-java-maven-gather-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}-${{ matrix.module }}
       cancel-in-progress: ${{ github.ref_type == 'tag' }}
@@ -223,8 +225,7 @@ jobs:
           path: ${{ runner.temp }}/maven-repo
           if-no-files-found: error
   java-publish:
-    # The shared publisher serializes by repository and artifact with cancellation
-    # disabled so upload, promotion, and receipt retention can finish.
+    # See Maven release concurrency above for the publisher's policy.
     needs: java-maven-gather
     permissions:
       actions: read
@@ -238,7 +239,7 @@ jobs:
       artifact-name: cuvs-java_maven_repo
       source-git-sha: ${{ inputs.sha || github.sha }}
   lucene-publish:
-    # Use the same non-canceling publisher for Lucene, after Java is published.
+    # See Maven release concurrency above for the publisher's policy.
     # The Lucene release depends on the matching published Java coordinate.
     if: ${{ !cancelled() && needs.java-publish.outputs.deployment-state == 'PUBLISHED' }}
     needs: [java-maven-gather, java-publish]
