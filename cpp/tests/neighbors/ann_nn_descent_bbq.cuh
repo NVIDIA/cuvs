@@ -4,6 +4,7 @@
  */
 
 #include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
+#include "../../src/preprocessing/quantize/detail/bbq_distance.cuh"
 #include "ann_nn_descent.cuh"
 
 #include <cuvs/preprocessing/quantize/bbq.hpp>
@@ -11,6 +12,7 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/random/rng.cuh>
 
 #include <gtest/gtest.h>
@@ -46,6 +48,52 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnNNDescentBbqInput
                                              : -1)
      << std::endl;
   return os;
+}
+
+inline auto reference_edge_distances(
+  raft::resources const& handle,
+  const AnnNNDescentBbqInputs& ps,
+  cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+  const std::vector<uint32_t>& ids_host) -> std::vector<float>
+{
+  // Evaluate each edge in its returned direction. In an asymmetric index
+  // the same two rows have different scores when document and query swap.
+  auto queries_size = ids_host.size();
+  auto stream       = raft::resource::get_cuda_stream(handle);
+  auto doc          = dataset.get_quantizer(ps.second_dataset_layout.value_or(ps.layout));
+  auto query        = dataset.get_quantizer(ps.layout);
+  auto ids          = raft::make_device_vector<uint32_t>(handle, queries_size);
+  auto ref          = raft::make_device_vector<float>(handle, queries_size);
+  raft::copy(ids.data_handle(), ids_host.data(), queries_size, stream);
+  auto* neighbors = ids.data_handle();
+  auto metric     = ps.metric;
+  auto degree     = ps.graph_degree;
+  raft::linalg::map_offset(handle, ref.view(), [=] __device__(size_t pos) {
+    namespace bbq = cuvs::preprocessing::quantize::bbq::detail;
+    int row       = pos / degree;
+    int col       = neighbors[pos];
+    auto raw      = bbq::code_inner_product(&doc.codes(row, 0),
+                                       doc.layout,
+                                       &query.codes(col, 0),
+                                       query.layout,
+                                       bbq::get_encoded_row_length(doc));
+    float score   = bbq::bbq_calculate_metric(raw,
+                                            bbq::get_dequant_factors(doc, row),
+                                            bbq::get_dequant_factors(query, col),
+                                            doc,
+                                            query,
+                                            metric,
+                                            raft::identity_op{},
+                                            row,
+                                            col);
+    if (metric == cuvs::distance::DistanceType::InnerProduct) return -score;
+    if (metric == cuvs::distance::DistanceType::L2SqrtExpanded) return sqrtf(score);
+    return score;
+  });
+  std::vector<float> expected(queries_size);
+  raft::copy(expected.data(), ref.data_handle(), queries_size, stream);
+  raft::resource::sync_stream(handle);
+  return expected;
 }
 
 class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInputs> {
@@ -127,6 +175,11 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
       raft::copy(
         distances_NNDescent.data(), index.distances().value().data_handle(), queries_size, stream_);
       raft::resource::sync_stream(handle_);
+
+      auto expected = reference_edge_distances(handle_, ps, dataset, indices_NNDescent);
+      for (size_t i = 0; i < queries_size; ++i) {
+        ASSERT_NEAR(expected[i], distances_NNDescent[i], 1e-4f * (1.0f + std::abs(expected[i])));
+      }
     }
 
     EXPECT_TRUE(eval_neighbours(indices_naive,
