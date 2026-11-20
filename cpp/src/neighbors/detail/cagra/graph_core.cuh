@@ -168,13 +168,10 @@ __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_
     for (uint32_t kDB = lane_id; kDB < knn_graph_degree; kDB += raft::WarpSize) {
       const uint64_t iB_candidate = knn_graph(iD, kDB);
       for (uint32_t kAB = kAD + 1; kAB < knn_graph_degree; kAB++) {
-        // if ( kDB < kAB )
-        {
-          const uint64_t iB = smem_indices[kAB];
-          if (iB == iB_candidate) {
-            atomicAdd(smem_num_detour + kAB, 1);
-            break;
-          }
+        const uint64_t iB = smem_indices[kAB];
+        if (iB == iB_candidate) {
+          if (kDB < kAB) { atomicAdd(smem_num_detour + kAB, 1); }
+          break;
         }
       }
     }
