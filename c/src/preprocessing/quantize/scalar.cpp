@@ -1,10 +1,13 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cstdint>
 #include <dlpack/dlpack.h>
+#include <memory>
+#include <utility>
+#include <variant>
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
@@ -14,6 +17,15 @@
 #include "../../core/interop.hpp"
 
 namespace {
+
+namespace scalar = cuvs::preprocessing::quantize::scalar;
+
+// The handle's addr points to a scalar::quantizer.
+scalar::quantizer& held(cuvsScalarQuantizer_t quantizer)
+{
+  RAFT_EXPECTS(quantizer->addr != 0, "quantizer must be allocated by cuvsScalarQuantizerCreate");
+  return *reinterpret_cast<scalar::quantizer*>(quantizer->addr);
+}
 
 template <typename T>
 void _train(cuvsResources_t res,
@@ -27,8 +39,15 @@ void _train(cuvsResources_t res,
 
   auto quantizer_params     = cuvs::preprocessing::quantize::scalar::params();
   quantizer_params.quantile = params.quantile;
+  switch (params.mode) {
+    case CUVS_SCALAR_GLOBAL: quantizer_params.range = scalar::quantization_mode::GLOBAL; break;
+    case CUVS_SCALAR_PER_DIMENSION:
+      quantizer_params.range = scalar::quantization_mode::PER_DIMENSION;
+      break;
+    default: RAFT_FAIL("Unsupported scalar quantization mode");
+  }
 
-  cuvs::preprocessing::quantize::scalar::quantizer<T> ret;
+  scalar::quantizer ret;
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
@@ -42,8 +61,7 @@ void _train(cuvsResources_t res,
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 
-  quantizer->min_ = ret.min_;
-  quantizer->max_ = ret.max_;
+  held(quantizer) = std::move(ret);
 }
 
 template <typename T, typename OutputT = int8_t>
@@ -54,9 +72,7 @@ void _transform(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
-  cuvs::preprocessing::quantize::scalar::quantizer<T> quantizer;
-  quantizer.min_ = quantizer_->min_;
-  quantizer.max_ = quantizer_->max_;
+  auto const& quantizer = held(quantizer_);
 
   auto dataset = dataset_tensor->dl_tensor;
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
@@ -91,9 +107,7 @@ void _inverse_transform(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
-  cuvs::preprocessing::quantize::scalar::quantizer<OutputT> quantizer;
-  quantizer.min_ = quantizer_->min_;
-  quantizer.max_ = quantizer_->max_;
+  auto const& quantizer = held(quantizer_);
 
   auto dataset = dataset_tensor->dl_tensor;
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
@@ -124,7 +138,7 @@ void _inverse_transform(cuvsResources_t res,
 extern "C" cuvsError_t cuvsScalarQuantizerParamsCreate(cuvsScalarQuantizerParams_t* params)
 {
   return cuvs::core::translate_exceptions(
-    [=] { *params = new cuvsScalarQuantizerParams{.quantile = 0.99}; });
+    [=] { *params = new cuvsScalarQuantizerParams{.quantile = 0.99, .mode = CUVS_SCALAR_GLOBAL}; });
 }
 
 extern "C" cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params)
@@ -134,12 +148,41 @@ extern "C" cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParam
 
 extern "C" cuvsError_t cuvsScalarQuantizerCreate(cuvsScalarQuantizer_t* quantizer)
 {
-  return cuvs::core::translate_exceptions([=] { *quantizer = new cuvsScalarQuantizer{}; });
+  return cuvs::core::translate_exceptions([=] {
+    auto created  = std::make_unique<cuvsScalarQuantizer>();
+    created->addr = reinterpret_cast<uintptr_t>(new scalar::quantizer{});
+    *quantizer    = created.release();
+  });
 }
 
 extern "C" cuvsError_t cuvsScalarQuantizerDestroy(cuvsScalarQuantizer_t quantizer)
 {
-  return cuvs::core::translate_exceptions([=] { delete quantizer; });
+  return cuvs::core::translate_exceptions([=] {
+    if (quantizer != nullptr) {
+      delete reinterpret_cast<scalar::quantizer*>(quantizer->addr);
+      delete quantizer;
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quantizer,
+                                                    double* min,
+                                                    double* max)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto const* bounds = std::get_if<scalar::quantizer::global_type>(&held(quantizer).value);
+    RAFT_EXPECTS(bounds != nullptr, "A per-dimension quantizer has no global bounds");
+    *min = bounds->min;
+    *max = bounds->max;
+  });
+}
+
+extern "C" cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quantizer,
+                                                    double min,
+                                                    double max)
+{
+  return cuvs::core::translate_exceptions(
+    [=] { held(quantizer) = scalar::quantizer{min, max}; });
 }
 
 extern "C" cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,
