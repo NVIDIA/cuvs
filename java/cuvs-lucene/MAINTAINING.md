@@ -110,14 +110,19 @@ done
 For each new or changed method, decide whether Lucene's default is right for the cuvs-lucene subclass.
 If not, override it in the `Compat*` class of the variant the new release uses, creating a new variant
 if older releases share that one (see how `compat/knn-vectors-reader-103-acceptdocs` overrides
-`getOffHeapByteSize`). `CompatFilterKnnVectorsReader` and `CompatFilterKnnVectorsWriter` forward
-to another reader or writer, so they also have to forward a new method, unless Lucene's default only
-calls methods they already forward. They extend `FilterKnnVectorsReader` and `FilterKnnVectorsWriter`
-in the shared sources, which forward the methods that are the same on every supported release; forward
-a new method in the variant, and move a forward to the shared class only once every supported release
-has the same signature. The reader leaves `getMergeInstance` and `finishMerge` to Lucene's
-defaults: it only stands for a source segment inside a merge, whose reader is already the merge
-instance. To refresh the class list, run `javap` on the classes in
+`getOffHeapByteSize`).
+
+The wrappers that forward to another reader or writer need one more check:
+
+- `CompatFilterKnnVectorsReader` and `CompatFilterKnnVectorsWriter` have to forward a new method too,
+  unless Lucene's default only calls methods they already forward.
+- Forward it in the variant. The shared `FilterKnnVectorsReader` and `FilterKnnVectorsWriter`, which
+  they extend, only hold the forwards whose signature is the same on every supported release; move a
+  forward there once that is true of it.
+- The reader leaves `getMergeInstance` and `finishMerge` to Lucene's defaults: it only stands for a
+  source segment inside a merge, whose reader is already the merge instance.
+
+To refresh the class list, run `javap` on the classes in
 `lucene-10.7/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes,
 all the way up.
 
@@ -134,22 +139,30 @@ searching the segment exactly; check that both still hold. Lucene 10.5 split mer
 cuvs-lucene writers build the graph while merging the field and return none, so a writer that starts
 deferring work has to override `mergeOneField` in the variants of `CompatKnnVectorsWriter` that return
 it, and `ObservedWriter` in `TestAcceleratedHNSWHostInputMemory`, which wraps the writers, has to pass
-that work on. `FallbackHnswVectorsWriter`, around Lucene's HNSW writer for the CPU fallback, passes on
-the work Lucene's writer returns and calls `prepareGraphMerge` around it, since that work builds the
-merged graph from the source segments in the `MergeState`. Lucene's writer only merges correctly from
-graphs that record its own M (see the class's javadoc), so `FallbackHnswVectorsWriter` replaces the
-segments whose graph records another M with a view that is not an `HnswGraphProvider`, and Lucene adds
-their vectors one by one. Check that Lucene still reads the source graphs only through
-`MergeState.knnVectorsReaders` and `HnswGraphProvider`, and still builds the graphs of the fields one
-at a time, since the writer changes the shared `MergeState` while it builds one. This is a
-workaround for a Lucene bug that is fixed on Lucene's `main` branch (apache/lucene#14121, after
-apache/lucene#14118), but not on the 10.x branches: a merge there builds and records the merged graph
-with the M of the graph it starts from. For a release that has that change (Lucene 11, or a 10.x
-release if it is backported), check that a CPU merge of segments recording another M succeeds and can
-be searched without `FallbackHnswVectorsWriter`, then have the fallback use Lucene's writer directly in
-that release's module, and drop `FallbackHnswVectorsWriter`, the `FilterKnnVectors*` and the
-`CompatFilter*` classes once no supported release needs them. Lucene 10.5 also
-stopped calling `KnnVectorsReader.finishMerge()`, so on 10.5 the sequential read hint that
+that work on.
+
+`FallbackHnswVectorsWriter` wraps Lucene's HNSW writer for the CPU fallback:
+
+- **Why:** Lucene's writer only merges correctly from graphs that record its own M (see the class's
+  javadoc).
+- **What it does:** it replaces the source segments whose graph records another M with a view that is
+  not an `HnswGraphProvider`, so Lucene adds their vectors one by one. It does this in
+  `prepareGraphMerge`, around the work Lucene's writer returns since 10.5, because that work builds the
+  merged graph from the source segments in the `MergeState`.
+- **What to check:** that Lucene still reads the source graphs only through
+  `MergeState.knnVectorsReaders` and `HnswGraphProvider`, and still builds the graphs of the fields one
+  at a time, since the writer changes the shared `MergeState` while it builds one.
+- **When to remove it:** it works around a Lucene bug that is fixed on Lucene's `main` branch
+  (apache/lucene#14121, after apache/lucene#14118), but not on the 10.x branches: a merge there builds
+  and records the merged graph with the M of the graph it starts from. For a release that has that
+  change (Lucene 11, or a 10.x release if it is backported):
+  1. Check that a CPU merge of segments recording another M succeeds and can be searched without
+     `FallbackHnswVectorsWriter`.
+  2. Have the fallback use Lucene's writer directly in that release's module.
+  3. Drop `FallbackHnswVectorsWriter`, the `FilterKnnVectors*` and the `CompatFilter*` classes once no
+     supported release needs them.
+
+Lucene 10.5 also stopped calling `KnnVectorsReader.finishMerge()`, so on 10.5 the sequential read hint that
 `getMergeInstance()` sets on the raw vectors stays after a merge, for Lucene's own formats as for
 cuvs-lucene's; Lucene 10.6 calls it again. Lucene 10.6 changed two more things: the flat format no
 longer asks for its vectors to be read at random, leaving that to the format that wraps it, as
