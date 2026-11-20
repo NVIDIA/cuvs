@@ -32,6 +32,7 @@
 
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <cuda_fp16.h>
 
@@ -915,10 +916,8 @@ void log_connected_components(raft::resources const& res,
   auto d_stats               = raft::make_device_vector<uint32_t, int64_t>(res, 2);
   raft::matrix::fill(res, sizes, uint32_t(0));
   raft::matrix::fill(res, d_stats.view(), uint32_t(0));
-  kern_component_stats<IdxT>
-    <<<num_blocks, num_threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-      parent, sizes, d_stats.data_handle());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(
+    res, num_blocks, num_threads, kern_component_stats<IdxT>, parent, sizes, d_stats.data_handle());
 
   uint32_t stats[2];
   raft::copy(res, raft::make_host_vector_view<uint32_t, int64_t>(stats, 2), d_stats.view());
@@ -1024,10 +1023,13 @@ void merge_graph_gpu(
     // Must be enqueued before prefetch_next_batch(), which syncs the stream before the batch
     // buffer is reused.
     const uint32_t blocks_union = raft::ceildiv<uint64_t>(output_view.size(), threads_union);
-    kern_union_edges<IdxT>
-      <<<blocks_union, threads_union, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        output_view, static_cast<uint64_t>(batch_size) * i_batch, d_uf_parent);
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    raft::launch_kernel(res,
+                        blocks_union,
+                        threads_union,
+                        kern_union_edges<IdxT>,
+                        output_view,
+                        static_cast<uint64_t>(batch_size) * i_batch,
+                        d_uf_parent);
 
     d_output_graph.prefetch_next_batch();
     d_mst_graph.prefetch_next_batch();
