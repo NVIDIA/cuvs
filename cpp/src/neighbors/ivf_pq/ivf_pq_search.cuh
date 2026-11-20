@@ -430,7 +430,8 @@ void ivfpq_search_worker(raft::resources const& handle,
                          float* distances,                   // [n_queries, topK]
                          float scaling_factor,
                          double preferred_shmem_carveout,
-                         IvfSampleFilterT sample_filter)
+                         IvfSampleFilterT sample_filter,
+                         uint32_t force_n_probes)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "ivf_pq::search-worker(n_queries = %u, n_probes = %u, k = %u, dim = %zu)",
@@ -533,6 +534,10 @@ void ivfpq_search_worker(raft::resources const& handle,
                                                            uint32_t n_probes,
                                                            uint32_t topk) = nullptr;
   uint32_t precomp_data_count                                             = 0;
+  // The score of the forced samples (see `force_n_probes`): the lowest score a sample normally
+  // gets for the metric (L2: zero distance; IP and cosine: -1, the best similarity of normalized
+  // vectors).
+  ScoreT forced_score = ScoreT(0);
   switch (index.metric()) {
     case distance::DistanceType::L2SqrtExpanded:
     case distance::DistanceType::L2Expanded: {
@@ -544,12 +549,14 @@ void ivfpq_search_worker(raft::resources const& handle,
     case distance::DistanceType::CosineExpanded: {
       // stores two components (query[i], query[i] * center[i])
       precomp_data_count = index.rot_dim() * 2;
+      forced_score       = ScoreT(-1);
       compute_similarity_select_func =
         compute_similarity_select<ScoreT, LutT, IvfSampleFilterT, tag_metric_inner_product, true>;
     } break;
     case distance::DistanceType::InnerProduct: {
       // stores two components (query[i], query[i] * center[i])
       precomp_data_count = index.rot_dim() * 2;
+      forced_score       = ScoreT(-1);
       compute_similarity_select_func =
         compute_similarity_select<ScoreT, LutT, IvfSampleFilterT, tag_metric_inner_product, false>;
     } break;
@@ -631,7 +638,9 @@ void ivfpq_search_worker(raft::resources const& handle,
                          original_nbits,
                          device_lut.data(),
                          distances_buf.data(),
-                         neighbors_ptr);
+                         neighbors_ptr,
+                         force_n_probes > 1 ? force_n_probes : 0,
+                         forced_score);
 
   // Select topk vectors for each query
   rmm::device_uvector<ScoreT> topk_dists(n_queries * topK, stream, mr);
@@ -948,6 +957,8 @@ inline void search(raft::resources const& handle,
   // This is usually smaller than the outer loop when the non-fused kernel has to keep intermediate
   // results in the device memory.
   auto max_bs_inner = get_max_fine_batch_size(handle, k, n_probes, max_bs_outer, max_samples);
+  // The results should come from at least `force_n_probes` probes (one probe is the usual search).
+  const uint32_t force_n_probes = std::min({params.force_n_probes, n_probes, k});
 
   using some_query_t = std::
     variant<rmm::device_uvector<float>, rmm::device_uvector<half>, rmm::device_uvector<int8_t>>;
@@ -1041,7 +1052,8 @@ inline void search(raft::resources const& handle,
                       distances + uint64_t(k) * (offset_q + offset_b),
                       utils::config<T>::kDivisor / utils::config<float>::kDivisor,
                       params.preferred_shmem_carveout,
-                      sample_filter);
+                      sample_filter,
+                      force_n_probes);
     }
   }
 }

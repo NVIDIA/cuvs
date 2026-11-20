@@ -288,7 +288,9 @@ void compute_similarity_run(selected<OutT, LutT> s,
                             int64_t original_nbits,
                             LutT* lut_scores,
                             OutT* _out_scores,
-                            uint32_t* _out_indices)
+                            uint32_t* _out_indices,
+                            uint32_t force_n_probes,
+                            OutT forced_score)
 {
   s.launcher->template dispatch<compute_similarity_func_t<OutT, LutT>>(stream.get(),
                                                                        s.grid_dim,
@@ -316,7 +318,9 @@ void compute_similarity_run(selected<OutT, LutT> s,
                                                                        original_nbits,
                                                                        lut_scores,
                                                                        _out_scores,
-                                                                       _out_indices);
+                                                                       _out_indices,
+                                                                       force_n_probes,
+                                                                       forced_score);
   RAFT_CHECK_CUDA(stream.get());
 }
 
