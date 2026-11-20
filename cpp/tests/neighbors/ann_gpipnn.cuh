@@ -20,6 +20,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/itertools.hpp>
 
@@ -65,14 +66,22 @@ inline auto operator<<(std::ostream& os, const AnnGpipnnInputs& p) -> std::ostre
   return os;
 }
 
-/** Builds the fp16 scoring operand and its fp32 row norms, exactly as the builder does. */
+/**
+ * Builds the fp16 scoring operand and its fp32 row norms, exactly as the builder does.
+ *
+ * Templated on the source type so the stage-level tests can run on whichever type their fixture
+ * holds. The conversion is the builder's own `cast_to_half`, which is the identity on half and
+ * exact on int8 and uint8, so what reaches the stages below is the same operand `build_graph`
+ * would have handed them.
+ */
+template <typename T>
 struct scoring_operand {
   rmm::device_uvector<half> data;
   rmm::device_uvector<float> norms;
   int64_t n_rows;
   int64_t dim;
 
-  scoring_operand(raft::resources const& res, const float* dataset, int64_t n, int64_t d)
+  scoring_operand(raft::resources const& res, const T* dataset, int64_t n, int64_t d)
     : data(n * d, raft::resource::get_cuda_stream(res)),
       norms(n, raft::resource::get_cuda_stream(res)),
       n_rows(n),
@@ -92,6 +101,24 @@ struct scoring_operand {
   [[nodiscard]] auto norms_view() const
   {
     return raft::make_device_vector_view<const float, int64_t>(norms.data(), n_rows);
+  }
+};
+
+/**
+ * Narrows a wide uniform draw into the full range of a narrow integer type.
+ *
+ * `raft::random::uniformInt` computes its span in the output type, so an int8 draw cannot ask for
+ * all of [-128, 127] without overflowing the computation. Drawing uint32 and narrowing here gives
+ * each integer fixture its type's whole range.
+ */
+template <typename T>
+struct narrow_to_int_op {
+  /** -128 for int8, 0 for uint8. */
+  int offset;
+
+  __device__ auto operator()(uint32_t v) const -> T
+  {
+    return static_cast<T>(static_cast<int>(v % 256u) + offset);
   }
 };
 
@@ -165,7 +192,7 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
   /** Ball carving must cover every point and respect the leaf size bound. */
   void testCarving()
   {
-    scoring_operand op(handle_, database.data(), ps.n_rows, ps.dim);
+    scoring_operand<DataT> op(handle_, database.data(), ps.n_rows, ps.dim);
     detail::carve_stats stats;
     auto leaves = detail::ball_carve(handle_, op.view(), op.norms_view(), make_params(), stats);
     ASSERT_GT(leaves.count(), 0) << "carving produced no leaves at all";
@@ -207,7 +234,7 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
   void testAccumulator()
   {
     auto params = make_params();
-    scoring_operand op(handle_, database.data(), ps.n_rows, ps.dim);
+    scoring_operand<DataT> op(handle_, database.data(), ps.n_rows, ps.dim);
     detail::carve_stats stats;
     auto leaves = detail::ball_carve(handle_, op.view(), op.norms_view(), params, stats);
     auto records =
@@ -277,7 +304,7 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
     params.max_leaf_size = ps.n_rows;
     params.min_leaf_size = ps.n_rows;
 
-    scoring_operand op(handle_, database.data(), ps.n_rows, ps.dim);
+    scoring_operand<DataT> op(handle_, database.data(), ps.n_rows, ps.dim);
     detail::carve_stats stats;
     auto leaves = detail::ball_carve(handle_, op.view(), op.norms_view(), params, stats);
     ASSERT_EQ(leaves.count(), 1);
@@ -751,15 +778,48 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
     // let `testUnsupportedMetricRejected` and `testSelectKBoundEnforced` pass without reaching the
     // validation they name. Skipping here keeps an architecture check from standing in for them.
     if (!is_supported()) { GTEST_SKIP(); }
-    database.resize(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);
-    search_queries.resize(static_cast<size_t>(ps.n_queries) * ps.dim, stream_);
+    const int64_t n_db = static_cast<int64_t>(ps.n_rows) * ps.dim;
+    const int64_t n_q  = static_cast<int64_t>(ps.n_queries) * ps.dim;
+    database.resize(n_db, stream_);
+    search_queries.resize(n_q, stream_);
     raft::random::RngState r(1234ULL);
     // Scaling the distribution rather than the samples keeps the default case (scale 1) drawing
     // exactly the data it always did.
-    const auto mean   = static_cast<DataT>(0.1 * ps.data_scale);
-    const auto stddev = static_cast<DataT>(2.0 * ps.data_scale);
-    raft::random::normal(handle_, r, database.data(), ps.n_rows * ps.dim, mean, stddev);
-    raft::random::normal(handle_, r, search_queries.data(), ps.n_queries * ps.dim, mean, stddev);
+    const auto mean   = static_cast<float>(0.1 * ps.data_scale);
+    const auto stddev = static_cast<float>(2.0 * ps.data_scale);
+    if constexpr (std::is_same_v<DataT, float>) {
+      raft::random::normal(handle_, r, database.data(), n_db, mean, stddev);
+      raft::random::normal(handle_, r, search_queries.data(), n_q, mean, stddev);
+    } else if constexpr (std::is_same_v<DataT, half>) {
+      // `raft::random::normal` requires std::is_floating_point, which excludes half, so the same
+      // distribution is drawn in fp32 and converted. The conversion is the builder's own, and is
+      // what the float path applies internally anyway, so the half fixture differs from the float
+      // one only in that it happens before `build_graph` rather than inside it.
+      rmm::device_uvector<float> db_f32(n_db, stream_);
+      rmm::device_uvector<float> q_f32(n_q, stream_);
+      raft::random::normal(handle_, r, db_f32.data(), n_db, mean, stddev);
+      raft::random::normal(handle_, r, q_f32.data(), n_q, mean, stddev);
+      detail::cast_to_half(handle_, db_f32.data(), database.data(), n_db);
+      detail::cast_to_half(handle_, q_f32.data(), search_queries.data(), n_q);
+    } else {
+      // `data_scale` has no meaning here: the range is the type's own, which is already the wide
+      // one. int8 at full range in 128 dimensions gives squared distances around 8e6, the same
+      // regime `AnnGpipnnWideRange` reaches on floats by scaling them.
+      rmm::device_uvector<uint32_t> db_raw(n_db, stream_);
+      rmm::device_uvector<uint32_t> q_raw(n_q, stream_);
+      raft::random::uniformInt<uint32_t>(handle_, r, db_raw.data(), n_db, 0u, 256u);
+      raft::random::uniformInt<uint32_t>(handle_, r, q_raw.data(), n_q, 0u, 256u);
+      const narrow_to_int_op<DataT> narrow{std::is_signed_v<DataT> ? -128 : 0};
+      raft::linalg::map(
+        handle_,
+        raft::make_device_vector_view<DataT, int64_t>(database.data(), n_db),
+        narrow,
+        raft::make_device_vector_view<const uint32_t, int64_t>(db_raw.data(), n_db));
+      raft::linalg::map(handle_,
+                        raft::make_device_vector_view<DataT, int64_t>(search_queries.data(), n_q),
+                        narrow,
+                        raft::make_device_vector_view<const uint32_t, int64_t>(q_raw.data(), n_q));
+    }
     raft::resource::sync_stream(handle_);
   }
 
