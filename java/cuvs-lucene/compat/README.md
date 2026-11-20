@@ -19,9 +19,9 @@ on. Directories are named `<class>-<release>-<change>`:
 | --- | --- | --- | --- |
 | `cuvs.lucene.compat.knnVectorsReader` | `knn-vectors-reader-102-bits` | 10.2 | `search` takes the accepted documents as `Bits` |
 | | `knn-vectors-reader-103-acceptdocs` | 10.3, 10.4, 10.5 | `search` takes `AcceptDocs`; readers also report `getOffHeapByteSize`; merge methods throw `IOException` |
-| | `knn-vectors-reader-106-merge-instance` | 10.6 | the merge instance of the raw vectors reader may read through an input of its own; readers also report `getVectorCount` and read with a `DataAccessHint` |
+| | `knn-vectors-reader-106-merge-instance` | 10.6 | the merge instance of the raw vectors reader may read through an input of its own; readers also report `getVectorCount` and read with a `DataAccessHint`, and `CompatFilterKnnVectorsReader` forwards both |
 | `cuvs.lucene.compat.knnVectorsWriter` | `knn-vectors-writer-102-void` | 10.2, 10.3, 10.4 | `mergeOneField` returns nothing |
-| | `knn-vectors-writer-105-iorunnable` | 10.5, 10.6 | `mergeOneField` returns work for Lucene to run once every field is merged; the writers return none |
+| | `knn-vectors-writer-105-iorunnable` | 10.5, 10.6 | `mergeOneField` returns work for Lucene to run once every field is merged; the writers return none, except that `CompatFilterKnnVectorsWriter` passes on the work of the writer it forwards to |
 | `cuvs.lucene.compat.knnFloatVectorQuery` | `knn-float-vector-query-102-bits` | 10.2 | `approximateSearch` takes `Bits` |
 | | `knn-float-vector-query-103-acceptdocs` | 10.3, 10.4, 10.5, 10.6 | `approximateSearch` takes `AcceptDocs`; filtered segment searches must return `perLeafTopK` hits, often more than `k` |
 | `cuvs.lucene.compat.leafReader` (tests only) | `leaf-reader-102-bits` | 10.2 | `searchNearestVectors` takes `Bits` |
