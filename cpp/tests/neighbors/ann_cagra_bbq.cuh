@@ -7,8 +7,8 @@
 #include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "ann_cagra.cuh"
 
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/neighbors/cagra.hpp>
-#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -37,8 +37,8 @@ struct AnnCagraBbqInputs {
   /** Query-side layout; the code width follows from it. */
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
   /**
-   * Document-side layout of a second, coarser quantizer. When set, the dataset carries two
-   * quantizers and the asymmetric NN-descent path is used.
+   * Document-side layout of a second, coarser encoding. When set, the rows are encoded into a
+   * document and a query dataset, and the asymmetric NN-descent path is used.
    */
   std::optional<cuvs::preprocessing::quantize::bbq::bbq_code_layout> second_layout;
   /** Fraction of the full-precision build's recall that the BBQ build must retain. */
@@ -66,21 +66,39 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
   }
 
  protected:
-  /** Quantize the float database on the host and upload the codes. */
-  auto quantize_database() -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+  using bbq_dataset_t = cuvs::neighbors::device_bbq_dataset<float, int64_t>;
+
+  /** The document side: the coarser second layout when set, `layout` otherwise. */
+  [[nodiscard]] auto document_layout() const { return ps.second_layout.value_or(ps.layout); }
+
+  /** Quantize the float database on the host in @p layout and upload the codes. */
+  auto quantize_database(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout)
+    -> bbq_dataset_t
   {
+    cuvs::preprocessing::quantize::bbq::detail::validate_layout_pair(ps.layout, document_layout());
     std::vector<float> host_data(static_cast<size_t>(ps.n_rows) * ps.dim);
     raft::update_host(host_data.data(), database.data(), host_data.size(), stream_);
     raft::resource::sync_stream(handle_);
 
     return cuvs::preprocessing::quantize::bbq::detail::quantize_to_device(
-      handle_,
-      host_data.data(),
-      ps.n_rows,
-      ps.dim,
-      ps.metric,
-      ps.layout,
-      ps.second_layout.value_or(ps.layout));
+      handle_, host_data.data(), ps.n_rows, ps.dim, ps.metric, layout);
+  }
+
+  /** The query side of an asymmetric build, in `layout`; none for a symmetric one. */
+  auto quantize_query_database() -> std::optional<bbq_dataset_t>
+  {
+    if (!ps.second_layout.has_value()) { return std::nullopt; }
+    return quantize_database(ps.layout);
+  }
+
+  /** Builds from the document dataset alone, or against the query dataset when there is one. */
+  auto build_bbq_index(cagra::index_params const& params,
+                       bbq_dataset_t const& document,
+                       std::optional<bbq_dataset_t> const& query) -> device_bbq_index<float>
+  {
+    std::optional<device_bbq_dataset_view<float, int64_t>> query_view;
+    if (query.has_value()) { query_view = query->view(); }
+    return cagra::build(handle_, params, document.view(), query_view);
   }
 
   [[nodiscard]] auto default_index_params() const -> cagra::index_params
@@ -180,9 +198,10 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
 
     double bbq_recall = 0.0;
     {
-      // `owning_codes` backs the view held by the built index, so it must outlive it.
-      auto owning_codes = quantize_database();
-      auto graph_index  = cagra::build(handle_, default_index_params(), owning_codes.view());
+      // `document` backs the view held by the built index, so it must outlive it.
+      auto document    = quantize_database(document_layout());
+      auto query       = quantize_query_database();
+      auto graph_index = build_bbq_index(default_index_params(), document, query);
       ASSERT_EQ(graph_index.graph_size(), static_cast<uint32_t>(ps.n_rows));
 
       // Rebinding the uncompressed vectors is what makes the BBQ-built graph searchable.
@@ -213,8 +232,9 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
   /** The optimized graph has the requested shape and refers only to existing rows. */
   void testGraphShape()
   {
-    auto owning_codes = quantize_database();
-    auto index        = cagra::build(handle_, default_index_params(), owning_codes.view());
+    auto document = quantize_database(document_layout());
+    auto query    = quantize_query_database();
+    auto index    = build_bbq_index(default_index_params(), document, query);
 
     ASSERT_EQ(index.graph_size(), static_cast<uint32_t>(ps.n_rows));
     ASSERT_EQ(index.graph_degree(), static_cast<uint32_t>(ps.graph_degree));
@@ -235,7 +255,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
   }
 
   /**
-   * A BBQ index file holds the graph alone: the codes and their quantizers live outside the
+   * A BBQ index file holds the graph alone: the codes and their quantizer live outside the
    * index, so the restored graph only becomes searchable once a dataset is reattached, and then
    * it answers exactly as the original did.
    */
@@ -250,8 +270,9 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     cuvs::neighbors::test::padded_device_matrix_for_cagra<float> device_padded(handle_,
                                                                                database_view);
 
-    auto owning_codes = quantize_database();
-    auto graph_index  = cagra::build(handle_, default_index_params(), owning_codes.view());
+    auto document    = quantize_database(document_layout());
+    auto query       = quantize_query_database();
+    auto graph_index = build_bbq_index(default_index_params(), document, query);
 
     std::stringstream stored;
     cagra::serialize(handle_, stored, graph_index);
@@ -264,7 +285,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     ASSERT_EQ(restored.graph_degree(), graph_index.graph_degree());
     EXPECT_EQ(restored.metric(), graph_index.metric());
     EXPECT_EQ(restored.dataset().n_rows(), 0);
-    EXPECT_TRUE(restored.dataset().quantizers.empty());
+    EXPECT_EQ(restored.dataset().data_view().codes.data_handle(), nullptr);
 
     auto original   = cagra::update_dataset(handle_, std::move(graph_index), device_padded.view);
     auto reattached = cagra::update_dataset(handle_, std::move(restored), device_padded.view);
@@ -281,33 +302,34 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     auto params                    = default_index_params();
     params.attach_dataset_on_build = false;
 
-    auto owning_codes = quantize_database();
-    auto index        = cagra::build(handle_, params, owning_codes.view());
+    auto document = quantize_database(document_layout());
+    auto query    = quantize_query_database();
+    auto index    = build_bbq_index(params, document, query);
 
     ASSERT_EQ(index.graph_size(), static_cast<uint32_t>(ps.n_rows));
     ASSERT_EQ(index.graph_degree(), static_cast<uint32_t>(ps.graph_degree));
     EXPECT_EQ(index.dataset().n_rows(), 0);
-    EXPECT_TRUE(index.dataset().quantizers.empty());
+    EXPECT_EQ(index.dataset().data_view().codes.data_handle(), nullptr);
   }
 
   /** Only NN-descent graph construction and the four BBQ metrics are accepted. */
   void testUnsupportedParams()
   {
-    auto owning_codes = quantize_database();
-    auto dataset      = owning_codes.view();
+    auto document = quantize_database(document_layout());
+    auto query    = quantize_query_database();
 
     auto ivf_pq_params               = default_index_params();
     ivf_pq_params.graph_build_params = cagra::graph_build_params::ivf_pq_params(
       raft::matrix_extent<int64_t>(ps.n_rows, ps.dim), ps.metric);
-    EXPECT_THROW(cagra::build(handle_, ivf_pq_params, dataset), raft::exception);
+    EXPECT_THROW(build_bbq_index(ivf_pq_params, document, query), raft::exception);
 
     auto iterative_params               = default_index_params();
     iterative_params.graph_build_params = cagra::graph_build_params::iterative_search_params();
-    EXPECT_THROW(cagra::build(handle_, iterative_params, dataset), raft::exception);
+    EXPECT_THROW(build_bbq_index(iterative_params, document, query), raft::exception);
 
     auto l1_params   = default_index_params();
     l1_params.metric = cuvs::distance::DistanceType::L1;
-    EXPECT_THROW(cagra::build(handle_, l1_params, dataset), raft::exception);
+    EXPECT_THROW(build_bbq_index(l1_params, document, query), raft::exception);
   }
 
   void SetUp() override

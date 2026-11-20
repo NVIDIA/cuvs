@@ -473,20 +473,26 @@ void build_knn_graph(
     res, build_params.metric, dataset, knn_graph_internal);
 }
 
+/**
+ * Builds the kNN graph of the rows of @p document from their BBQ codes: symmetric distances
+ * between the codes of @p document, or asymmetric ones against the codes of @p query when given.
+ */
 template <typename DataT, typename IdxT>
 void build_knn_graph(raft::resources const& res,
-                     cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+                     cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> document,
+                     std::optional<cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>> query,
                      raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
                      cuvs::neighbors::nn_descent::index_params build_params)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "cagra::build_knn_graph<NN-DESCENT,BBQ>(%zu, %zu, %u)",
-    size_t(dataset.n_rows()),
-    size_t(dataset.dim()),
+    size_t(document.n_rows()),
+    size_t(document.dim()),
     size_t(knn_graph.extent(1)));
 
   std::optional<raft::host_matrix_view<IdxT, int64_t, row_major>> graph_view = knn_graph;
-  auto nn_descent_idx = cuvs::neighbors::nn_descent::build(res, build_params, dataset, graph_view);
+  auto nn_descent_idx =
+    cuvs::neighbors::nn_descent::build(res, build_params, document, query, graph_view);
 
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;
   using g_accessor    = typename decltype(nn_descent_idx.graph())::accessor_type;
@@ -500,7 +506,7 @@ void build_knn_graph(raft::resources const& res,
       nn_descent_idx.graph().extent(1));
 
   cuvs::neighbors::cagra::detail::graph::sort_knn_graph_bbq(
-    res, build_params.metric, dataset, knn_graph_internal);
+    res, build_params.metric, document, query.value_or(document), knn_graph_internal);
 }
 
 template <typename IdxT = uint32_t,
@@ -1219,7 +1225,8 @@ auto build_from_device_matrix(raft::resources const& res,
 
 /**
  * Build from a device-resident BBQ-quantized dataset: the whole graph construction runs on the
- * compressed codes.
+ * compressed codes, of @p dataset alone or of @p dataset against the wider codes of @p query.
+ * The index refers to @p dataset.
  *
  * The returned index cannot be searched, because CAGRA has no BBQ search kernels. Pass an
  * uncompressed device-padded dataset to `cagra::update_dataset` to obtain a searchable index over
@@ -1229,10 +1236,11 @@ template <typename T, typename IdxT, typename DatasetViewT>
   requires cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>
 auto build_from_bbq_dataset(raft::resources const& res,
                             const index_params& params,
-                            DatasetViewT const& dataset)
+                            DatasetViewT const& dataset,
+                            std::optional<DatasetViewT> query = std::nullopt)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
-  RAFT_EXPECTS(!dataset.quantizers.empty(), "cagra::build: the BBQ dataset is empty.");
+  RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: the BBQ dataset is empty.");
   RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
                  params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                  params.metric == cuvs::distance::DistanceType::CosineExpanded ||
@@ -1257,7 +1265,7 @@ auto build_from_bbq_dataset(raft::resources const& res,
   auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {
     std::optional<raft::host_matrix<IdxT, int64_t>> knn_graph(
       raft::make_host_matrix<IdxT, int64_t>(n_rows, intermediate_degree));
-    build_knn_graph<T, IdxT>(res, dataset, knn_graph->view(), nn_descent_params);
+    build_knn_graph<T, IdxT>(res, dataset, query, knn_graph->view(), nn_descent_params);
 
     auto optimized = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
     RAFT_LOG_TRACE("optimizing graph");
