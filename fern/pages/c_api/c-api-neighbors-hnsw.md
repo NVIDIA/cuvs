@@ -49,6 +49,7 @@ struct cuvsHnswAceParams {
   bool use_disk;
   double max_host_memory_gb;
   double max_gpu_memory_gb;
+  double target_alpha;
 };
 ```
 
@@ -61,6 +62,7 @@ struct cuvsHnswAceParams {
 | `use_disk` | `bool` | Whether to use disk-based storage for ACE build. When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB. When set to 0 (default), uses available host memory. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB. When set to 0 (default), uses available GPU memory. Useful for testing or when running alongside other memory-intensive processes. |
+| `target_alpha` | `double` | Target number of augmented (spill) copies per input vector. A value of 0 disables augmentation. The default is 1.0. Must be finite and in [0, min(3, N - 1)], where N is the effective partition count after build-time adjustment. This is an expected budget; sampling can change the realized spill count. |
 
 <a id="cuvshnswaceparamscreate"></a>
 ### cuvsHnswAceParamsCreate
