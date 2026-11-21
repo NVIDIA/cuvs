@@ -1,0 +1,16 @@
+name: cuvs_scann
+groups:
+  base:
+    build:
+      n_leaves: [1000, 2000, 5000]
+      pq_dim: [64, 32, 16]
+      pq_bits: [8, 4]
+      partitioning_eta: [1, 2]
+      soar_lambda: [1, 1.5]
+  test:
+    build:
+      n_leaves: [1000]
+      pq_dim: [16]
+      pq_bits: [4]
+      partitioning_eta: [2]
+      soar_lambda: [1.5]

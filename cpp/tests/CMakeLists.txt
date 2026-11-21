@@ -215,7 +215,8 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_SCANN_TEST
-  PATH neighbors/ann_scann/test_float_int64_t.cu
+  PATH neighbors/ann_scann/test_float_int64_t.cu neighbors/ann_scann/test_half_int64_t.cu
+       neighbors/ann_scann/test_int8_t_int64_t.cu neighbors/ann_scann/test_uint8_t_int64_t.cu
   GPUS 1
   PERCENT 1
 )
