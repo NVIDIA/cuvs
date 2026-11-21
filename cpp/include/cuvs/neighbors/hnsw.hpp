@@ -915,9 +915,11 @@ struct search_params : cuvs::neighbors::search_params {
  * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
+ * [n_queries, k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<uint64_t>::max()`.
  * @param[out] distances a host matrix view to the distances to the selected neighbors [n_queries,
- * k]
+ * k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<float>::max()`.
  *
  * Usage example:
  * @code{.cpp}
@@ -961,9 +963,11 @@ void search(raft::resources const& res,
  * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
+ * [n_queries, k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<uint64_t>::max()`.
  * @param[out] distances a host matrix view to the distances to the selected neighbors [n_queries,
- * k]
+ * k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<float>::max()`.
  *
  * Usage example:
  * @code{.cpp}
@@ -1007,9 +1011,11 @@ void search(raft::resources const& res,
  * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
+ * [n_queries, k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<uint64_t>::max()`.
  * @param[out] distances a host matrix view to the distances to the selected neighbors [n_queries,
- * k]
+ * k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<float>::max()`.
  *
  * Usage example:
  * @code{.cpp}
@@ -1053,9 +1059,11 @@ void search(raft::resources const& res,
  * @param[in] idx HNSW index
  * @param[in] queries a host matrix view to a row-major matrix [n_queries, index->dim()]
  * @param[out] neighbors a host matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
+ * [n_queries, k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<uint64_t>::max()`.
  * @param[out] distances a host matrix view to the distances to the selected neighbors [n_queries,
- * k]
+ * k]. If a query reaches fewer than k elements, its remaining slots are set to
+ * `std::numeric_limits<float>::max()`.
  *
  * Usage example:
  * @code{.cpp}
