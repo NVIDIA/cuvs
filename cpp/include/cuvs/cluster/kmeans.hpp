@@ -216,7 +216,9 @@ struct params : base_params {
    * k-means itself already requires the L2Expanded or L2SqrtExpanded metric). When `n_features` is
    * not a multiple of 4 (CAGRA row alignment), the centroids are copied into a zero-padded buffer
    * for each index build.
-   * Ignored by the multi-GPU `fit`. The reported inertia of `fit` is always computed exactly.
+   * In the multi-GPU `fit` the index is built once per iteration on rank 0 and its graph is
+   * broadcast to the other ranks, which search it with their local points. The reported inertia of
+   * `fit` is always computed exactly.
    *
    * Default: false.
    */
