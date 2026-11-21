@@ -58,7 +58,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Returns a KnnVectorsWriter to write the scalar quantized vectors to the index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:65`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:64`_
 
 ### fieldsReader
 
@@ -68,7 +68,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedH
 
 Returns a KnnVectorsReader to read the scalar quantized vectors from the index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:135`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:127`_
 
 ### getMaxDimensions
 
@@ -79,6 +79,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedH
 Returns the maximum number of vector dimensions supported by this format for the given field
 name.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:165`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:157`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:19`_
