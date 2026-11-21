@@ -43,6 +43,7 @@
 #include <mma.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <numeric>
@@ -1183,63 +1184,98 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
   }
 }
 
-// Stages both operands as packed 4-bit codes. packed_1b expands each native word into four
-// words; packed_4b is copied unchanged. The MMA helper loads these bytes into u8 fragments,
-// then extracts the low and high nibbles for separate MMA operations.
+// Copies native packed_4b codes with one 16-byte transfer per thread.
+template <int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_4b(uint8_t (*dst)[RowStride],
+                                              const quantizer_view<DataT, int64_t>& quantizer,
+                                              const Index_t* neighbors,
+                                              int count,
+                                              int step,
+                                              int native_row_bytes)
+{
+  static_assert(TileBytes % sizeof(uint4) == 0);
+  static_assert(RowStride % alignof(uint4) == 0);
+  constexpr int vectors_per_row = TileBytes / sizeof(uint4);
+  static_assert(BLOCK_SIZE % vectors_per_row == 0);
+  constexpr int rows_per_pass = BLOCK_SIZE / vectors_per_row;
+  static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
+  const int base      = step * TileBytes;
+  const int remaining = native_row_bytes - base;
+  const int num_load_u32 =
+    (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / 4;
+  const bool aligned =
+    reinterpret_cast<uintptr_t>(quantizer.codes.data_handle()) % alignof(uint4) == 0 &&
+    quantizer.codes.extent(1) % alignof(uint4) == 0;
+
+  for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
+    const int idx = i * rows_per_pass + threadIdx.x / vectors_per_row;
+    const int v   = threadIdx.x % vectors_per_row;
+    if (idx >= count) continue;
+    auto* s         = reinterpret_cast<uint4*>(dst[idx]);
+    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    const int word  = v * 4;
+    if (aligned && word + 4 <= num_load_u32) {
+      s[v] = reinterpret_cast<const uint4*>(src)[v];
+    } else {
+      // External views can have only uint32 alignment; the same path zero-fills tail vectors.
+      s[v] = uint4{word < num_load_u32 ? src[word] : 0,
+                   word + 1 < num_load_u32 ? src[word + 1] : 0,
+                   word + 2 < num_load_u32 ? src[word + 2] : 0,
+                   word + 3 < num_load_u32 ? src[word + 3] : 0};
+    }
+  }
+}
+
+// Expands each packed_1b word into four packed_4b words for the MMA operands.
+template <int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_1b(uint8_t (*dst)[RowStride],
+                                              const quantizer_view<DataT, int64_t>& quantizer,
+                                              const Index_t* neighbors,
+                                              int count,
+                                              int step,
+                                              int native_row_bytes)
+{
+  constexpr int native_tile     = TileBytes / 4;
+  constexpr int native_tile_u32 = native_tile / 4;
+  // A 128-byte promoted tile needs only eight native words. Give each row eight threads
+  // rather than a full warp so promotion keeps all lanes busy.
+  static_assert(BLOCK_SIZE % native_tile_u32 == 0);
+  constexpr int rows_per_pass = BLOCK_SIZE / native_tile_u32;
+  static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
+
+  const int base      = step * native_tile;
+  const int remaining = native_row_bytes - base;
+  const int num_load_u32 =
+    (remaining < native_tile ? (remaining > 0 ? remaining : 0) : native_tile) / 4;
+
+  for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
+    const int idx = i * rows_per_pass + threadIdx.x / native_tile_u32;
+    const int w   = threadIdx.x % native_tile_u32;
+    if (idx >= count) continue;
+    auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
+    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    if (w < num_load_u32) {
+      reinterpret_cast<uint4*>(s)[w] = packed_1b_to_4b(src[w]);
+    } else {
+      reinterpret_cast<uint4*>(s)[w] = uint4{0, 0, 0, 0};
+    }
+  }
+}
+
+// Selects the native-copy or promotion helper at compile time.
 template <bbq_code_layout Layout, int TileBytes, int RowStride, typename DataT, typename Index_t>
 __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
                                                     const quantizer_view<DataT, int64_t>& quantizer,
                                                     const Index_t* neighbors,
-                                                    const int count,
-                                                    const int step,
-                                                    const int native_row_bytes)
+                                                    int count,
+                                                    int step,
+                                                    int native_row_bytes)
 {
-  static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b,
-                "int4 MMA path supports packed_1b (1b), packed_4b (4b)");
-  if constexpr (Layout == bbq_code_layout::packed_4b) {
-    // Native packed_4b codes need only a warp-strided copy per row.
-    constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
-    constexpr int tile_u32  = TileBytes / 4;
-    const int base          = step * TileBytes;
-    const int remaining     = native_row_bytes - base;
-    const int num_load_u32 =
-      (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / 4;
-
-    for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; ++i) {
-      const int idx = i * num_warps + threadIdx.x / raft::warp_size();
-      if (idx >= count) continue;
-      auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
-      const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
-      for (int w = threadIdx.x % raft::warp_size(); w < tile_u32; w += raft::warp_size()) {
-        s[w] = w < num_load_u32 ? src[w] : 0;
-      }
-    }
+  static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b);
+  if constexpr (Layout == bbq_code_layout::packed_1b) {
+    stage_tile_1b<TileBytes>(dst, quantizer, neighbors, count, step, native_row_bytes);
   } else {
-    constexpr int native_tile     = TileBytes / 4;
-    constexpr int native_tile_u32 = native_tile / 4;
-    // A 128-byte promoted tile needs only eight native words. Give each row eight threads
-    // rather than a full warp so promotion keeps all lanes busy.
-    static_assert(BLOCK_SIZE % native_tile_u32 == 0);
-    constexpr int rows_per_pass = BLOCK_SIZE / native_tile_u32;
-    static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
-
-    const int base      = step * native_tile;
-    const int remaining = native_row_bytes - base;
-    const int num_load_u32 =
-      (remaining < native_tile ? (remaining > 0 ? remaining : 0) : native_tile) / 4;
-
-    for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
-      const int idx = i * rows_per_pass + threadIdx.x / native_tile_u32;
-      const int w   = threadIdx.x % native_tile_u32;
-      if (idx >= count) continue;
-      auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
-      const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
-      if (w < num_load_u32) {
-        reinterpret_cast<uint4*>(s)[w] = packed_1b_to_4b(src[w]);
-      } else {
-        reinterpret_cast<uint4*>(s)[w] = uint4{0, 0, 0, 0};
-      }
-    }
+    stage_tile_4b<TileBytes>(dst, quantizer, neighbors, count, step, native_row_bytes);
   }
 }
 
@@ -1668,8 +1704,9 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr int WARP_TILE     = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
   constexpr int TILE_BYTES    = 128;
   constexpr int ROW_STRIDE    = TILE_BYTES + 16;
-  constexpr int STORE_STRIDE  = SKEWED_MAX_NUM_BI_SAMPLES;
-  constexpr int num_warps     = BLOCK_SIZE / raft::warp_size();
+  // Both products share one row padding region.
+  constexpr int STORE_STRIDE = MAX_NUM_BI_SAMPLES + SKEWED_MAX_NUM_BI_SAMPLES;
+  constexpr int num_warps    = BLOCK_SIZE / raft::warp_size();
   static_assert(WARPS_PER_DIM * WARPS_PER_DIM == num_warps);
   using warp_mma = i4_warp_mma_u8<WARP_TILE, ROW_STRIDE>;
   using raw_t    = typename warp_mma::raw_t;
@@ -1680,11 +1717,11 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr size_t VECTOR_BYTES = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
   constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
   // The feature loop consumes both tiles before either distance matrix replaces them.
-  __shared__ __align__(16) uint8_t s_arena[std::max(2 * VECTOR_BYTES, 2 * DIST_BYTES)];
+  __shared__ __align__(16) uint8_t s_arena[std::max(2 * VECTOR_BYTES, DIST_BYTES)];
   auto s_new         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
   auto s_old         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + VECTOR_BYTES);
   auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
-  auto* distances_no = reinterpret_cast<DistData_t*>(s_arena + DIST_BYTES);
+  auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
   __shared__ int s_unique_counter[2];
   __shared__ bbq_dequant_factors s_new_factors[MAX_NUM_BI_SAMPLES];
 
@@ -1836,8 +1873,9 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr int WARP_TILE     = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
   constexpr int TILE_BYTES    = 128;
   constexpr int ROW_STRIDE    = TILE_BYTES + 16;
-  constexpr int STORE_STRIDE  = SKEWED_MAX_NUM_BI_SAMPLES;
-  constexpr int num_warps     = BLOCK_SIZE / raft::warp_size();
+  // Both products share one row padding region.
+  constexpr int STORE_STRIDE = MAX_NUM_BI_SAMPLES + SKEWED_MAX_NUM_BI_SAMPLES;
+  constexpr int num_warps    = BLOCK_SIZE / raft::warp_size();
   static_assert(WARPS_PER_DIM * WARPS_PER_DIM == num_warps);
   using warp_mma = i4_warp_mma_u8<WARP_TILE, ROW_STRIDE>;
   using raw_t    = typename warp_mma::raw_t;
@@ -1849,12 +1887,12 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
   // New IDs have distinct document and query codes, so both representations need a tile.
   // All three tiles are dead before the two distance matrices replace them.
-  __shared__ __align__(16) uint8_t s_arena[std::max(3 * VECTOR_BYTES, 2 * DIST_BYTES)];
+  __shared__ __align__(16) uint8_t s_arena[std::max(3 * VECTOR_BYTES, DIST_BYTES)];
   auto s_new         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
   auto s_query_new   = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + VECTOR_BYTES);
   auto s_old         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + 2 * VECTOR_BYTES);
   auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
-  auto* distances_no = reinterpret_cast<DistData_t*>(s_arena + DIST_BYTES);
+  auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
   __shared__ int s_unique_counter[2];
   __shared__ bbq_dequant_factors s_new_factors[MAX_NUM_BI_SAMPLES];
 
