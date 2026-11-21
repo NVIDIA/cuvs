@@ -64,4 +64,14 @@ INSTANTIATE_TEST_CASE_P(AnnHnswInmemSpillTest,
                         AnnHnswInmemSpillTest_half,
                         ::testing::ValuesIn(hnsw_inmem_spill_inputs));
 
+typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswAceMaterializeTest_half;
+TEST_P(AnnHnswAceMaterializeTest_half, AnnHnswAceLayeredMaterializeToHnswlib)
+{
+  this->testHnswAceLayeredMaterializeToHnswlib();
+}
+
+INSTANTIATE_TEST_CASE_P(AnnHnswAceMaterializeTest,
+                        AnnHnswAceMaterializeTest_half,
+                        ::testing::ValuesIn(hnsw_ace_layered_inputs));
+
 }  // namespace cuvs::neighbors::hnsw
