@@ -28,6 +28,7 @@
 #include <cuda_runtime.h>
 #include <raft/core/error.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/reduction.cuh>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
@@ -46,8 +47,8 @@ static __device__ __forceinline__ float evaluate_rescale_sample(
     sqr_denom += quantized * quantized + quantized;
   }
 
-  numerator = blockred::warpReduceSum(numerator);
-  sqr_denom = blockred::warpReduceSum(sqr_denom);
+  numerator = raft::warpReduce(numerator);
+  sqr_denom = raft::warpReduce(sqr_denom);
 
   return numerator / sqrtf(sqr_denom);
 }

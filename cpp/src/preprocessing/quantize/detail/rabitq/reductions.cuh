@@ -5,7 +5,7 @@
 
 //
 // Block reductions used by the RaBitQ quantizer kernels, built on cub::BlockReduce.
-// warpReduceSum and FloatSumN come from ivf_rabitq.
+// FloatSumN comes from ivf_rabitq.
 //
 // Requirements / contract:
 //   - blockDim.x == kBlockSize.
@@ -29,7 +29,6 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 namespace blockred {
 
 using cuvs::neighbors::ivf_rabitq::detail::FloatSumN;
-using cuvs::neighbors::ivf_rabitq::detail::warpReduceSum;
 
 /// Sum-reduce N values across the block in one pass; on return vals[k] holds
 /// the full block sum in THREAD 0 only (other threads hold partials).
