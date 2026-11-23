@@ -262,15 +262,19 @@
     "index_abbrev": "u32",
     "distance_type": "float",
     "distance_abbrev": "f",
-    "team_size": [
-      "8",
-      "16",
-      "32"
-    ],
-    "dataset_block_dim": [
-      "128",
-      "256",
-      "512"
+    "_mxdim_team": [
+      {
+        "dataset_block_dim": "128",
+        "team_size": "8"
+      },
+      {
+        "dataset_block_dim": "256",
+        "team_size": "16"
+      },
+      {
+        "dataset_block_dim": "512",
+        "team_size": "32"
+      }
     ],
     "query_type": "uint8_t",
     "query_abbrev": "u8",
