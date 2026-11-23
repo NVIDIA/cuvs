@@ -1147,20 +1147,20 @@ using cuvs::preprocessing::quantize::bbq::detail::bbq_dequant_factors;
 using cuvs::preprocessing::quantize::bbq::detail::get_dequant_factors;
 using cuvs::preprocessing::quantize::bbq::detail::packed_1b_to_4b;
 
-// Stages one K-tile of native codes per neighbor row, using one warp per row.
-// Planes > 1 gathers bit-sliced planes; the last tile is zero-padded.
+// Stages native code planes with four-byte copies and zero-filled tails.
+// SM80+ copies are asynchronous; callers commit and wait before consuming the tile.
 template <int Planes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
-                                                const quantizer_view<DataT, int64_t>& quantizer,
-                                                const Index_t* neighbors,
-                                                const int count,
-                                                const size_t base,
-                                                const int plane_extent,
-                                                const int num_load_u32,
-                                                const int plane_tile_u32,
-                                                const bool last_tile,
-                                                const int warp_id,
-                                                const int lane_id)
+__device__ __forceinline__ void stage_transposed_tile(
+  uint8_t (*dst)[RowStride],
+  const quantizer_view<DataT, int64_t>& quantizer,
+  const Index_t* neighbors,
+  const int count,
+  const size_t base,
+  const int plane_extent,
+  const int num_load_u32,
+  const int plane_tile_u32,
+  const int warp_id,
+  const int lane_id)
 {
   constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
   for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; ++i) {
@@ -1168,18 +1168,18 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
     const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
-    for (int w = lane_id; w < num_load_u32; w += raft::warp_size()) {
+    for (int w = lane_id; w < plane_tile_u32; w += raft::warp_size()) {
+      const bool valid = w < num_load_u32;
 #pragma unroll
       for (int p = 0; p < Planes; ++p) {
-        s[p * plane_tile_u32 + w] = src[p * plane_extent + w];
-      }
-    }
-    if (last_tile) {
-      for (int w = num_load_u32 + lane_id; w < plane_tile_u32; w += raft::warp_size()) {
-#pragma unroll
-        for (int p = 0; p < Planes; ++p) {
-          s[p * plane_tile_u32 + w] = 0;
-        }
+        auto* target = &s[p * plane_tile_u32 + w];
+#if (__CUDA_ARCH__ >= 800)
+        const void* source = valid ? static_cast<const void*>(&src[p * plane_extent + w])
+                                   : quantizer.codes.data_handle();
+        __pipeline_memcpy_async(target, source, sizeof(uint32_t), valid ? 0 : sizeof(uint32_t));
+#else
+        *target = valid ? src[p * plane_extent + w] : 0;
+#endif
       }
     }
   }
@@ -1456,45 +1456,46 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     uint32_t acc_nn[pairs_per_thread] = {};
     uint32_t acc_no[pairs_per_thread] = {};
     for (int step = 0; step < n_tiles; ++step) {
-      const bool last_tile   = step == n_tiles - 1;
-      const int num_load     = last_tile ? plane_bytes - step * plane_tile : plane_tile;
+      const int remaining    = plane_bytes - step * plane_tile;
+      const int num_load     = remaining < plane_tile ? remaining : plane_tile;
       const int num_load_u32 = num_load / sizeof(uint32_t);
       const size_t base      = static_cast<size_t>(step) * plane_tile;
-      stage_tile_simt<document_planes, DOC_STRIDE>(s_document,
-                                                   dataset_document,
-                                                   new_neighbors,
-                                                   new_size,
-                                                   base,
-                                                   plane_extent,
-                                                   num_load_u32,
-                                                   plane_tile_u32,
-                                                   last_tile,
-                                                   warp_id,
-                                                   lane_id);
+      stage_transposed_tile<document_planes, DOC_STRIDE>(s_document,
+                                                         dataset_document,
+                                                         new_neighbors,
+                                                         new_size,
+                                                         base,
+                                                         plane_extent,
+                                                         num_load_u32,
+                                                         plane_tile_u32,
+                                                         warp_id,
+                                                         lane_id);
       if constexpr (!SelfJoin) {
-        stage_tile_simt<query_planes, QUERY_STRIDE>(s_query_new,
-                                                    dataset_query,
-                                                    new_neighbors,
-                                                    new_size,
-                                                    base,
-                                                    plane_extent,
-                                                    num_load_u32,
-                                                    plane_tile_u32,
-                                                    last_tile,
-                                                    warp_id,
-                                                    lane_id);
+        stage_transposed_tile<query_planes, QUERY_STRIDE>(s_query_new,
+                                                          dataset_query,
+                                                          new_neighbors,
+                                                          new_size,
+                                                          base,
+                                                          plane_extent,
+                                                          num_load_u32,
+                                                          plane_tile_u32,
+                                                          warp_id,
+                                                          lane_id);
       }
-      stage_tile_simt<query_planes, QUERY_STRIDE>(s_query_old,
-                                                  dataset_query,
-                                                  old_neighbors,
-                                                  old_size,
-                                                  base,
-                                                  plane_extent,
-                                                  num_load_u32,
-                                                  plane_tile_u32,
-                                                  last_tile,
-                                                  warp_id,
-                                                  lane_id);
+      stage_transposed_tile<query_planes, QUERY_STRIDE>(s_query_old,
+                                                        dataset_query,
+                                                        old_neighbors,
+                                                        old_size,
+                                                        base,
+                                                        plane_extent,
+                                                        num_load_u32,
+                                                        plane_tile_u32,
+                                                        warp_id,
+                                                        lane_id);
+#if (__CUDA_ARCH__ >= 800)
+      __pipeline_commit();
+      __pipeline_wait_prior(0);
+#endif
       __syncthreads();
 #pragma unroll
       for (int k = 0; k < pairs_per_thread; ++k) {
