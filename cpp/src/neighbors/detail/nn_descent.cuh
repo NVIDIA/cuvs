@@ -38,6 +38,7 @@
 
 #include <rmm/device_uvector.hpp>
 
+#include <cuda_pipeline.h>
 #include <cuda_runtime.h>
 
 #include <mma.h>
@@ -1184,14 +1185,14 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
   }
 }
 
-// Copies native packed_4b codes with one 16-byte transfer per thread.
+// Issues native packed_4b copies; callers commit and wait before consuming the shared tile.
 template <int TileBytes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_tile_4b(uint8_t (*dst)[RowStride],
-                                              const quantizer_view<DataT, int64_t>& quantizer,
-                                              const Index_t* neighbors,
-                                              int count,
-                                              int step,
-                                              int native_row_bytes)
+__device__ __forceinline__ void stage_tile_4b_async(uint8_t (*dst)[RowStride],
+                                                    const quantizer_view<DataT, int64_t>& quantizer,
+                                                    const Index_t* neighbors,
+                                                    int count,
+                                                    int step,
+                                                    int native_row_bytes)
 {
   static_assert(TileBytes % sizeof(uint4) == 0);
   static_assert(RowStride % alignof(uint4) == 0);
@@ -1201,28 +1202,22 @@ __device__ __forceinline__ void stage_tile_4b(uint8_t (*dst)[RowStride],
   static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
   const int base      = step * TileBytes;
   const int remaining = native_row_bytes - base;
-  const int num_load_u32 =
-    (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / 4;
-  const bool aligned =
-    reinterpret_cast<uintptr_t>(quantizer.codes.data_handle()) % alignof(uint4) == 0 &&
-    quantizer.codes.extent(1) % alignof(uint4) == 0;
+  const int num_load_vectors =
+    (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / sizeof(uint4);
 
   for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
     const int idx = i * rows_per_pass + threadIdx.x / vectors_per_row;
     const int v   = threadIdx.x % vectors_per_row;
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint4*>(dst[idx]);
-    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
-    const int word  = v * 4;
-    if (aligned && word + 4 <= num_load_u32) {
-      s[v] = reinterpret_cast<const uint4*>(src)[v];
-    } else {
-      // External views can have only uint32 alignment; the same path zero-fills tail vectors.
-      s[v] = uint4{word < num_load_u32 ? src[word] : 0,
-                   word + 1 < num_load_u32 ? src[word + 1] : 0,
-                   word + 2 < num_load_u32 ? src[word + 2] : 0,
-                   word + 3 < num_load_u32 ? src[word + 3] : 0};
-    }
+    const auto* src = reinterpret_cast<const uint4*>(&quantizer.codes(neighbors[idx], base));
+    // Keep the source address in bounds even for zero-filled tail vectors.
+    const bool valid = v < num_load_vectors;
+    __pipeline_memcpy_async(
+      &s[v],
+      valid ? static_cast<const void*>(&src[v]) : quantizer.codes.data_handle(),
+      16,
+      valid ? 0 : 16);
   }
 }
 
@@ -1748,10 +1743,18 @@ __launch_bounds__(BLOCK_SIZE)
     warp_mma mma_no;
     // Both products share the gathered new rows; their MMA loops retain separate warp guards.
     for (int step = 0; step < n_tiles; ++step) {
-      stage_tile_4b<TILE_BYTES>(s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
-      stage_tile_4b<TILE_BYTES>(s_old, dataset_document, old_neighbors, old_size, step, row_bytes);
+      stage_tile_4b_async<TILE_BYTES>(
+        s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
+      __pipeline_commit();
+      stage_tile_4b_async<TILE_BYTES>(
+        s_old, dataset_document, old_neighbors, old_size, step, row_bytes);
+      __pipeline_commit();
+      __pipeline_wait_prior(1);
       __syncthreads();
+      // The old-row copy can finish while the new/new product consumes only s_new.
       if (active_nn) { mma_nn.template accumulate<TILE_BYTES>(s_new, s_new, row0, col0); }
+      __pipeline_wait_prior(0);
+      __syncthreads();
       if (active_no) { mma_no.template accumulate<TILE_BYTES>(s_new, s_old, row0, col0); }
       __syncthreads();
     }
@@ -1919,11 +1922,14 @@ __launch_bounds__(BLOCK_SIZE)
     warp_mma mma_no;
     // Both products share the gathered new rows; their MMA loops retain separate warp guards.
     for (int step = 0; step < n_tiles; ++step) {
-      stage_tile_1b<TILE_BYTES>(s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
-      stage_tile_4b<TILE_BYTES>(
+      stage_tile_4b_async<TILE_BYTES>(
         s_query_new, dataset_query, new_neighbors, new_size, step, query_row_bytes);
-      stage_tile_4b<TILE_BYTES>(
+      stage_tile_4b_async<TILE_BYTES>(
         s_old, dataset_query, old_neighbors, old_size, step, query_row_bytes);
+      __pipeline_commit();
+      // Promote the SIMT-loaded document codes while the native 4b copies are in flight.
+      stage_tile_1b<TILE_BYTES>(s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
+      __pipeline_wait_prior(0);
       __syncthreads();
       if (active_nn) { mma_nn.template accumulate<TILE_BYTES>(s_new, s_query_new, row0, col0); }
       if (active_no) { mma_no.template accumulate<TILE_BYTES>(s_new, s_old, row0, col0); }
@@ -2496,6 +2502,12 @@ void GNND<Data_t, Index_t>::local_join(
     RAFT_EXPECTS(quantizer_document.dim() % 32 == 0,
                  "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
                  static_cast<long long>(quantizer_document.dim()));
+    if (quantizer_query.layout == bbq_code_layout::packed_4b) {
+      RAFT_EXPECTS(
+        reinterpret_cast<uintptr_t>(quantizer_query.codes.data_handle()) % alignof(uint4) == 0 &&
+          quantizer_query.codes.extent(1) % alignof(uint4) == 0,
+        "BBQ packed_4b local join requires a 16-byte aligned code buffer and row stride.");
+    }
   }
 
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
