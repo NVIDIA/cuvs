@@ -2531,7 +2531,12 @@ void GNND<Data_t, Index_t>::local_join(
       const bool aligned_16 =
         reinterpret_cast<uintptr_t>(quantizer_query.codes.data_handle()) % alignof(uint4) == 0 &&
         quantizer_query.codes.extent(1) % alignof(uint4) == 0;
-      if (aligned_16) {
+      if constexpr (D == bbq_code_layout::packed_4b) {
+        RAFT_EXPECTS(
+          aligned_16,
+          "BBQ packed_4b self join requires a 16-byte aligned code buffer and row stride.");
+        launch_wmma(std::integral_constant<int, 16>{});
+      } else if (aligned_16) {
         launch_wmma(std::integral_constant<int, 16>{});
       } else {
         launch_wmma(std::integral_constant<int, 4>{});
