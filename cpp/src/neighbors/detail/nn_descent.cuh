@@ -1185,6 +1185,35 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
   }
 }
 
+// Copies packed_4b words for code buffers and row strides aligned to four bytes.
+template <int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_4b_simt(uint8_t (*dst)[RowStride],
+                                                   const quantizer_view<DataT, int64_t>& quantizer,
+                                                   const Index_t* neighbors,
+                                                   int count,
+                                                   int step,
+                                                   int native_row_bytes)
+{
+  static_assert(TileBytes % sizeof(uint32_t) == 0);
+  static_assert(RowStride % alignof(uint32_t) == 0);
+  constexpr int words_per_row = TileBytes / sizeof(uint32_t);
+  static_assert(BLOCK_SIZE % words_per_row == 0);
+  constexpr int rows_per_pass = BLOCK_SIZE / words_per_row;
+  static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
+  const int base      = step * TileBytes;
+  const int remaining = native_row_bytes - base;
+  const int num_load_words =
+    (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / sizeof(uint32_t);
+  for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
+    const int idx  = i * rows_per_pass + threadIdx.x / words_per_row;
+    const int word = threadIdx.x % words_per_row;
+    if (idx >= count) continue;
+    auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
+    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    s[word]         = word < num_load_words ? src[word] : 0;
+  }
+}
+
 // Issues native packed_4b copies; callers commit and wait before consuming the shared tile.
 template <int TileBytes, int RowStride, typename DataT, typename Index_t>
 __device__ __forceinline__ void stage_tile_4b_async(uint8_t (*dst)[RowStride],
@@ -1218,6 +1247,26 @@ __device__ __forceinline__ void stage_tile_4b_async(uint8_t (*dst)[RowStride],
       valid ? static_cast<const void*>(&src[v]) : quantizer.codes.data_handle(),
       16,
       valid ? 0 : 16);
+  }
+}
+
+// Alignment is selected at launch; architectures before Ampere always use SIMT loads.
+template <int Alignment, int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_4b(uint8_t (*dst)[RowStride],
+                                              const quantizer_view<DataT, int64_t>& quantizer,
+                                              const Index_t* neighbors,
+                                              int count,
+                                              int step,
+                                              int native_row_bytes)
+{
+  static_assert(Alignment == 4 || Alignment == 16);
+#if (__CUDA_ARCH__ >= 800)
+  if constexpr (Alignment == 16) {
+    stage_tile_4b_async<TileBytes>(dst, quantizer, neighbors, count, step, native_row_bytes);
+  } else
+#endif
+  {
+    stage_tile_4b_simt<TileBytes>(dst, quantizer, neighbors, count, step, native_row_bytes);
   }
 }
 
@@ -1650,7 +1699,8 @@ template <bbq_code_layout DocumentLayout,
           typename DataT,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
-          typename DistEpilogue_t>
+          typename DistEpilogue_t,
+          int Alignment = 16>
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Same minBlocksPerMultiprocessor = 4 arches as local_join_kernel_wmma
@@ -1678,6 +1728,7 @@ __launch_bounds__(BLOCK_SIZE)
 #if (__CUDA_ARCH__ >= 750)
   static_assert(DocumentLayout == bbq_code_layout::packed_4b &&
                 QueryLayout == bbq_code_layout::packed_4b);
+  constexpr bool async_copy   = Alignment == 16 && __CUDA_ARCH__ >= 800;
   constexpr int WARPS_PER_DIM = 4;
   constexpr int WARP_TILE     = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
   constexpr int TILE_BYTES    = 128;
@@ -1692,14 +1743,15 @@ __launch_bounds__(BLOCK_SIZE)
   static_assert(sizeof(raw_t) == sizeof(DistData_t));
 
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
+  constexpr int TILE_PAIRS      = async_copy ? 2 : 1;
   constexpr size_t VECTOR_BYTES = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
   constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
   constexpr size_t FACTOR_BYTES = sizeof(bbq_dequant_factors) * MAX_NUM_BI_SAMPLES;
   static_assert(DIST_BYTES % alignof(bbq_dequant_factors) == 0);
   // Distances and factors replace the vector tiles after the feature loop.
-  __shared__ __align__(16) uint8_t s_arena[std::max(2 * VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
-  auto s_new         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
-  auto s_old         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + VECTOR_BYTES);
+  __shared__ __align__(16)
+    uint8_t s_arena[std::max(2 * TILE_PAIRS * VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
+  auto s_tiles       = reinterpret_cast<uint8_t (*)[MAX_NUM_BI_SAMPLES][ROW_STRIDE]>(s_arena);
   auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
   auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
   __shared__ int s_unique_counter[2];
@@ -1737,23 +1789,43 @@ __launch_bounds__(BLOCK_SIZE)
     cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document));
   const int n_tiles = raft::ceildiv(row_bytes, TILE_BYTES);
   {
+    if constexpr (async_copy) {
+      stage_tile_4b<Alignment, TILE_BYTES>(
+        s_tiles[0], dataset_document, new_neighbors, new_size, 0, row_bytes);
+      stage_tile_4b<Alignment, TILE_BYTES>(
+        s_tiles[1], dataset_document, old_neighbors, old_size, 0, row_bytes);
+      __pipeline_commit();
+    }
     warp_mma mma_nn;
     warp_mma mma_no;
-    // Both products share the gathered new rows; their MMA loops retain separate warp guards.
     for (int step = 0; step < n_tiles; ++step) {
-      stage_tile_4b_async<TILE_BYTES>(
-        s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
-      __pipeline_commit();
-      stage_tile_4b_async<TILE_BYTES>(
-        s_old, dataset_document, old_neighbors, old_size, step, row_bytes);
-      __pipeline_commit();
-      __pipeline_wait_prior(1);
+      const int current = async_copy ? 2 * (step & 1) : 0;
+      if constexpr (async_copy) {
+        __pipeline_wait_prior(0);
+      } else {
+        stage_tile_4b<Alignment, TILE_BYTES>(
+          s_tiles[current], dataset_document, new_neighbors, new_size, step, row_bytes);
+        stage_tile_4b<Alignment, TILE_BYTES>(
+          s_tiles[current + 1], dataset_document, old_neighbors, old_size, step, row_bytes);
+      }
       __syncthreads();
-      // The old-row copy can finish while the new/new product consumes only s_new.
-      if (active_nn) { mma_nn.template accumulate<TILE_BYTES>(s_new, s_new, row0, col0); }
-      __pipeline_wait_prior(0);
-      __syncthreads();
-      if (active_no) { mma_no.template accumulate<TILE_BYTES>(s_new, s_old, row0, col0); }
+      if constexpr (async_copy) {
+        if (step + 1 < n_tiles) {
+          const int next = current ^ 2;
+          stage_tile_4b<Alignment, TILE_BYTES>(
+            s_tiles[next], dataset_document, new_neighbors, new_size, step + 1, row_bytes);
+          stage_tile_4b<Alignment, TILE_BYTES>(
+            s_tiles[next + 1], dataset_document, old_neighbors, old_size, step + 1, row_bytes);
+          __pipeline_commit();
+        }
+      }
+      // Prefetch the next tile pair while both products consume the current pair.
+      if (active_nn) {
+        mma_nn.template accumulate<TILE_BYTES>(s_tiles[current], s_tiles[current], row0, col0);
+      }
+      if (active_no) {
+        mma_no.template accumulate<TILE_BYTES>(s_tiles[current], s_tiles[current + 1], row0, col0);
+      }
       __syncthreads();
     }
     // End both accumulator lifetimes before dequantization and graph insertion.
@@ -1826,7 +1898,8 @@ template <bbq_code_layout DocumentLayout,
           typename DataT,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
-          typename DistEpilogue_t>
+          typename DistEpilogue_t,
+          int Alignment = 16>
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Same minBlocksPerMultiprocessor = 4 arches as local_join_kernel_wmma
@@ -1854,6 +1927,7 @@ __launch_bounds__(BLOCK_SIZE)
 #if (__CUDA_ARCH__ >= 750)
   static_assert(DocumentLayout == bbq_code_layout::packed_1b &&
                 QueryLayout == bbq_code_layout::packed_4b);
+  constexpr bool async_copy   = Alignment == 16 && __CUDA_ARCH__ >= 800;
   constexpr int WARPS_PER_DIM = 4;
   constexpr int WARP_TILE     = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
   constexpr int TILE_BYTES    = 128;
@@ -1921,14 +1995,14 @@ __launch_bounds__(BLOCK_SIZE)
     warp_mma mma_no;
     // Both products share the gathered new rows; their MMA loops retain separate warp guards.
     for (int step = 0; step < n_tiles; ++step) {
-      stage_tile_4b_async<TILE_BYTES>(
+      stage_tile_4b<Alignment, TILE_BYTES>(
         s_query_new, dataset_query, new_neighbors, new_size, step, query_row_bytes);
-      stage_tile_4b_async<TILE_BYTES>(
+      stage_tile_4b<Alignment, TILE_BYTES>(
         s_old, dataset_query, old_neighbors, old_size, step, query_row_bytes);
-      __pipeline_commit();
+      if constexpr (async_copy) { __pipeline_commit(); }
       // Promote the SIMT-loaded document codes while the native 4b copies are in flight.
       stage_tile_1b<TILE_BYTES>(s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
-      __pipeline_wait_prior(0);
+      if constexpr (async_copy) { __pipeline_wait_prior(0); }
       __syncthreads();
       if (active_nn) { mma_nn.template accumulate<TILE_BYTES>(s_new, s_query_new, row0, col0); }
       if (active_no) { mma_no.template accumulate<TILE_BYTES>(s_new, s_old, row0, col0); }
@@ -2504,11 +2578,11 @@ void GNND<Data_t, Index_t>::local_join(
     RAFT_EXPECTS(quantizer_document.dim() % 32 == 0,
                  "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
                  static_cast<long long>(quantizer_document.dim()));
-    if (quantizer_query.layout == bbq_code_layout::packed_4b) {
+    for (const auto& quantizer : {quantizer_document, quantizer_query}) {
       RAFT_EXPECTS(
-        reinterpret_cast<uintptr_t>(quantizer_query.codes.data_handle()) % alignof(uint4) == 0 &&
-          quantizer_query.codes.extent(1) % alignof(uint4) == 0,
-        "BBQ packed_4b local join requires a 16-byte aligned code buffer and row stride.");
+        reinterpret_cast<uintptr_t>(quantizer.codes.data_handle()) % alignof(uint32_t) == 0 &&
+          quantizer.codes.extent(1) % alignof(uint32_t) == 0,
+        "BBQ local join requires 4-byte aligned code buffers and row strides.");
     }
   }
 
@@ -2537,12 +2611,35 @@ void GNND<Data_t, Index_t>::local_join(
     // nothing to deduce from, so they are spelled out here.
     using kernel_data_t = std::remove_const_t<Data_t>;
     using kernel_id_t   = InternalID_t<Index_t>;
-    if constexpr (D == bbq_code_layout::packed_4b && Q == bbq_code_layout::packed_4b) {
-      launch_local_join(
-        local_join_kernel_bbq_wmma_sym<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
-    } else if constexpr (D == bbq_code_layout::packed_1b && Q == bbq_code_layout::packed_4b) {
-      launch_local_join(
-        local_join_kernel_bbq_wmma_asym<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
+    if constexpr (Q == bbq_code_layout::packed_4b) {
+      auto launch_wmma = [&](auto alignment) {
+        constexpr int Alignment = decltype(alignment)::value;
+        if constexpr (D == bbq_code_layout::packed_4b) {
+          launch_local_join(local_join_kernel_bbq_wmma_sym<D,
+                                                           Q,
+                                                           kernel_data_t,
+                                                           Index_t,
+                                                           kernel_id_t,
+                                                           DistEpilogue_t,
+                                                           Alignment>);
+        } else {
+          launch_local_join(local_join_kernel_bbq_wmma_asym<D,
+                                                            Q,
+                                                            kernel_data_t,
+                                                            Index_t,
+                                                            kernel_id_t,
+                                                            DistEpilogue_t,
+                                                            Alignment>);
+        }
+      };
+      const bool aligned_16 =
+        reinterpret_cast<uintptr_t>(quantizer_query.codes.data_handle()) % alignof(uint4) == 0 &&
+        quantizer_query.codes.extent(1) % alignof(uint4) == 0;
+      if (aligned_16) {
+        launch_wmma(std::integral_constant<int, 16>{});
+      } else {
+        launch_wmma(std::integral_constant<int, 4>{});
+      }
     } else {
       launch_local_join(
         local_join_kernel_bbq_simt<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
