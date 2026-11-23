@@ -161,12 +161,15 @@ def build_partitioner_from_idx(idx, partitioner=None):
     """
     Build the kmeans tree structure from cuvs-Scann Index
 
-    Args:
-        idx: CuvsScannIndex
-        partitioner: SerializedPartitioner (optional)
+    Parameters
+    ----------
+    idx : CuvsScannIndex
+    partitioner : SerializedPartitioner, optional
 
-    Returns:
-        SerializedPartitioner storing kmeans tree structure from cuvs index
+    Returns
+    -------
+    SerializedPartitioner
+        Stores the kmeans tree structure from the cuvs index.
     """
     if partitioner is None:
         partitioner = SerializedPartitioner()
@@ -193,9 +196,11 @@ def serialized_partitioner_from_index(scann_dir, idx):
     """
     Produce serialized_partitioner.pb from cuvs-Scann index
 
-    Args:
-        scann_dir: directory where scann artifacts are stored
-        idx: CuvsScannIndex
+    Parameters
+    ----------
+    scann_dir : str
+        Directory where scann artifacts are stored.
+    idx : CuvsScannIndex
     """
 
     sp_path = os.path.join(scann_dir, "serialized_partitioner.pb")
@@ -212,9 +217,11 @@ def pq_codebook_from_index(scann_dir, idx):
     """
     Produce ah_codebook.pb from cuvs-Scann index
 
-    Args:
-        scann_dir: directory where scann artifacts are stored
-        idx: CuvsScannIndex
+    Parameters
+    ----------
+    scann_dir : str
+        Directory where scann artifacts are stored.
+    idx : CuvsScannIndex
     """
 
     codebook_path = os.path.join(scann_dir, "ah_codebook.pb")
@@ -324,10 +331,13 @@ def scann_config_from_params(idx, scann_dir, params):
     """
     Produce scann_config.pb
 
-    Args:
-        idx: CuvsScannIndex
-        scann_dir: directory where scann artifacts are stored
-        params: ScannParams storing index build parameters
+    Parameters
+    ----------
+    idx : CuvsScannIndex
+    scann_dir : str
+        Directory where scann artifacts are stored.
+    params : ScannParams
+        Index build parameters.
     """
     scann_config_path = os.path.join(scann_dir, "scann_config.pb")
 
@@ -353,9 +363,11 @@ def scann_assets_file(root_dir, params):
     """
     Produce scann_assets.pbtxt
 
-    Args:
-        root_dir: path where ScaNN assets are stored
-        params: ScannParams object
+    Parameters
+    ----------
+    root_dir : str
+        Path where ScaNN assets are stored.
+    params : ScannParams
     """
 
     bf_16 = """assets {
@@ -406,10 +418,12 @@ def build_scann_assets(scann_dir, params):
     * scann_config.pb (the config)
     * scann_assets.pbtxt (a list of scann assets and their filenames)
 
-    Args:
-        scann_dir: the directory where cuvs artifacts are stored
-        params: ScannParams object storing parameters used during index build
-
+    Parameters
+    ----------
+    scann_dir : str
+        The directory where cuvs artifacts are stored.
+    params : ScannParams
+        Parameters used during index build.
     """
 
     idx = CuvsScannIndex(scann_dir)
