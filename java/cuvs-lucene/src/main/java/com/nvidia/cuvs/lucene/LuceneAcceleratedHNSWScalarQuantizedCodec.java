@@ -23,6 +23,16 @@ public class LuceneAcceleratedHNSWScalarQuantizedCodec extends CuVSFilterCodec {
     this(new AcceleratedHNSWParams.Builder().build());
   }
 
+  /**
+   * Creates the codec with a delegate chosen by the caller, for applications that wrap a codec of
+   * their own. Its vectors format, {@link LuceneAcceleratedHNSWScalarQuantizedVectorsFormat}, can
+   * only read from Lucene 10.4 on, so this codec can then only read too, whatever the delegate;
+   * write with the codec {@link CuVSCodecs#acceleratedHNSWScalarQuantized} returns instead, whose
+   * class also takes a delegate.
+   *
+   * @param name the codec's name, which Lucene records in every segment the codec writes
+   * @param delegate the codec to filter
+   */
   public LuceneAcceleratedHNSWScalarQuantizedCodec(String name, Codec delegate) {
     super(
         name,
