@@ -12,6 +12,7 @@ from ..backends.registry import (
     get_config_loader,
 )
 from ..backends.opensearch import OpenSearchConfigLoader
+from ..backends.scann import ScannConfigLoader
 
 __all__ = [
     # Main orchestrator
@@ -22,6 +23,7 @@ __all__ = [
     "DatasetConfig",
     "CppGBenchConfigLoader",
     "OpenSearchConfigLoader",
+    "ScannConfigLoader",
     # Registry functions
     "get_backend_class",
     "list_backends",
@@ -38,6 +40,7 @@ def _register_builtin_loaders():
     """Register built-in config loaders."""
     register_config_loader("cpp_gbench", CppGBenchConfigLoader)
     register_config_loader("opensearch", OpenSearchConfigLoader)
+    register_config_loader("scann", ScannConfigLoader)
 
 
 # Auto-register when module is imported
