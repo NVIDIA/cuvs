@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-rapids-pip-retry install "cmake<4.5"
+rapids-pip-retry install "cmake>=4.3,<4.5"
 pyenv rehash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
