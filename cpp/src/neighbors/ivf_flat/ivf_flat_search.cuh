@@ -26,6 +26,7 @@
 
 #include <rmm/resource_ref.hpp>
 
+#include <limits>
 #include <type_traits>
 
 namespace cuvs::neighbors::ivf_flat::detail {
@@ -161,21 +162,30 @@ void search_impl(raft::resources const& handle,
                      index.n_lists(),
                      stream.get());
 
-  if (effective_metric == cuvs::distance::DistanceType::CosineExpanded) {
-    auto n_lists                      = index.n_lists();
-    const auto* q_norm_ptr            = query_norm_dev.data();
-    const auto* index_center_norm_ptr = index.center_norms()->data_handle();
+  {
+    // Empty lists and non-finite scores get the worst selectable score, so empty lists are probed
+    // only if fewer than n_probes lists are non-empty. select_k selects neither NaN nor the worst
+    // infinity; with fewer selectable scores than n_probes, it pads the probes with list 0.
+    const bool cosine            = effective_metric == cuvs::distance::DistanceType::CosineExpanded;
+    const auto n_lists           = index.n_lists();
+    const auto* list_sizes_ptr   = index.list_sizes().data_handle();
+    const auto* q_norm_ptr       = query_norm_dev.data();
+    const auto* center_norms_ptr = cosine ? index.center_norms()->data_handle() : nullptr;
+    const float worst_score =
+      select_min ? std::numeric_limits<float>::max() : std::numeric_limits<float>::lowest();
     raft::linalg::map_offset(
       handle,
       distance_buffer_dev_view,
-      [=] __device__(const uint32_t idx, const float dist) {
+      [=] __device__(const uint32_t idx, float dist) {
         const auto query   = idx / n_lists;
         const auto cluster = idx % n_lists;
-        // A list whose k-means cluster ended up empty has a zero center. Define the cosine
-        // distance to a zero-norm vector as 1 (similarity 0), as IVF-SQ does: a NaN here is never
-        // selected, and with fewer finite lists than n_probes the probes get padded with list 0.
-        const auto denom = q_norm_ptr[query] * index_center_norm_ptr[cluster];
-        return denom > 0.0f ? dist / denom : 0.0f;
+        if (list_sizes_ptr[cluster] == 0) { return worst_score; }
+        if (cosine) {
+          // Define the cosine distance to a zero-norm center as 1 (similarity 0), as IVF-SQ does.
+          const auto denom = q_norm_ptr[query] * center_norms_ptr[cluster];
+          dist             = denom > 0.0f ? dist / denom : 0.0f;
+        }
+        return isfinite(dist) ? dist : worst_score;
       },
       raft::make_const_mdspan(distance_buffer_dev_view));
   }
