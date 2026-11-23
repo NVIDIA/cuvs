@@ -256,9 +256,7 @@ def populate_partitioner_config(partitioning, idx, params):
     partitioning.num_children = params.num_leaves
     partitioning.min_cluster_size = 50
     partitioning.max_clustering_iterations = 12
-    partitioning.single_machine_center_initialization = (
-        PartitioningConfig.SingleMachineCenterInitializationType.RANDOM_INITIALIZATION
-    )
+    partitioning.single_machine_center_initialization = PartitioningConfig.SingleMachineCenterInitializationType.RANDOM_INITIALIZATION
     partitioning.partitioning_distance.distance_measure = "SquaredL2Distance"
 
     partitioning.query_spilling.max_spill_centers = 50
@@ -315,9 +313,7 @@ def populate_hashing_config(hashing, idx, params):
     hashing.expected_sample_size = params.pq_training_size
     hashing.use_global_topn = idx.num_subspaces <= 256
 
-    hashing.fixed_point_lut_conversion_options.float_to_int_conversion_method = (
-        AsymmetricHasherConfig.FixedPointLUTConversionOptions.ROUND
-    )
+    hashing.fixed_point_lut_conversion_options.float_to_int_conversion_method = AsymmetricHasherConfig.FixedPointLUTConversionOptions.ROUND
     hashing.projection.projection_type = ProjectionConfig.ProjectionType.CHUNK
     hashing.projection.num_blocks = idx.num_subspaces
     hashing.projection.num_dims_per_block = idx.pq_dim

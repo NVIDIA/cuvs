@@ -340,7 +340,11 @@ class ScannBackend(BenchmarkBackend):
         )
 
     def _scann_build_command(
-        self, scann_build: str, base_file: str, scann_dir: str, build_param: dict
+        self,
+        scann_build: str,
+        base_file: str,
+        scann_dir: str,
+        build_param: dict,
     ) -> List[str]:
         """Assemble the ``scann_build`` command line for one index."""
 
