@@ -967,17 +967,16 @@ auto iterative_build_graph(raft::resources const& res,
 }
 
 /**
- * Materialize `dataset` as the contiguous, even-`dim` device matrix `gpipnn::build_graph` takes.
+ * Materialize `dataset` as the contiguous device matrix `gpipnn::build_graph` takes.
  *
- * Three things can be wrong with a CAGRA dataset view from GPiPNN's point of view: it may be
- * host-resident, its rows may be padded to a stride wider than the logical `dim`, and `dim` may be
- * odd. A strided copy fixes the first two. The third is fixed by widening to `dim + 1` and zeroing
- * the added column, which contributes nothing to any dot product or row norm and so leaves every
- * pairwise distance unchanged under either supported metric -- this is the graph the caller asked
- * for, not an approximation of it.
+ * Two things can be wrong with a CAGRA dataset view from GPiPNN's point of view: it may be
+ * host-resident, and its rows may be padded to a stride wider than the logical `dim`. Neither is
+ * something the caller can hand over differently -- a padded device view is a dataset CAGRA itself
+ * produced -- so a strided copy fixes both. An odd `dim` is the caller's to fix and is rejected
+ * before this runs.
  *
- * `storage` is only allocated when a copy is needed; an already-contiguous even-`dim` device view
- * is handed back untouched.
+ * `storage` is only allocated when a copy is needed; an already-contiguous device view is handed
+ * back untouched.
  */
 template <typename T, typename DatasetViewT>
   requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
@@ -987,26 +986,21 @@ auto ensure_contiguous_device_dataset_for_gpipnn(
   std::optional<raft::device_matrix<T, int64_t>>& storage)
   -> raft::device_matrix_view<const T, int64_t, raft::row_major>
 {
-  auto const src        = dataset.data_const_view();
-  auto const n_rows     = static_cast<int64_t>(dataset.n_rows());
-  auto const dim        = static_cast<int64_t>(dataset.dim());
-  auto const stride     = static_cast<int64_t>(src.stride(0));
-  auto const padded_dim = dim + (dim % 2);
+  auto const src    = dataset.data_const_view();
+  auto const n_rows = static_cast<int64_t>(dataset.n_rows());
+  auto const dim    = static_cast<int64_t>(dataset.dim());
+  auto const stride = static_cast<int64_t>(src.stride(0));
 
   if constexpr (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>) {
-    if (stride == dim && padded_dim == dim) {
+    if (stride == dim) {
       return raft::make_device_matrix_view<const T, int64_t>(src.data_handle(), n_rows, dim);
     }
   }
 
   auto stream = raft::resource::get_cuda_stream(res).get();
-  storage.emplace(raft::make_device_matrix<T, int64_t>(res, n_rows, padded_dim));
-  if (padded_dim != dim) {
-    RAFT_CUDA_TRY(cudaMemsetAsync(
-      storage->data_handle(), 0, sizeof(T) * static_cast<size_t>(n_rows * padded_dim), stream));
-  }
+  storage.emplace(raft::make_device_matrix<T, int64_t>(res, n_rows, dim));
   RAFT_CUDA_TRY(cudaMemcpy2DAsync(storage->data_handle(),
-                                  sizeof(T) * static_cast<size_t>(padded_dim),
+                                  sizeof(T) * static_cast<size_t>(dim),
                                   src.data_handle(),
                                   sizeof(T) * static_cast<size_t>(stride),
                                   sizeof(T) * static_cast<size_t>(dim),
@@ -1036,7 +1030,19 @@ auto gpipnn_build_graph(raft::resources const& res,
                 "GPiPNN for CAGRA graph build supports float, half, int8 and uint8 datasets only");
 
   auto const n_rows       = static_cast<int64_t>(dataset.n_rows());
+  auto const dim          = static_cast<int64_t>(dataset.dim());
   auto const graph_degree = static_cast<uint32_t>(params.graph_degree);
+
+  // Padding this here would mean allocating a second copy of the dataset behind the caller's back,
+  // so the widening is theirs to do. A zero column is the right fix: it contributes nothing to any
+  // dot product or row norm, leaving every distance unchanged under both supported metrics.
+  RAFT_EXPECTS(dim % 2 == 0,
+               "GPiPNN graph build requires an even dataset dimension, but this dataset has %zu "
+               "columns. Widen it to %zu columns with a zero-filled column before calling build; "
+               "this leaves every L2 and cosine distance unchanged. Alternatively select a "
+               "different CAGRA graph build algorithm.",
+               static_cast<size_t>(dim),
+               static_cast<size_t>(dim + 1));
 
   RAFT_LOG_INFO("Creating graph index using GPiPNN");
 
@@ -1048,17 +1054,25 @@ auto gpipnn_build_graph(raft::resources const& res,
       graph_degree);
     gpipnn_params.graph_degree = graph_degree;
   }
+  // 2 * graph_degree is the recommended reservoir, but it has to stay inside the capacity
+  // gpipnn can stage in shared memory, so a large CAGRA degree gets the ceiling instead.
+  const uint32_t recommended_candidates =
+    std::min(2 * gpipnn_params.graph_degree, cuvs::neighbors::experimental::gpipnn::kMaxCandidates);
   if (gpipnn_params.max_candidates < gpipnn_params.graph_degree) {
-    // 2 * graph_degree is the recommended reservoir, but it has to stay inside the capacity
-    // gpipnn can stage in shared memory, so a large CAGRA degree gets the ceiling instead.
-    const uint32_t raised = std::min(2 * gpipnn_params.graph_degree,
-                                     cuvs::neighbors::experimental::gpipnn::kMaxCandidates);
     RAFT_LOG_WARN(
       "max_candidates (%u) for gpipnn must be at least graph_degree (%u), raising it to %u.",
       gpipnn_params.max_candidates,
       gpipnn_params.graph_degree,
-      raised);
-    gpipnn_params.max_candidates = raised;
+      recommended_candidates);
+    gpipnn_params.max_candidates = recommended_candidates;
+  } else if (gpipnn_params.max_candidates < recommended_candidates) {
+    // Honoured as given: a smaller reservoir is a valid speed/quality trade, just a weaker one,
+    // since direct edge pruning has fewer candidates to choose diverse neighbours from.
+    RAFT_LOG_WARN(
+      "max_candidates (%u) for gpipnn is below the recommended %u (2 * graph_degree), which "
+      "weakens edge pruning and may reduce recall.",
+      gpipnn_params.max_candidates,
+      recommended_candidates);
   }
   if (params.guarantee_connectivity) {
     RAFT_LOG_WARN("guarantee_connectivity is not supported with gpipnn graph build.");

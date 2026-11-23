@@ -387,9 +387,10 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
+    // only L2 and cosine.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
-        (ps.n_rows <= ps.graph_degree ||
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -609,9 +610,10 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
+    // only L2 and cosine.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
-        (ps.n_rows <= ps.graph_degree ||
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -827,9 +829,10 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
+    // only L2 and cosine.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
-        (ps.n_rows <= ps.graph_degree ||
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -1219,9 +1222,10 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
+    // only L2 and cosine.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
-        (ps.n_rows <= ps.graph_degree ||
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -1481,9 +1485,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
+    // only L2 and cosine.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
-        (ps.n_rows <= ps.graph_degree ||
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -2018,13 +2023,15 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
-  // GPiPNN graph build, restricted to the metrics it supports and to `n_rows > graph_degree`.
-  // The odd dims and `host_dataset` are deliberate: GPiPNN takes a contiguous even-`dim` device
-  // matrix, so those cases exercise the conforming copy CAGRA does on its behalf.
+  // GPiPNN graph build, restricted to what it accepts: the metrics it supports,
+  // `n_rows > graph_degree`, and an even `dim`. Within that, 6 and 138 and `host_dataset` are
+  // deliberate. GPiPNN takes a contiguous device matrix, and neither 6 nor 138 is a multiple of
+  // the four floats a row pads to, so those cases exercise the conforming copy CAGRA does on its
+  // behalf; 8 and 64 arrive already contiguous.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
     {1000},
-    {5, 8, 64, 137},  // dim, odd values included deliberately
+    {6, 8, 64, 138},  // dim, even as GPiPNN requires
     {16},             // k
     {32},             // degree
     {graph_build_algo::GPIPNN},

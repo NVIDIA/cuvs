@@ -339,19 +339,15 @@ auto gpipnn_graph(raft::resources const& res,
   return out;
 }
 
-/** Random rows of `dim` columns, plus the same rows widened by one zero column. */
+/** Random rows of `dim` columns. */
 struct gpipnn_fixture {
   raft::resources res;
   int64_t dim;
   rmm::device_uvector<float> narrow;
-  rmm::device_uvector<float> wide;
 
   explicit gpipnn_fixture(int64_t d)
-    : dim(d),
-      narrow(static_cast<size_t>(kGpipnnRows * d), raft::resource::get_cuda_stream(res)),
-      wide(static_cast<size_t>(kGpipnnRows * (d + 1)), raft::resource::get_cuda_stream(res))
+    : dim(d), narrow(static_cast<size_t>(kGpipnnRows * d), raft::resource::get_cuda_stream(res))
   {
-    auto stream = raft::resource::get_cuda_stream(res).get();
     raft::random::RngState r(1234ULL);
     InitDataset(res,
                 narrow.data(),
@@ -359,15 +355,6 @@ struct gpipnn_fixture {
                 static_cast<uint32_t>(dim),
                 cuvs::distance::DistanceType::L2Expanded,
                 r);
-    RAFT_CUDA_TRY(cudaMemsetAsync(wide.data(), 0, sizeof(float) * wide.size(), stream));
-    RAFT_CUDA_TRY(cudaMemcpy2DAsync(wide.data(),
-                                    sizeof(float) * static_cast<size_t>(dim + 1),
-                                    narrow.data(),
-                                    sizeof(float) * static_cast<size_t>(dim),
-                                    sizeof(float) * static_cast<size_t>(dim),
-                                    static_cast<size_t>(kGpipnnRows),
-                                    cudaMemcpyDefault,
-                                    stream));
     raft::resource::sync_stream(res);
   }
 
@@ -375,35 +362,30 @@ struct gpipnn_fixture {
   {
     return raft::make_device_matrix_view<const float, int64_t>(narrow.data(), kGpipnnRows, dim);
   }
-  auto wide_matrix() const -> raft::device_matrix_view<const float, int64_t>
-  {
-    return raft::make_device_matrix_view<const float, int64_t>(wide.data(), kGpipnnRows, dim + 1);
-  }
 };
 
 }  // namespace
 
-// An odd `dim` is widened by one zero column, which contributes nothing to any dot product or row
-// norm. So the graph must be the one the caller asked for, not an approximation of it: building
-// from `dim` and from the same rows pre-widened to `dim + 1` must agree exactly.
-TEST(AnnCagraGpipnn, OddDimPaddingLeavesGraphUnchanged)
+// Widening an odd `dim` would mean allocating a second copy of the dataset behind the caller's
+// back, so it is refused and the caller is asked to pad instead. Refusing matters more than it
+// looks: GPiPNN is only ever selected explicitly, so silently falling back would hand back a
+// graph built by a different algorithm than the one that was asked for.
+TEST(AnnCagraGpipnn, OddDimRejected)
 {
   if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
   gpipnn_fixture f(/*dim=*/7);
-  const auto from_odd =
-    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
-  const auto from_even =
-    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.wide_matrix()));
-  ASSERT_EQ(from_odd, from_even);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), dataset), std::exception);
 }
 
 // A padded dataset carries a row stride wider than the logical `dim`, which the conforming step has
-// to strip out. Same logical rows, so the graph must not move.
+// to strip out. Same logical rows, so the graph must not move. Unlike an odd `dim`, this is not
+// the caller's to fix -- the padding is CAGRA's own -- so it is conformed rather than refused.
 TEST(AnnCagraGpipnn, PaddedStrideMatchesContiguous)
 {
   if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
-  // dim 5 pads to a stride of 8 floats, so this exercises stride != dim and odd dim at once.
-  gpipnn_fixture f(/*dim=*/5);
+  // dim 6 pads to a stride of 8 floats, so this exercises stride != dim while staying even.
+  gpipnn_fixture f(/*dim=*/6);
   const auto contiguous =
     gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
 
