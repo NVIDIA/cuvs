@@ -20,6 +20,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.CodecReader;
+import org.apache.lucene.index.FilterLeafReader;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.StoredFields;
@@ -31,13 +32,18 @@ import org.apache.lucene.util.hnsw.HnswGraph;
 
 public class TestUtils {
 
-  /** Returns the HNSW graph of {@code field} in {@code leaf}, which an HNSW format wrote. */
-  static HnswGraph graphOf(LeafReader leaf, String field) throws IOException {
-    KnnVectorsReader reader = ((CodecReader) leaf).getVectorReader();
+  /** Returns the vectors reader of the format that wrote {@code field} in {@code leaf}. */
+  static KnnVectorsReader vectorsReader(LeafReader leaf, String field) {
+    KnnVectorsReader reader = ((CodecReader) FilterLeafReader.unwrap(leaf)).getVectorReader();
     if (reader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
       reader = fieldsReader.getFieldReader(field);
     }
-    return ((HnswGraphProvider) reader).getGraph(field);
+    return reader;
+  }
+
+  /** Returns the HNSW graph of {@code field} in {@code leaf}, which an HNSW format wrote. */
+  static HnswGraph graphOf(LeafReader leaf, String field) throws IOException {
+    return ((HnswGraphProvider) vectorsReader(leaf, field)).getGraph(field);
   }
 
   /**

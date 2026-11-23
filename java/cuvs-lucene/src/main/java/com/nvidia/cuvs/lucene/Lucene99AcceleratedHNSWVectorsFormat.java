@@ -20,7 +20,6 @@ import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
-import org.apache.lucene.search.TaskExecutor;
 
 /**
  * cuVS based KnnVectorsFormat for indexing on GPU and searching on the CPU.
@@ -81,14 +80,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
       log.log(
           Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
-      return LuceneCompat.hnswVectorsWriter(
-          state,
-          acceleratedHNSWParams.getMaxConn(),
-          acceleratedHNSWParams.getBeamWidth(),
-          FLAT_VECTORS_FORMAT,
-          flatWriter,
-          acceleratedHNSWParams.getNumMergeWorkers(),
-          new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
+      return FallbackHnswVectorsWriter.create(
+          state, acceleratedHNSWParams, FLAT_VECTORS_FORMAT, flatWriter);
     }
   }
 
@@ -98,7 +91,8 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     LuceneVersionGuard.ensureCompatible();
-    return new Lucene99HnswVectorsReader(state, FLAT_VECTORS_FORMAT.fieldsReader(state));
+    return new Lucene99HnswVectorsReader(
+        state, FLAT_VECTORS_FORMAT.fieldsReader(LuceneCompat.flatReadState(state)));
   }
 
   /**
