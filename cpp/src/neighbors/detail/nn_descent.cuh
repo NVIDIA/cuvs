@@ -835,7 +835,10 @@ __launch_bounds__(BLOCK_SIZE)
 #endif
 }
 
-template <typename Data_t,
+// Vectorized selects 8-byte tile loads; local_join() sets it only when every row is 8-byte aligned,
+// and launches the scalar-load variant otherwise.
+template <bool Vectorized,
+          typename Data_t,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
           typename DistEpilogue_t>
@@ -968,20 +971,20 @@ __launch_bounds__(BLOCK_SIZE)
           size_t neighbor_id = new_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
           // converted to fp16 on-the-fly while loading
-          load_vec<true>(s_nv[idx],
-                         data + idx_in_data + step * TILE_COL_WIDTH,
-                         num_load_elems,
-                         TILE_COL_WIDTH,
-                         lane_id);
+          load_vec<Vectorized>(s_nv[idx],
+                               data + idx_in_data + step * TILE_COL_WIDTH,
+                               num_load_elems,
+                               TILE_COL_WIDTH,
+                               lane_id);
         }
         if (idx < list_old_size) {
           size_t neighbor_id = old_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
-          load_vec<true>(s_ov[idx],
-                         data + idx_in_data + step * TILE_COL_WIDTH,
-                         num_load_elems,
-                         TILE_COL_WIDTH,
-                         lane_id);
+          load_vec<Vectorized>(s_ov[idx],
+                               data + idx_in_data + step * TILE_COL_WIDTH,
+                               num_load_elems,
+                               TILE_COL_WIDTH,
+                               lane_id);
         }
       }
       __syncthreads();
@@ -2251,14 +2254,28 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
   bool use_simt = (std::is_same_v<input_t, float> && !use_fp16_dist) ||
                   build_config_.metric == cuvs::distance::DistanceType::L1;
 
+  auto launch_wmma = [&](auto vectorized, auto* typed_ptr) {
+    local_join_kernel_wmma<decltype(vectorized)::value>
+      <<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
+                                         h_rev_graph_new_.data_handle(),
+                                         d_list_sizes_new_.data_handle(),
+                                         h_graph_old_.data_handle(),
+                                         h_rev_graph_old_.data_handle(),
+                                         d_list_sizes_old_.data_handle(),
+                                         NUM_SAMPLES,
+                                         typed_ptr,
+                                         ndim_,
+                                         graph_buffer_.data_handle(),
+                                         dists_buffer_.data_handle(),
+                                         d_locks_.data_handle(),
+                                         l2_norms_.data_handle(),
+                                         build_config_.metric,
+                                         dist_epilogue);
+  };
+
   auto launch_kernel = [&](auto* typed_ptr) {
     using launch_data_t = std::remove_cv_t<std::remove_pointer_t<decltype(typed_ptr)>>;
-    bool launch_simt    = use_simt;
-    if constexpr (std::is_same_v<launch_data_t, float> || std::is_same_v<launch_data_t, __half>) {
-      launch_simt = launch_simt || reinterpret_cast<size_t>(typed_ptr) % sizeof(float2) != 0 ||
-                    (static_cast<size_t>(ndim_) * sizeof(launch_data_t)) % sizeof(float2) != 0;
-    }
-    if (launch_simt) {
+    if (use_simt) {
       local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
                                                                h_rev_graph_new_.data_handle(),
                                                                d_list_sizes_new_.data_handle(),
@@ -2274,22 +2291,21 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
                                                                l2_norms_.data_handle(),
                                                                build_config_.metric,
                                                                dist_epilogue);
+    } else if constexpr (std::is_same_v<launch_data_t, float> ||
+                         std::is_same_v<launch_data_t, __half>) {
+      // The vectorized loads need 8-byte-aligned rows: an aligned base pointer and a row stride
+      // that is a multiple of 8 bytes (this also makes the last partial tile whole loads).
+      bool const aligned =
+        reinterpret_cast<size_t>(typed_ptr) % sizeof(float2) == 0 &&
+        (static_cast<size_t>(ndim_) * sizeof(launch_data_t)) % sizeof(float2) == 0;
+      if (aligned) {
+        launch_wmma(std::true_type{}, typed_ptr);
+      } else {
+        launch_wmma(std::false_type{}, typed_ptr);
+      }
     } else {
-      local_join_kernel_wmma<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                                               h_rev_graph_new_.data_handle(),
-                                                               d_list_sizes_new_.data_handle(),
-                                                               h_graph_old_.data_handle(),
-                                                               h_rev_graph_old_.data_handle(),
-                                                               d_list_sizes_old_.data_handle(),
-                                                               NUM_SAMPLES,
-                                                               typed_ptr,
-                                                               ndim_,
-                                                               graph_buffer_.data_handle(),
-                                                               dists_buffer_.data_handle(),
-                                                               d_locks_.data_handle(),
-                                                               l2_norms_.data_handle(),
-                                                               build_config_.metric,
-                                                               dist_epilogue);
+      // Byte types load one element per lane either way, so they need no unaligned variant.
+      launch_wmma(std::true_type{}, typed_ptr);
     }
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   };
