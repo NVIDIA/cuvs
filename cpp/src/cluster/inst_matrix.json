@@ -1,0 +1,9 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "gmm_matrix.json",
+      "input": "gmm_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/cluster/gmm_inst_data_@data_abbrev@.cu"
+    }
+  ]
+}

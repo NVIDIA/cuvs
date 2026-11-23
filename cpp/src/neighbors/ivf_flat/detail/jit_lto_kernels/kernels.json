@@ -1,0 +1,58 @@
+{
+  "kernels": [
+    {
+      "name_format": "ivf_flat_interleaved_scan_capacity_@capacity@_@ascending_descending@_data_@data_abbrev@_acc_@acc_abbrev@_index_@index_abbrev@",
+      "matrix": "interleaved_scan_matrix.json",
+      "kernel_input": "interleaved_scan_kernel.cu.in",
+      "fragment_tag_format": "@ivf_flat_ns@::fragment_tag_interleaved_scan<@neighbors_ns@::tag_@data_abbrev@, @ivf_flat_ns@::tag_acc_@acc_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @capacity@, @ascending_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_flat/interleaved_scan"
+    },
+    {
+      "name_format": "ivf_flat_load_and_compute_dist_data_@data_abbrev@_acc_@acc_abbrev@_@compute_norm_name@_veclen_@veclen@",
+      "matrix": "load_and_compute_dist_matrix.json",
+      "kernel_input": "load_and_compute_dist_kernel.cu.in",
+      "fragment_tag_format": "@ivf_flat_ns@::fragment_tag_load_and_compute_dist<@neighbors_ns@::tag_@data_abbrev@, @ivf_flat_ns@::tag_acc_@acc_abbrev@, @compute_norm_value@, @veclen@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_flat/load_and_compute_dist"
+    },
+    {
+      "name_format": "ivf_flat_metric_@metric_name@_veclen_@veclen@_data_@data_abbrev@_acc_@acc_abbrev@",
+      "matrix": "metric_matrix.json",
+      "kernel_input": "metric_kernel.cu.in",
+      "fragment_tag_format": "@ivf_flat_ns@::fragment_tag_metric<@neighbors_ns@::tag_@data_abbrev@, @ivf_flat_ns@::tag_acc_@acc_abbrev@, @ivf_flat_ns@::tag_metric_@metric_name@, @veclen@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_flat/metric"
+    },
+    {
+      "name_format": "ivf_flat_filter_@filter_name@_index_@index_abbrev@",
+      "matrix": "filter_matrix.json",
+      "kernel_input": "filter_kernel.cu.in",
+      "fragment_tag_format": "@ivf_flat_ns@::fragment_tag_filter<@neighbors_ns@::tag_index_@index_abbrev@, @neighbors_ns@::tag_filter_@filter_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_flat/filter"
+    },
+    {
+      "name_format": "ivf_flat_post_process_@post_process_name@",
+      "matrix": "post_process_matrix.json",
+      "kernel_input": "post_process_kernel.cu.in",
+      "fragment_tag_format": "@ivf_flat_ns@::fragment_tag_post_lambda<@ivf_flat_ns@::tag_post_process_@post_process_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_flat/post_process"
+    }
+  ]
+}

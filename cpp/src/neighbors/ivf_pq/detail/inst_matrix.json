@@ -1,0 +1,29 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "ivf_pq_build_extend_matrix.json",
+      "input": "ivf_pq_build_extend_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_pq/detail/ivf_pq_build_extend_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "ivf_pq_compute_similarity_select_matrix.json",
+      "input": "ivf_pq_compute_similarity_select_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_select_inst_out_@out_abbrev@_lut_@lut_abbrev@_filter_@filter_name@_metric_@metric@_@increment_score_str@.cu"
+    },
+    {
+      "matrix": "ivf_pq_compute_similarity_run_matrix.json",
+      "input": "ivf_pq_compute_similarity_run_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_run_inst_out_@out_abbrev@_lut_@lut_abbrev@.cu"
+    },
+    {
+      "matrix": "ivf_pq_search_matrix.json",
+      "input": "ivf_pq_search_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_pq/detail/ivf_pq_search_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "ivf_pq_transform_matrix.json",
+      "input": "ivf_pq_transform_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "kernels": [
+    {
+      "name_format": "sample_filter_@filter_name@_bitset_@bitset_abbrev@_index_@index_abbrev@",
+      "matrix": "filter_matrix.json",
+      "kernel_input": "filter_kernel.cu.in",
+      "fragment_tag_format": "@neighbors_ns@::fragment_tag_sample_filter<@neighbors_ns@::tag_bitset_@bitset_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @neighbors_ns@::tag_filter_@filter_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/common/filter"
+    }
+  ]
+}
