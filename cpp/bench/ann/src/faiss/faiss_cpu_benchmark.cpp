@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -68,7 +68,7 @@ template <typename T>
 void parse_build_param(const nlohmann::json& conf,
                        typename cuvs::bench::faiss_cpu_hnsw_flat<T>::build_param& param)
 {
-  param.M = conf.at("M");
+  if (conf.contains("M")) { param.M = conf.at("M"); }
   if (conf.contains("efConstruction")) {
     param.efConstruction = conf.at("efConstruction");
   } else {
