@@ -195,6 +195,13 @@ The shared code never refers to a Lucene API that differs between releases. Inst
 - `CompatKnnVectorsReader`, `CompatKnnVectorsWriter` and `CompatKnnFloatVectorQuery`, which override the Lucene
   methods whose signatures changed and forward to a method with the same signature on every release. They live in `compat/`, one
   directory per variant, and each module picks its variants in its `pom.xml`.
+- The wrappers that forward to another reader or writer, in two layers:
+  - `FilterKnnVectorsReader` and `FilterKnnVectorsWriter`, in the shared sources, forward the methods that are the
+    same on every release.
+  - `CompatFilterKnnVectorsReader` and `CompatFilterKnnVectorsWriter`, which extend them in the same variants as the
+    first two, forward the methods whose signatures differ.
+
+  The reader leaves the merge methods `getMergeInstance` and `finishMerge` to Lucene's defaults.
 
 Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants
 such as `Lucene99HnswVectorsFormat.VERSION_CURRENT` change meaning between releases.
