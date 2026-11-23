@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import yaml
 
+from ..backends._utils import get_index_filename
 from .runners import cuvs_bench_cpp
 
 
@@ -440,12 +441,9 @@ def prepare_indexes(
         ):
             continue
 
-        index_filename = (
-            index_name if len(index_name) < 128 else str(hash(index_name))
-        )
         index["name"] = index_name
         index["file"] = os.path.join(
-            dataset_path, dataset, "index", index_filename
+            dataset_path, dataset, "index", get_index_filename(index_name)
         )
         index["search_params"] = validate_search_params(
             itertools.product(*search_param_lists),
