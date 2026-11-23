@@ -16,7 +16,6 @@ import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
-import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.util.Version;
 
 /**
@@ -85,14 +84,7 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter"
               + " for "
               + getName());
-      return LuceneCompat.hnswVectorsWriter(
-          state,
-          acceleratedHNSWParams.getMaxConn(),
-          acceleratedHNSWParams.getBeamWidth(),
-          flatFormat,
-          flatWriter,
-          acceleratedHNSWParams.getNumMergeWorkers(),
-          new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
+      return FallbackHnswVectorsWriter.create(state, acceleratedHNSWParams, flatFormat, flatWriter);
     }
   }
 
