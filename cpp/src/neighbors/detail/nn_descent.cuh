@@ -1694,14 +1694,16 @@ __launch_bounds__(BLOCK_SIZE)
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
   constexpr size_t VECTOR_BYTES = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
   constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
-  // The feature loop consumes both tiles before either distance matrix replaces them.
-  __shared__ __align__(16) uint8_t s_arena[std::max(2 * VECTOR_BYTES, DIST_BYTES)];
+  constexpr size_t FACTOR_BYTES = sizeof(bbq_dequant_factors) * MAX_NUM_BI_SAMPLES;
+  static_assert(DIST_BYTES % alignof(bbq_dequant_factors) == 0);
+  // Distances and factors replace the vector tiles after the feature loop.
+  __shared__ __align__(16) uint8_t s_arena[std::max(2 * VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
   auto s_new         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
   auto s_old         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + VECTOR_BYTES);
   auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
   auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
   __shared__ int s_unique_counter[2];
-  __shared__ bbq_dequant_factors s_new_factors[MAX_NUM_BI_SAMPLES];
+  auto* s_new_factors = reinterpret_cast<bbq_dequant_factors*>(s_arena + DIST_BYTES);
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -1725,10 +1727,6 @@ __launch_bounds__(BLOCK_SIZE)
                        old_size2,
                        new_size,
                        old_size);
-  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
-    s_new_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
-  }
-  __syncthreads();
 
   const int warp_id    = tx / raft::warp_size();
   const int row0       = warp_id / WARPS_PER_DIM * WARP_TILE;
@@ -1765,6 +1763,9 @@ __launch_bounds__(BLOCK_SIZE)
     if (active_no) {
       mma_no.template store<STORE_STRIDE>(reinterpret_cast<raw_t*>(distances_no), row0, col0);
     }
+  }
+  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
+    s_new_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
   }
   __syncthreads();
 
@@ -1869,16 +1870,18 @@ __launch_bounds__(BLOCK_SIZE)
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
   constexpr size_t VECTOR_BYTES = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
   constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
+  constexpr size_t FACTOR_BYTES = sizeof(bbq_dequant_factors) * MAX_NUM_BI_SAMPLES;
+  static_assert(DIST_BYTES % alignof(bbq_dequant_factors) == 0);
   // New IDs have distinct document and query codes, so both representations need a tile.
-  // All three tiles are dead before the two distance matrices replace them.
-  __shared__ __align__(16) uint8_t s_arena[std::max(3 * VECTOR_BYTES, DIST_BYTES)];
+  // Distances and factors replace all three tiles after the feature loop.
+  __shared__ __align__(16) uint8_t s_arena[std::max(3 * VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
   auto s_new         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
   auto s_query_new   = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + VECTOR_BYTES);
   auto s_old         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + 2 * VECTOR_BYTES);
   auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
   auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
   __shared__ int s_unique_counter[2];
-  __shared__ bbq_dequant_factors s_new_factors[MAX_NUM_BI_SAMPLES];
+  auto* s_new_factors = reinterpret_cast<bbq_dequant_factors*>(s_arena + DIST_BYTES);
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -1902,10 +1905,6 @@ __launch_bounds__(BLOCK_SIZE)
                        old_size2,
                        new_size,
                        old_size);
-  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
-    s_new_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
-  }
-  __syncthreads();
 
   const int warp_id    = tx / raft::warp_size();
   const int row0       = warp_id / WARPS_PER_DIM * WARP_TILE;
@@ -1942,6 +1941,9 @@ __launch_bounds__(BLOCK_SIZE)
     if (active_no) {
       mma_no.template store<STORE_STRIDE>(reinterpret_cast<raw_t*>(distances_no), row0, col0);
     }
+  }
+  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
+    s_new_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
   }
   __syncthreads();
 
