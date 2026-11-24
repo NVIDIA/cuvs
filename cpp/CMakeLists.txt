@@ -1560,6 +1560,7 @@ if(NOT BUILD_CPU_ONLY)
     ${vamana_build_inst_files}
     src/neighbors/vamana_codebooks.cu
     ${vamana_serialize_inst_files}
+    src/neighbors/gpipnn_build.cu
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
