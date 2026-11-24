@@ -6,8 +6,9 @@
 
 # Use RAPIDS_VERSION_MAJOR_MINOR from rapids_config.cmake
 set(RAFT_VERSION "${RAPIDS_VERSION_MAJOR_MINOR}")
-set(RAFT_FORK "NVIDIA")
-set(RAFT_PINNED_TAG "${rapids-cmake-checkout-tag}")
+# TODO: revert to NVIDIA / ${rapids-cmake-checkout-tag} once NVIDIA/raft#3205 is merged
+set(RAFT_FORK "tarang-jain")
+set(RAFT_PINNED_TAG "gemm-bias-epilogue")
 set(LIBRAFT_LOGGING_LEVEL "INFO"
     CACHE STRING "Choose the RAFT logging level compiled into cuVS."
 )
