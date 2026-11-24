@@ -95,11 +95,6 @@
         <version>${lucene.version}</version>
     </dependency>
     <dependency>
-        <groupId>commons-io</groupId>
-        <artifactId>commons-io</artifactId>
-        <version>2.18.0</version>
-    </dependency>
-    <dependency>
       <groupId>com.nvidia.cuvs</groupId>
       <artifactId>cuvs-java</artifactId>
       <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>27.02.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
