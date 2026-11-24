@@ -51,6 +51,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <variant>
@@ -105,6 +106,14 @@ void tiled_brute_force_knn(const raft::resources& handle,
                                                         grow_tile_rows,
                                                         tile_rows,
                                                         tile_cols);
+
+  // Round grown row tiles down so each tile's query pointer stays 256-byte aligned (given an
+  // aligned search pointer), which is what the cuBLASLt heuristic assumes. The default row tiles
+  // (512 or 1024 rows) are already multiples of the alignment, so this never drops below them.
+  if (tile_rows < m) {
+    size_t row_alignment = 256 / std::gcd<size_t>(256, d * sizeof(ElementType));
+    tile_rows            = tile_rows / row_alignment * row_alignment;
+  }
 
   // for unittesting, its convenient to be able to put a max size on the tiles
   // so we can test the tiling logic without having to use huge inputs.
