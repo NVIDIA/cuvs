@@ -1,11 +1,13 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cstdint>
+
+#include <cub/block/block_reduce.cuh>
 
 #include "block_sort.cuh"
 #include "device_functions.cuh"
@@ -32,7 +34,9 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
                                        const int64_t* const* inds_ptrs,
                                        uint32_t* bitset_ptr,
                                        int64_t bitset_len,
-                                       int64_t original_nbits)
+                                       int64_t original_nbits,
+                                       uint32_t force_n_probes,
+                                       OutT forced_score)
 {
   constexpr bool kManageLocalTopK = Capacity > 0;
 
@@ -69,6 +73,18 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
   __syncthreads();
   local_topk_t block_topk(topk, lut_end, query_kth);
 
+  // The probes of each query are forced in a cyclic window starting at a pseudo-random probe.
+  bool force_probe = probe_ix < force_n_probes;
+  if (force_n_probes > 0) {
+    uint32_t h  = queries_offset + query_ix;
+    h           = (h ^ (h >> 16)) * 0x45d9f3bu;
+    h           = (h ^ (h >> 16)) * 0x45d9f3bu;
+    h           = h ^ (h >> 16);
+    force_probe = (probe_ix + n_probes - h % n_probes) % n_probes < force_n_probes;
+  }
+  // The best sample of the probe seen by this thread (used when forcing the probe)
+  cub::KeyValuePair<uint32_t, OutT> best{0, kDummy};
+
   // Compute a distance for each sample
   for (uint32_t i = threadIdx.x; i < n_samples_aligned;
        i += blockDim.x, pq_thread_data += pq_line_width) {
@@ -81,6 +97,7 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
       score = compute_score<OutT, LutT>(
         pq_dim, reinterpret_cast<const vec_t::io_t*>(pq_thread_data), lut_scores, early_stop_limit);
       score = increment_score<OutT>(score);
+      if (force_probe && score < best.value) { best = {i, score}; }
     }
     if constexpr (kManageLocalTopK) {
       block_topk.add(score, sample_offset + i);
@@ -99,6 +116,31 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
     if (probe_ix + 1 == n_probes) {
       for (uint32_t i = threadIdx.x + sample_offset + n_samples; i < max_samples; i += blockDim.x) {
         out_scores[i] = kDummy;
+      }
+    }
+  }
+
+  if (force_probe) {
+    // Make sure the best sample of this probe is selected by the final top-k.
+    using block_reduce_t = cub::BlockReduce<cub::KeyValuePair<uint32_t, OutT>, 1024>;
+    __shared__ typename block_reduce_t::TempStorage reduce_storage;
+    best =
+      block_reduce_t(reduce_storage)
+        .Reduce(
+          best, [](const auto& a, const auto& b) { return b.value < a.value ? b : a; }, blockDim.x);
+    if (threadIdx.x == 0) {
+      // The head of the queue is the best sample of the probe. If there is no queue, or the queue
+      // is empty, use the best sample found above.
+      bool in_queue = false;
+      if constexpr (kManageLocalTopK) { in_queue = out_scores[0] < kDummy; }
+      if (in_queue || best.value < kDummy) {
+        // The lowest possible score guarantees the sample is selected
+        if constexpr (kManageLocalTopK) {
+          out_scores[0] = forced_score;
+          if (!in_queue) { out_indices[0] = sample_offset + best.key; }
+        } else {
+          out_scores[sample_offset + best.key] = forced_score;
+        }
       }
     }
   }

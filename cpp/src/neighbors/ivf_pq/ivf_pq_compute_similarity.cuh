@@ -51,7 +51,9 @@ void compute_similarity_run(selected<OutT, LutT> s,
                             int64_t original_nbits,
                             LutT* lut_scores,
                             OutT* _out_scores,
-                            uint32_t* _out_indices);
+                            uint32_t* _out_indices,
+                            uint32_t force_n_probes,
+                            OutT forced_score);
 
 /**
  * Use heuristics to choose an optimal instance of the search kernel.
@@ -161,7 +163,9 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
     int64_t original_nbits,                                                                 \
     LutT* lut_scores,                                                                       \
     OutT* _out_scores,                                                                      \
-    uint32_t* _out_indices);
+    uint32_t* _out_indices,                                                                 \
+    uint32_t force_n_probes,                                                                \
+    OutT forced_score);
 
 instantiate_cuvs_neighbors_ivf_pq_detail_compute_similarity(
   half, ARGS(cuvs::neighbors::ivf_pq::detail::fp_8bit<5u, false>));

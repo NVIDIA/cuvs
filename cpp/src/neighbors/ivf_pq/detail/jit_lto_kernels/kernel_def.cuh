@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,6 +35,8 @@ using compute_similarity_func_t = void(uint32_t dim,
                                        int64_t original_nbits,
                                        LutT* lut_scores,
                                        OutT* _out_scores,
-                                       uint32_t* _out_indices);
+                                       uint32_t* _out_indices,
+                                       uint32_t force_n_probes,
+                                       OutT forced_score);
 
 }  // namespace cuvs::neighbors::ivf_pq::detail
