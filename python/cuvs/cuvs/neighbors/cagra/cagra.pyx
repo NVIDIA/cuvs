@@ -74,14 +74,22 @@ cdef class AceParams:
 
         Small values might improve recall but potentially degrade performance
         and increase memory usage. Partitions should not be too small to prevent
-        issues in KNN graph construction. The partition size is on average 2 *
-        (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and
-        augmented vectors. Please account for imbalance in the partition sizes
-        (up to 3x in our tests).
+        issues in KNN graph construction. The partition size is on average
+        ``(1 + nsubpartitions) * (n_rows / npartitions) * dim * sizeof(T)``,
+        accounting for core and augmented vectors. Please account for imbalance
+        in the partition sizes (up to 3x in our tests).
 
         If the specified number of partitions results in partitions that exceed
         available memory, the value will be automatically increased to fit
         memory constraints and a warning will be issued.
+    nsubpartitions : int, default = 1
+        Number of additional nearest partitions assigned to each vector. Must
+        be positive and smaller than npartitions (unless automatically selected).
+        Increasing this improves overlap at the cost of build time, memory,
+        and temporary disk space.
+    add_global_reverse_edges : bool, default = False
+        Build pruned partial graphs, then add reverse edges globally. In disk
+        mode, incoming edges are buffered to temporary files and merged on the CPU.
     ef_construction : int, default = 120
         The index quality for the ACE build. Bigger values increase the index
         quality. At some point, increasing this will no longer improve the
@@ -124,8 +132,12 @@ cdef class AceParams:
                  build_dir="/tmp/ace_build",
                  use_disk=False,
                  max_host_memory_gb=0,
-                 max_gpu_memory_gb=0):
+                 max_gpu_memory_gb=0,
+                 nsubpartitions=1,
+                 add_global_reverse_edges=False):
         self.params.npartitions = npartitions
+        self.params.nsubpartitions = nsubpartitions
+        self.params.add_global_reverse_edges = add_global_reverse_edges
         self.params.ef_construction = ef_construction
         self.params.use_disk = use_disk
         self.params.max_host_memory_gb = max_host_memory_gb
@@ -145,6 +157,14 @@ cdef class AceParams:
     @property
     def npartitions(self):
         return self.params.npartitions
+
+    @property
+    def nsubpartitions(self):
+        return self.params.nsubpartitions
+
+    @property
+    def add_global_reverse_edges(self):
+        return self.params.add_global_reverse_edges
 
     @property
     def ef_construction(self):
@@ -273,6 +293,10 @@ cdef class IndexParams:
 
             # Copy values from Python object to new C struct
             new_ace_params.npartitions = ace_params.params.npartitions
+            new_ace_params.nsubpartitions = ace_params.params.nsubpartitions
+            new_ace_params.add_global_reverse_edges = (
+                ace_params.params.add_global_reverse_edges
+            )
             new_ace_params.ef_construction = ace_params.params.ef_construction
             new_ace_params.use_disk = ace_params.params.use_disk
             new_ace_params.max_host_memory_gb = ace_params.params.max_host_memory_gb

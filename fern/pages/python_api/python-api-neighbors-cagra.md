@@ -22,7 +22,9 @@ for each partition independently.
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `npartitions` | `int, default = 0` | Number of partitions for ACE partitioned build. When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
+| `npartitions` | `int, default = 0` | Number of partitions for ACE partitioned build. When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average ``(1 + nsubpartitions) * (n_rows / npartitions) * dim * sizeof(T)``, accounting for core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
+| `nsubpartitions` | `int, default = 1` | Number of additional nearest partitions assigned to each vector. Must be positive and smaller than npartitions (unless automatically selected). Increasing this improves overlap at the cost of build time, memory, and temporary disk space. |
+| `add_global_reverse_edges` | `bool, default = False` | Build pruned partial graphs, then add reverse edges globally. In disk mode, incoming edges are buffered to temporary files and merged on the CPU. |
 | `ef_construction` | `int, default = 120` | The index quality for the ACE build. Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
 | `build_dir` | `str, default = "/tmp/ace_build"` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph). Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
 | `use_disk` | `bool, default = False` | Whether to use disk-based storage for ACE build. When true, enables disk-based operations for memory-efficient graph construction. |
@@ -32,7 +34,7 @@ for each partition independently.
 **Constructor**
 
 ```python
-def __init__(self, *, npartitions=0, ef_construction=120, build_dir="/tmp/ace_build", use_disk=False, max_host_memory_gb=0, max_gpu_memory_gb=0)
+def __init__(self, *, npartitions=0, ef_construction=120, build_dir="/tmp/ace_build", use_disk=False, max_host_memory_gb=0, max_gpu_memory_gb=0, nsubpartitions=1, add_global_reverse_edges=False)
 ```
 
 **Members**
@@ -40,6 +42,8 @@ def __init__(self, *, npartitions=0, ef_construction=120, build_dir="/tmp/ace_bu
 | Name | Kind |
 | --- | --- |
 | `npartitions` | property |
+| `nsubpartitions` | property |
+| `add_global_reverse_edges` | property |
 | `ef_construction` | property |
 | `build_dir` | property |
 | `use_disk` | property |
@@ -51,6 +55,18 @@ def __init__(self, *, npartitions=0, ef_construction=120, build_dir="/tmp/ace_bu
 
 ```python
 def npartitions(self)
+```
+
+### nsubpartitions
+
+```python
+def nsubpartitions(self)
+```
+
+### add_global_reverse_edges
+
+```python
+def add_global_reverse_edges(self)
 ```
 
 ### ef_construction
