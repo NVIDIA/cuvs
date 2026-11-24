@@ -102,7 +102,6 @@ void tiled_brute_force_knn(const raft::resources& handle,
                                                         std::max(n, k),
                                                         d,
                                                         sizeof(DistanceT),
-                                                        k * (sizeof(DistanceT) + sizeof(IndexType)),
                                                         grow_tile_rows,
                                                         tile_rows,
                                                         tile_cols);

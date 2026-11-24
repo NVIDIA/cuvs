@@ -20,7 +20,6 @@ inline void chooseTileSize(size_t numQueries,
                            size_t numCentroids,
                            size_t dim,
                            size_t elementSize,
-                           size_t rowWorkspaceSize,
                            bool growTileRows,
                            size_t& tileRows,
                            size_t& tileCols)
@@ -46,8 +45,7 @@ inline void chooseTileSize(size_t numQueries,
     tileCols = numCentroids;
     if (growTileRows) {
       // The whole index fits in one column tile, so spend the rest of the target on query rows.
-      // Each row also takes rowWorkspaceSize bytes of temporary memory after the distance tile.
-      size_t rowSize = elementSize * std::max<size_t>(numCentroids, 1) + rowWorkspaceSize;
+      size_t rowSize = elementSize * std::max<size_t>(numCentroids, 1);
       tileRows       = std::min(std::max(tileRows, targetUsage / (2 * rowSize)), numQueries);
     }
   } else {
