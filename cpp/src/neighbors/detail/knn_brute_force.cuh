@@ -93,6 +93,7 @@ void tiled_brute_force_knn(const raft::resources& handle,
   // Grow the row tiles past the default only for metrics computed with a GEMM. The other metrics
   // use the pairwise distance kernel, whose int offsets overflow on very large tiles.
   bool grow_tile_rows = metric == cuvs::distance::DistanceType::L2Expanded ||
+                        metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                         metric == cuvs::distance::DistanceType::InnerProduct ||
                         metric == cuvs::distance::DistanceType::CosineExpanded;
 
