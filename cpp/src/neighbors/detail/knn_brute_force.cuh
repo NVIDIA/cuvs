@@ -99,17 +99,10 @@ void tiled_brute_force_knn(const raft::resources& handle,
                         metric == cuvs::distance::DistanceType::CosineExpanded;
 
   // select_k keeps k distances and indices per query row in its workspace
-  cuvs::neighbors::detail::faiss_select::chooseTileSize(m,
-                                                        std::max(n, k),
-                                                        d,
-                                                        sizeof(DistanceT),
-                                                        grow_tile_rows,
-                                                        tile_rows,
-                                                        tile_cols);
+  cuvs::neighbors::detail::faiss_select::chooseTileSize(
+    m, std::max(n, k), d, sizeof(DistanceT), grow_tile_rows, tile_rows, tile_cols);
 
-  // Round grown row tiles down so each tile's query pointer stays 256-byte aligned (given an
-  // aligned search pointer), which is what the cuBLASLt heuristic assumes. The default row tiles
-  // (512 or 1024 rows) are already multiples of the alignment, so this never drops below them.
+  // Round grown row tiles down so each tile's query pointer stays 256-byte aligned.
   if (tile_rows < m) {
     size_t row_alignment = 256 / std::gcd<size_t>(256, d * sizeof(ElementType));
     tile_rows            = tile_rows / row_alignment * row_alignment;
