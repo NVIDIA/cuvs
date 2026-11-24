@@ -359,6 +359,28 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 }
 
 /**
+ * @brief Build the index from a BBQ dataset: the graph is built from the symmetric distances
+ * between the codes of @p dataset or, when @p dataset_query is given, from the asymmetric
+ * distances between the codes of @p dataset and the wider codes of @p dataset_query.
+ *
+ * When `index_params.attach_dataset_on_build = true` (the default), the returned index refers to
+ * @p dataset.
+ */
+template <typename DatasetViewT>
+  requires cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>
+auto build(raft::resources const& res,
+           const index_params& params,
+           DatasetViewT const& dataset,
+           std::optional<DatasetViewT> dataset_query)
+  -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>
+{
+  using index_type = cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
+  return cuvs::neighbors::cagra::detail::
+    build_from_bbq_dataset<typename index_type::value_type, uint32_t, DatasetViewT>(
+      res, params, dataset, dataset_query);
+}
+
+/**
  * @brief Search ANN using the constructed index with the given sample filter.
  *
  * Usage example:

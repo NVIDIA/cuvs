@@ -508,6 +508,7 @@ ConfigureTest(
        preprocessing/product_quantization.cu
        preprocessing/rabitq_quantization.cu
        preprocessing/pca.cu
+       preprocessing/bbq_quantization.cu
   GPUS 1
   PERCENT 100
 )

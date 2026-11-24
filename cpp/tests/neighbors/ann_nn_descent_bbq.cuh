@@ -6,7 +6,7 @@
 #include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "ann_nn_descent.cuh"
 
-#include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/core/dataset/bbq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -27,8 +27,8 @@
 namespace cuvs::neighbors::nn_descent {
 
 using cuvs::preprocessing::quantize::bbq::get_bit_width;
-using cuvs::preprocessing::quantize::bbq::detail::make_device_bbq_dataset;
 using cuvs::preprocessing::quantize::bbq::detail::quantize_to_device;
+using cuvs::preprocessing::quantize::bbq::detail::validate_layout_pair;
 
 struct AnnNNDescentBbqInputs : AnnNNDescentInputs {
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
@@ -105,14 +105,18 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
       raft::update_host(host_data.data(), database.data_handle(), host_data.size(), stream_);
       raft::resource::sync_stream(handle_);
 
-      auto owning_dataset = quantize_to_device(handle_,
-                                               host_data.data(),
-                                               ps.n_rows,
-                                               ps.dim,
-                                               ps.metric,
-                                               ps.layout,
-                                               ps.second_dataset_layout.value_or(ps.layout));
-      auto dataset        = owning_dataset.view();
+      // The second layout, when set, is the coarser document side; `layout` is then the query.
+      const auto document_layout = ps.second_dataset_layout.value_or(ps.layout);
+      validate_layout_pair(ps.layout, document_layout);
+      const auto document = quantize_to_device(
+        handle_, host_data.data(), ps.n_rows, ps.dim, ps.metric, document_layout);
+      std::optional<cuvs::neighbors::device_bbq_dataset<float, int64_t>> query;
+      if (ps.second_dataset_layout.has_value()) {
+        query =
+          quantize_to_device(handle_, host_data.data(), ps.n_rows, ps.dim, ps.metric, ps.layout);
+      }
+      std::optional<cuvs::neighbors::device_bbq_dataset_view<float, int64_t>> query_view;
+      if (query.has_value()) { query_view = query->view(); }
       nn_descent::index_params index_params;
       index_params.metric                    = ps.metric;
       index_params.graph_degree              = ps.graph_degree;
@@ -120,7 +124,7 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
       index_params.max_iterations            = 100;
       index_params.return_distances          = true;
 
-      auto index = nn_descent::build(handle_, index_params, dataset);
+      auto index = nn_descent::build(handle_, index_params, document.view(), query_view);
 
       raft::copy(indices_NNDescent.data(), index.graph().data_handle(), queries_size, stream_);
       ASSERT_TRUE(index.distances().has_value());
