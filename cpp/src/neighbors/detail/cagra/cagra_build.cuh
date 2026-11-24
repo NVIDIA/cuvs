@@ -1017,21 +1017,25 @@ auto ensure_contiguous_device_dataset_for_gpipnn(
  * and NN-descent paths this does not go through `optimize()`: GPiPNN's own prune stage already
  * emits a fully populated graph at `graph_degree`, so `intermediate_graph_degree` is unused and
  * `guarantee_connectivity` has nothing to act on.
+ *
+ * `graph_degree` is passed separately rather than read from `params` because `check_graph_degree`
+ * may have lowered it to fit a small dataset. GPiPNN requires more rows than its output degree, so
+ * using the unreduced `params.graph_degree` would reject datasets the other builders accept.
  */
 template <typename T, typename DatasetViewT>
   requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
 auto gpipnn_build_graph(raft::resources const& res,
                         index_params const& params,
                         cuvs::neighbors::experimental::gpipnn::index_params gpipnn_params,
+                        uint32_t graph_degree,
                         DatasetViewT const& dataset) -> raft::device_matrix<uint32_t, int64_t>
 {
   static_assert(std::is_same_v<T, float> || std::is_same_v<T, half> || std::is_same_v<T, int8_t> ||
                   std::is_same_v<T, uint8_t>,
                 "GPiPNN for CAGRA graph build supports float, half, int8 and uint8 datasets only");
 
-  auto const n_rows       = static_cast<int64_t>(dataset.n_rows());
-  auto const dim          = static_cast<int64_t>(dataset.dim());
-  auto const graph_degree = static_cast<uint32_t>(params.graph_degree);
+  auto const n_rows = static_cast<int64_t>(dataset.n_rows());
+  auto const dim    = static_cast<int64_t>(dataset.dim());
 
   // Padding this here would mean allocating a second copy of the dataset behind the caller's back,
   // so the widening is theirs to do. A zero column is the right fix: it contributes nothing to any
@@ -1253,8 +1257,12 @@ auto build_from_host_matrix(raft::resources const& res,
   validate_cagra_knn_graph_build_constraints<T>(params, knn_build_params);
 
   if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
-    auto device_graph = gpipnn_build_graph<T>(
-      res, params, std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params), dataset);
+    auto device_graph =
+      gpipnn_build_graph<T>(res,
+                            params,
+                            std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
+                            static_cast<uint32_t>(graph_degree),
+                            dataset);
     if (params.attach_dataset_on_build) {
       // The constructor stores a non-owning view of `device_graph`. Take ownership before it
       // goes out of scope, or `graph_view_` dangles.
@@ -1335,6 +1343,7 @@ auto build_from_device_matrix(raft::resources const& res,
       gpipnn_build_graph<T>(res,
                             params,
                             std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
+                            static_cast<uint32_t>(graph_degree),
                             device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
   } else {

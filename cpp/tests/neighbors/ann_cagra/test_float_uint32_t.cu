@@ -343,15 +343,18 @@ auto gpipnn_graph(raft::resources const& res,
 struct gpipnn_fixture {
   raft::resources res;
   int64_t dim;
+  int64_t n_rows;
   rmm::device_uvector<float> narrow;
 
-  explicit gpipnn_fixture(int64_t d)
-    : dim(d), narrow(static_cast<size_t>(kGpipnnRows * d), raft::resource::get_cuda_stream(res))
+  explicit gpipnn_fixture(int64_t d, int64_t rows = kGpipnnRows)
+    : dim(d),
+      n_rows(rows),
+      narrow(static_cast<size_t>(rows * d), raft::resource::get_cuda_stream(res))
   {
     raft::random::RngState r(1234ULL);
     InitDataset(res,
                 narrow.data(),
-                static_cast<uint32_t>(kGpipnnRows),
+                static_cast<uint32_t>(n_rows),
                 static_cast<uint32_t>(dim),
                 cuvs::distance::DistanceType::L2Expanded,
                 r);
@@ -360,7 +363,7 @@ struct gpipnn_fixture {
 
   auto narrow_matrix() const -> raft::device_matrix_view<const float, int64_t>
   {
-    return raft::make_device_matrix_view<const float, int64_t>(narrow.data(), kGpipnnRows, dim);
+    return raft::make_device_matrix_view<const float, int64_t>(narrow.data(), n_rows, dim);
   }
 };
 
@@ -439,6 +442,27 @@ TEST(AnnCagraGpipnn, ParametersReconciledWithCagra)
   // CAGRA's values win, so the graph must equal the one built from parameters that already agreed.
   const auto agreed = gpipnn_graph(f.res, make_gpipnn_params(), dataset);
   ASSERT_EQ(reconciled, agreed);
+}
+
+// A dataset smaller than the requested degree has its `graph_degree` lowered by
+// `check_graph_degree` to `n_rows - 1`. GPiPNN has to build at the lowered degree like the other
+// builders do: with the requested one it would trip its own "more rows than graph_degree" check
+// and reject a dataset CAGRA accepts.
+TEST(AnnCagraGpipnn, ReducedGraphDegreeForSmallDataset)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  constexpr int64_t kSmallRows = 48;
+  gpipnn_fixture f(/*dim=*/8, kSmallRows);
+
+  auto params                      = make_gpipnn_params();
+  params.graph_degree              = 64;  // deliberately larger than the dataset
+  params.intermediate_graph_degree = 128;
+  std::get<graph_build_params::gpipnn_params>(params.graph_build_params).graph_degree =
+    params.graph_degree;
+
+  const auto graph =
+    gpipnn_graph(f.res, params, make_device_standard_dataset_view(f.narrow_matrix()));
+  ASSERT_EQ(graph.size(), static_cast<size_t>(kSmallRows * (kSmallRows - 1)));
 }
 
 // Only L2Expanded and CosineExpanded are supported; anything else must be refused rather than
