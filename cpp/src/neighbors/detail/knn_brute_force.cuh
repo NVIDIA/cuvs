@@ -90,12 +90,19 @@ void tiled_brute_force_knn(const raft::resources& handle,
   size_t tile_cols = 0;
   auto stream      = raft::resource::get_cuda_stream(handle);
 
+  // Grow the row tiles past the default only for metrics computed with a GEMM. The other metrics
+  // use the pairwise distance kernel, whose int offsets overflow on very large tiles.
+  bool grow_tile_rows = metric == cuvs::distance::DistanceType::L2Expanded ||
+                        metric == cuvs::distance::DistanceType::InnerProduct ||
+                        metric == cuvs::distance::DistanceType::CosineExpanded;
+
   // select_k keeps k distances and indices per query row in its workspace
   cuvs::neighbors::detail::faiss_select::chooseTileSize(m,
                                                         std::max(n, k),
                                                         d,
                                                         sizeof(DistanceT),
                                                         k * (sizeof(DistanceT) + sizeof(IndexType)),
+                                                        grow_tile_rows,
                                                         tile_rows,
                                                         tile_cols);
 
