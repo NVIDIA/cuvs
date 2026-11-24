@@ -21,6 +21,8 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Iterable
 
+from java_source import JavaDeclaration, parse_java_file
+
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 FERN_PAGES = REPO_DIR / "fern" / "pages"
@@ -159,11 +161,6 @@ JAVA_HIDDEN_SUPERTYPES = {
     "CompatKnnVectorsReader": "KnnVectorsReader",
     "CompatKnnVectorsWriter": "KnnVectorsWriter",
 }
-JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
-PUBLIC_JAVA_TYPE_RE = re.compile(
-    r"\bpublic\s+(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)?"
-    r"(?P<kind>class|interface|enum|record)\s+(?P<name>[A-Za-z_]\w*)"
-)
 SPHINX_ROLE_RE = re.compile(
     r"(?<!\w):?(?:(?:[A-Za-z][\w-]*):)?[A-Za-z][\w-]*:`(?P<target>[^`]+)`"
 )
@@ -268,6 +265,9 @@ class JavaMember:
     # The file that declares the member, when it is not the class's own: a
     # member inherited from a hidden base (JAVA_HIDDEN_SUPERTYPES).
     source: str | None = None
+    # The types of a method's or constructor's parameters, which with its name
+    # identify an override.
+    parameter_types: tuple[str, ...] = ()
 
 
 @dataclass
@@ -283,6 +283,9 @@ class JavaClass:
     # The package-private base the class extends, if it is one of
     # JAVA_HIDDEN_SUPERTYPES; its signature names the Lucene class instead.
     hidden_base: str | None = None
+    # The simple names of the types the class extends and implements, with a
+    # hidden base replaced by the Lucene class it extends.
+    supertypes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -3149,11 +3152,10 @@ def java_api_group(klass: JavaClass) -> str:
 def lucene_api_group(klass: JavaClass) -> str:
     """Group a Lucene class by whether it implements a Lucene vector API.
 
-    The supertype is already part of ``klass.signature``, so a new codec
-    generation classifies itself without touching this function.
+    The group follows from the class's supertypes, so a new codec generation
+    classifies itself without touching this function.
     """
-    match = JAVA_SUPERTYPE_RE.search(klass.signature)
-    if match is not None and match.group("name") in LUCENE_EXTENSION_POINTS:
+    if any(name in LUCENE_EXTENSION_POINTS for name in klass.supertypes):
         return "Codecs and Formats"
     return "Common"
 
@@ -3241,173 +3243,82 @@ def inherited_java_members(
     on the page of each class that extends it, unless the class overrides them.
     Abstract members are left out: the class implements those itself.
     """
-    declared = {java_member_key(member.signature) for member in klass.members}
+    declared = {
+        (member.name, member.parameter_types) for member in klass.members
+    }
     source = base_path.relative_to(REPO_DIR).as_posix()
     inherited = []
-    for member in parse_java_members(base_path.read_text(encoding="utf-8")):
-        prefix = strip_java_annotations(member.signature).split("(", 1)[0]
-        if re.search(r"\babstract\b", prefix):
-            continue
-        if java_member_key(member.signature) in declared:
-            continue
-        member.source = source
-        inherited.append(member)
+    for base in parse_java_file(base_path).types:
+        for decl in documented_java_members(base):
+            if "abstract" in decl.modifiers:
+                continue
+            if (decl.name, decl.parameter_types) in declared:
+                continue
+            member = java_member(decl)
+            member.source = source
+            inherited.append(member)
     return inherited
 
 
-def java_member_key(signature: str) -> tuple[str, tuple[str, ...]]:
-    """Returns a member's name and parameter types, which identify an override."""
-    declaration = strip_java_annotations(signature)
-    name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
-    if not name_match:
-        return (declaration, ())
-    params, depth, current = [], 0, ""
-    for char in declaration[name_match.end() :]:
-        if char in "<(":
-            depth += 1
-        elif char in ">)":
-            if char == ")" and depth == 0:
-                break
-            depth -= 1
-        if char == "," and depth == 0:
-            params.append(current)
-            current = ""
-        else:
-            current += char
-    params.append(current)
-    types = []
-    for param in params:
-        param = re.sub(r"@\w+(?:\([^)]*\))?|\bfinal\b", "", param).strip()
-        if param:
-            types.append(re.sub(r"\s+", "", param.rsplit(" ", 1)[0]))
-    return (name_match.group(1), tuple(types))
-
-
 def parse_java_class(path: Path) -> JavaClass | None:
-    text = path.read_text(encoding="utf-8")
-    package_match = re.search(r"^\s*package\s+([\w.]+);", text, re.MULTILINE)
-    package = package_match.group(1) if package_match else ""
-    type_match = PUBLIC_JAVA_TYPE_RE.search(text)
-    if not type_match:
+    """Returns the public top-level type ``path`` declares, if any."""
+    source_file = parse_java_file(path)
+    decl = next((decl for decl in source_file.types if decl.visible), None)
+    if decl is None:
         return None
-    signature, class_line = java_signature_at(text, type_match.start())
-    base_match = re.search(r"\bextends\s+(\w+)", signature)
-    hidden_base = (
-        base_match.group(1)
-        if base_match and base_match.group(1) in JAVA_HIDDEN_SUPERTYPES
-        else None
+    hidden_base = next(
+        (name for name in decl.supertypes if name in JAVA_HIDDEN_SUPERTYPES),
+        None,
     )
     signature = re.sub(
         r"\b(extends\s+)(\w+)",
         lambda m: m.group(1)
         + JAVA_HIDDEN_SUPERTYPES.get(m.group(2), m.group(2)),
-        signature,
+        decl.signature,
     )
-    doc = parse_javadoc(comment_before(text, type_match.start()))
-    klass = JavaClass(
-        package=package,
-        name=type_match.group("name"),
-        kind=type_match.group("kind"),
+    return JavaClass(
+        package=source_file.package,
+        name=decl.name,
+        kind=decl.kind,
         signature=signature,
-        doc=doc,
+        doc=parse_javadoc(decl.comment),
         source=path.relative_to(REPO_DIR).as_posix(),
-        line=class_line,
+        line=decl.line,
+        members=[
+            java_member(member) for member in documented_java_members(decl)
+        ],
         hidden_base=hidden_base,
+        supertypes=[
+            JAVA_HIDDEN_SUPERTYPES.get(name, name) for name in decl.supertypes
+        ],
     )
-    klass.members = parse_java_members(text)
-    return klass
 
 
-def parse_java_members(text: str) -> list[JavaMember]:
-    """Returns the documented members of a Java source file readers can use."""
-    members: list[JavaMember] = []
-    type_bodies = java_type_bodies(text)
-    for match in COMMENT_RE.finditer(text):
-        signature, line = java_signature_at(text, match.end())
-        # Annotations stay in the signature on the page, but an argument list
-        # such as @Deprecated(since = "...") must not be taken for the member.
-        declaration = strip_java_annotations(signature)
-        if "(" not in declaration:
+def documented_java_members(decl: JavaDeclaration) -> list[JavaDeclaration]:
+    """Returns the documented members readers can use, in source order.
+
+    These are the methods, constructors and enum constants of ``decl`` and of
+    its nested types.
+    """
+    members = []
+    for member in decl.members:
+        if not member.visible:
             continue
-        if re.search(r"\b(class|interface|enum|record)\b", declaration):
-            continue
-        if re.search(r"\b(if|for|while|switch|catch)\s*\(", declaration):
-            continue
-        if not java_member_is_visible(declaration, match.end(), type_bodies):
-            continue
-        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
-        if not name_match:
-            continue
-        name = name_match.group(1)
-        doc = parse_javadoc(match.group(0))
-        members.append(
-            JavaMember(name=name, signature=signature, doc=doc, line=line)
-        )
+        if member.is_type:
+            members.extend(documented_java_members(member))
+        elif member.comment and member.kind != "field":
+            members.append(member)
     return members
 
 
-def java_type_bodies(text: str) -> list[tuple[int, int, str, str]]:
-    """Returns the start, end, kind and name of each type body in ``text``."""
-    # Blank out comments and literals, keeping offsets, so that their braces
-    # and keywords are not taken for code.
-    code = re.sub(
-        r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
-        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
-        text,
-        flags=re.DOTALL,
+def java_member(decl: JavaDeclaration) -> JavaMember:
+    return JavaMember(
+        name=decl.name,
+        signature=decl.signature,
+        doc=parse_javadoc(decl.comment),
+        line=decl.comment_end_line,
+        parameter_types=decl.parameter_types,
     )
-    bodies = []
-    for match in re.finditer(
-        r"\b(class|interface|enum|record)\s+([A-Za-z_]\w*)", code
-    ):
-        start = code.find("{", match.end())
-        if start < 0 or ";" in code[match.end() : start]:
-            continue
-        depth = 0
-        for end in range(start, len(code)):
-            if code[end] == "{":
-                depth += 1
-            elif code[end] == "}":
-                depth -= 1
-                if depth == 0:
-                    bodies.append((start, end, match.group(1), match.group(2)))
-                    break
-    return bodies
-
-
-def java_member_is_visible(
-    declaration: str,
-    position: int,
-    type_bodies: list[tuple[int, int, str, str]],
-) -> bool:
-    """Returns whether readers can use a member declared at ``position``.
-
-    The pages advertise "Public and Protected Members". In an interface, a member with no
-    modifier is implicitly public, so only private ones are dropped, and enum
-    constants are always public (an enum constructor never is); any other
-    member of a class, enum or record must be public, or protected for
-    subclasses to use.
-    """
-    enclosing = [body for body in type_bodies if body[0] < position < body[1]]
-    _, _, kind, type_name = (
-        max(enclosing) if enclosing else (0, 0, "class", "")
-    )
-    if kind == "interface":
-        return not re.match(r"\s*private\b", declaration)
-    constant = re.match(r"\s*([A-Za-z_]\w*)\s*[(,;{]", declaration)
-    if kind == "enum" and constant and constant.group(1) != type_name:
-        return True
-    return (
-        re.search(r"\b(public|protected)\b", declaration.split("(", 1)[0])
-        is not None
-    )
-
-
-def strip_java_annotations(signature: str) -> str:
-    """Returns the declaration that follows the annotations on a member."""
-    while match := re.match(r"@\w+(?:\s*\([^)]*\))?\s*", signature):
-        signature = signature[match.end() :]
-    return signature
 
 
 def clean_doxygen_comment(raw: str) -> str:
@@ -4932,31 +4843,6 @@ def python_title(module: str) -> str:
 
 def python_slug(module: str) -> str:
     return slugify(module.removeprefix("cuvs."))
-
-
-def java_signature_at(text: str, start: int) -> tuple[str, int]:
-    line = text.count("\n", 0, start) + 1
-    idx = start
-    depth = {"(": 0, "[": 0, "{": 0, "<": 0}
-    while idx < len(text):
-        char = text[idx]
-        update_depth(depth, char)
-        if char in "{;" and not depth["("] and not depth["["]:
-            # A line comment after an annotation is not part of the declaration.
-            signature = re.sub(r"//[^\n]*", "", text[start:idx]).strip()
-            signature = re.sub(r"\s+", " ", signature)
-            return signature, line
-        idx += 1
-    signature = text[start:].splitlines()[0].strip()
-    return re.sub(r"\s+", " ", signature), line
-
-
-def comment_before(text: str, start: int) -> str:
-    prefix = text[:start].rstrip()
-    match = re.search(
-        r"/\*\*.*?\*/\s*(?:@\w+(?:\([^)]*\))?\s*)*$", prefix, re.DOTALL
-    )
-    return match.group(0) if match else ""
 
 
 def parse_javadoc(raw: str) -> JavaDoc:

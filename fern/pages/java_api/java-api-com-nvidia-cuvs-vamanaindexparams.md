@@ -34,7 +34,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:30
 ### L2Expanded
 
 ```java
-L2Expanded(0), /** * Euclidean, the square root of
+L2Expanded(0)
 ```
 
 Squared L2.

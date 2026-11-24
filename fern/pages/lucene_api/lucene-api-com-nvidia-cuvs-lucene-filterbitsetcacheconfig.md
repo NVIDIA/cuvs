@@ -27,16 +27,4 @@ in-flight handles.
 | `enabled` | whether filter bitsets are cached between searches |
 | `maxBytes` | maximum bytes cached by this format; must be positive when caching is enabled |
 
-## Public and Protected Members
-
-### FilterBitsetCacheConfig
-
-```java
-public static final FilterBitsetCacheConfig DEFAULT = new FilterBitsetCacheConfig(true, DEFAULT_MAX_BYTES)
-```
-
-Default configuration used by SPI-created codecs and vector formats.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/FilterBitsetCacheConfig.java:27`_
-
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/FilterBitsetCacheConfig.java:22`_

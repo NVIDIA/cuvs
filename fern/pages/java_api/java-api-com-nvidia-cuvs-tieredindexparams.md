@@ -15,15 +15,25 @@ Only CAGRA is currently supported as the underlying ANN algorithm.
 
 ## Public and Protected Members
 
-### product
+### L2
 
 ```java
-L2, /** Inner product (cosine similarity) distance metric */ INNER_PRODUCT } private final Metric metric
+L2
 ```
 
 L2 (Euclidean) distance metric
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexParams.java:20`_
+
+### INNER_PRODUCT
+
+```java
+INNER_PRODUCT
+```
+
+Inner product (cosine similarity) distance metric
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexParams.java:22`_
 
 ### getMetric
 
