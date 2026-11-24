@@ -352,11 +352,12 @@ struct index_params : cuvs::neighbors::index_params {
    * GPiPNN differs from the others in four ways that affect the parameters around it. It prunes
    * to `graph_degree` itself rather than handing an intermediate graph to `optimize()`, so
    * `intermediate_graph_degree` is unused and `guarantee_connectivity` cannot be honoured; it
-   * supports only L2Expanded and CosineExpanded; it requires an even dataset dimension, and
-   * rejects an odd one rather than silently padding a copy of the dataset on your behalf; and it
-   * requires compute capability 8.0 or newer. Asking for it on hardware where it cannot run falls
-   * back to NN-descent with a warning rather than failing, since the point of this field is to
-   * choose among interchangeable builders.
+   * supports only L2Expanded and CosineExpanded; it takes the dataset exactly as
+   * `gpipnn::build_graph` needs it -- device-resident, with contiguous rows and an even number of
+   * columns -- and rejects anything else rather than silently copying the dataset into shape on
+   * your behalf; and it requires compute capability 8.0 or newer. Asking for it on hardware where
+   * it cannot run falls back to NN-descent with a warning rather than failing, since the point of
+   * this field is to choose among interchangeable builders.
    */
   graph_build_params_t graph_build_params;
   /**

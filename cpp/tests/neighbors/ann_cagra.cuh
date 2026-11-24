@@ -387,10 +387,13 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
-    // only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
         (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -610,10 +613,13 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
-    // only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
         (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -829,10 +835,13 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
-    // only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
         (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -1222,10 +1231,13 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
-    // only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
         (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -1485,10 +1497,13 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    // GPiPNN needs strictly more rows than the output degree and an even dimension, and supports
-    // only L2 and cosine.
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
     if (ps.build_algo == graph_build_algo::GPIPNN &&
         (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
@@ -2024,16 +2039,17 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // GPiPNN graph build, restricted to what it accepts: the metrics it supports,
-  // `n_rows > graph_degree`, and an even `dim`. Within that, 6 and 138 and `host_dataset` are
-  // deliberate. GPiPNN takes a contiguous device matrix, and neither 6 nor 138 is a multiple of
-  // the four floats a row pads to, so those cases exercise the conforming copy CAGRA does on its
-  // behalf; 8 and 64 arrive already contiguous.
+  // `n_rows > graph_degree`, and a device-resident dataset with contiguous rows and an even `dim`.
+  // These fixtures build from a CAGRA-padded view, so only a `dim` that already meets the 16-byte
+  // row alignment arrives contiguous -- and this sweep runs for every `DataT` the fixture is
+  // instantiated with, down to one-byte types, hence multiples of 16. Shapes outside the
+  // requirements are covered by the rejection tests in ann_cagra/test_float_uint32_t.cu.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
     {1000},
-    {6, 8, 64, 138},  // dim, even as GPiPNN requires
-    {16},             // k
-    {32},             // degree
+    {16, 64},  // dim, row-aligned for every DataT as GPiPNN requires
+    {16},      // k
+    {32},      // degree
     {graph_build_algo::GPIPNN},
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA},
     {0},   // query size
@@ -2041,10 +2057,11 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {64},  // itopk
     {1},
     {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::CosineExpanded},
-    {false, true},  // host_dataset
-    {true},         // include_serialized_dataset
-    {false},        // use_source_indices
-    {0.995},        // min_recall
+    {false},  // host_dataset: these fixtures only build from a host view for ACE, so for GPiPNN
+              // this axis only duplicates cases. Host rejection is covered by HostDatasetRejected.
+    {true},   // include_serialized_dataset
+    {false},  // use_source_indices
+    {0.995},  // min_recall
     {std::optional<float>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());

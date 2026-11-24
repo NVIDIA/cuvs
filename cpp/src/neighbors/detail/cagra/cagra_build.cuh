@@ -967,50 +967,6 @@ auto iterative_build_graph(raft::resources const& res,
 }
 
 /**
- * Materialize `dataset` as the contiguous device matrix `gpipnn::build_graph` takes.
- *
- * Two things can be wrong with a CAGRA dataset view from GPiPNN's point of view: it may be
- * host-resident, and its rows may be padded to a stride wider than the logical `dim`. Neither is
- * something the caller can hand over differently -- a padded device view is a dataset CAGRA itself
- * produced -- so a strided copy fixes both. An odd `dim` is the caller's to fix and is rejected
- * before this runs.
- *
- * `storage` is only allocated when a copy is needed; an already-contiguous device view is handed
- * back untouched.
- */
-template <typename T, typename DatasetViewT>
-  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
-auto ensure_contiguous_device_dataset_for_gpipnn(
-  raft::resources const& res,
-  DatasetViewT const& dataset,
-  std::optional<raft::device_matrix<T, int64_t>>& storage)
-  -> raft::device_matrix_view<const T, int64_t, raft::row_major>
-{
-  auto const src    = dataset.data_const_view();
-  auto const n_rows = static_cast<int64_t>(dataset.n_rows());
-  auto const dim    = static_cast<int64_t>(dataset.dim());
-  auto const stride = static_cast<int64_t>(src.stride(0));
-
-  if constexpr (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>) {
-    if (stride == dim) {
-      return raft::make_device_matrix_view<const T, int64_t>(src.data_handle(), n_rows, dim);
-    }
-  }
-
-  auto stream = raft::resource::get_cuda_stream(res).get();
-  storage.emplace(raft::make_device_matrix<T, int64_t>(res, n_rows, dim));
-  RAFT_CUDA_TRY(cudaMemcpy2DAsync(storage->data_handle(),
-                                  sizeof(T) * static_cast<size_t>(dim),
-                                  src.data_handle(),
-                                  sizeof(T) * static_cast<size_t>(stride),
-                                  sizeof(T) * static_cast<size_t>(dim),
-                                  static_cast<size_t>(n_rows),
-                                  cudaMemcpyDefault,
-                                  stream));
-  return raft::make_const_mdspan(storage->view());
-}
-
-/**
  * GPiPNN graph construction, returning the device CAGRA graph.
  *
  * The graph is `uint32_t` regardless of `IdxT`: that is the type CAGRA stores. Unlike the IVF-PQ
@@ -1021,9 +977,13 @@ auto ensure_contiguous_device_dataset_for_gpipnn(
  * `graph_degree` is passed separately rather than read from `params` because `check_graph_degree`
  * may have lowered it to fit a small dataset. GPiPNN requires more rows than its output degree, so
  * using the unreduced `params.graph_degree` would reject datasets the other builders accept.
+ *
+ * The dataset must be device-resident with contiguous rows, which is what
+ * `gpipnn::build_graph` takes. Anything else is rejected rather than copied into shape: a
+ * conforming copy is a second full allocation of the dataset made behind the caller's back.
  */
 template <typename T, typename DatasetViewT>
-  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
+  requires cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>
 auto gpipnn_build_graph(raft::resources const& res,
                         index_params const& params,
                         cuvs::neighbors::experimental::gpipnn::index_params gpipnn_params,
@@ -1034,12 +994,14 @@ auto gpipnn_build_graph(raft::resources const& res,
                   std::is_same_v<T, uint8_t>,
                 "GPiPNN for CAGRA graph build supports float, half, int8 and uint8 datasets only");
 
+  auto const src    = dataset.data_const_view();
   auto const n_rows = static_cast<int64_t>(dataset.n_rows());
   auto const dim    = static_cast<int64_t>(dataset.dim());
+  auto const stride = static_cast<int64_t>(src.stride(0));
 
-  // Padding this here would mean allocating a second copy of the dataset behind the caller's back,
-  // so the widening is theirs to do. A zero column is the right fix: it contributes nothing to any
-  // dot product or row norm, leaving every distance unchanged under both supported metrics.
+  // Widening with a zero-filled column is the fix to point the caller at: a zero column
+  // contributes nothing to any dot product or row norm, so every distance under both supported
+  // metrics is unchanged.
   RAFT_EXPECTS(dim % 2 == 0,
                "GPiPNN graph build requires an even dataset dimension, but this dataset has %zu "
                "columns. Widen it to %zu columns with a zero-filled column before calling build; "
@@ -1047,6 +1009,17 @@ auto gpipnn_build_graph(raft::resources const& res,
                "different CAGRA graph build algorithm.",
                static_cast<size_t>(dim),
                static_cast<size_t>(dim + 1));
+
+  // Checked on the stride rather than the view type, because the stride is the actual requirement:
+  // a padded view whose `dim` already meets CAGRA's row alignment is laid out exactly like a
+  // standard one and is fine to use as is.
+  RAFT_EXPECTS(stride == dim,
+               "GPiPNN graph build requires contiguous dataset rows, but this dataset's rows are "
+               "padded to a stride of %zu for %zu columns. Pass a device_standard_dataset_view "
+               "over a contiguous matrix rather than a padded dataset, or select a different "
+               "CAGRA graph build algorithm.",
+               static_cast<size_t>(stride),
+               static_cast<size_t>(dim));
 
   RAFT_LOG_INFO("Creating graph index using GPiPNN");
 
@@ -1083,8 +1056,8 @@ auto gpipnn_build_graph(raft::resources const& res,
   }
   gpipnn_params.metric = params.metric;
 
-  std::optional<raft::device_matrix<T, int64_t>> dataset_own;
-  auto gpipnn_dataset = ensure_contiguous_device_dataset_for_gpipnn<T>(res, dataset, dataset_own);
+  auto gpipnn_dataset =
+    raft::make_device_matrix_view<const T, int64_t>(src.data_handle(), n_rows, dim);
 
   auto device_graph =
     raft::make_device_matrix<uint32_t, int64_t>(res, n_rows, static_cast<int64_t>(graph_degree));
@@ -1256,24 +1229,13 @@ auto build_from_host_matrix(raft::resources const& res,
     res, params, dataset_extents, intermediate_degree);
   validate_cagra_knn_graph_build_constraints<T>(params, knn_build_params);
 
+  // Checked after the params are resolved so that the sm_80 fallback still gets a chance to
+  // substitute NN-descent; only a dataset that would really have reached GPiPNN is rejected.
   if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
-    auto device_graph =
-      gpipnn_build_graph<T>(res,
-                            params,
-                            std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
-                            static_cast<uint32_t>(graph_degree),
-                            dataset);
-    if (params.attach_dataset_on_build) {
-      // The constructor stores a non-owning view of `device_graph`. Take ownership before it
-      // goes out of scope, or `graph_view_` dangles.
-      cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> out(
-        res, params.metric, dataset, raft::make_const_mdspan(device_graph.view()));
-      out.update_graph(res, std::move(device_graph));
-      return out;
-    }
-    cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> out(res, params.metric);
-    out.update_graph(res, std::move(device_graph));
-    return out;
+    RAFT_FAIL(
+      "GPiPNN graph build requires a device-resident dataset, but this one is host-resident. "
+      "Copy it to device and pass a device_standard_dataset_view, or select a different CAGRA "
+      "graph build algorithm. Host datasets can use IVF-PQ or NN-descent graph construction.");
   }
 
   auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {

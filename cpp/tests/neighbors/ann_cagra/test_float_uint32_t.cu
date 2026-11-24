@@ -302,10 +302,10 @@ TEST(AnnCagraMultiPartition, MixedGraphDegreeRejected)
 }
 
 // GPiPNN reaches CAGRA through two pieces of glue the parameterized sweep above cannot isolate: a
-// conforming step that materializes host, padded-stride or odd-`dim` dataset views as the
-// contiguous even-`dim` device matrix GPiPNN takes, and a reconciliation step that silently
-// rewrites the caller's GPiPNN parameters to agree with CAGRA's. Both change results rather than
-// just failing, so each is pinned here.
+// validation step that refuses any dataset view other than the contiguous, even-`dim`,
+// device-resident matrix GPiPNN takes, and a reconciliation step that silently rewrites the
+// caller's GPiPNN parameters to agree with CAGRA's. The sweep can only cover shapes that are
+// accepted, so the refusals are pinned here.
 namespace {
 
 constexpr int64_t kGpipnnRows    = 512;
@@ -369,10 +369,11 @@ struct gpipnn_fixture {
 
 }  // namespace
 
-// Widening an odd `dim` would mean allocating a second copy of the dataset behind the caller's
-// back, so it is refused and the caller is asked to pad instead. Refusing matters more than it
-// looks: GPiPNN is only ever selected explicitly, so silently falling back would hand back a
-// graph built by a different algorithm than the one that was asked for.
+// Conforming any of the three unsupported dataset shapes below would mean allocating a second copy
+// of the dataset behind the caller's back, so each is refused and the caller is asked to hand over
+// a dataset GPiPNN can consume directly. Refusing matters more than it looks: GPiPNN is only ever
+// selected explicitly, so quietly conforming or falling back would hand back a graph built from
+// data, or by an algorithm, other than the one that was asked for.
 TEST(AnnCagraGpipnn, OddDimRejected)
 {
   if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
@@ -381,43 +382,52 @@ TEST(AnnCagraGpipnn, OddDimRejected)
   EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), dataset), std::exception);
 }
 
-// A padded dataset carries a row stride wider than the logical `dim`, which the conforming step has
-// to strip out. Same logical rows, so the graph must not move. Unlike an odd `dim`, this is not
-// the caller's to fix -- the padding is CAGRA's own -- so it is conformed rather than refused.
-TEST(AnnCagraGpipnn, PaddedStrideMatchesContiguous)
+// A padded dataset carries a row stride wider than the logical `dim`, which GPiPNN's GEMM cannot
+// address. Rejection is on the stride rather than the view type, so this needs a `dim` that CAGRA
+// actually pads: 6 floats pads to a stride of 8 while staying even, isolating the stride from the
+// odd-`dim` rule above.
+TEST(AnnCagraGpipnn, PaddedStrideRejected)
 {
   if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
-  // dim 6 pads to a stride of 8 floats, so this exercises stride != dim while staying even.
   gpipnn_fixture f(/*dim=*/6);
-  const auto contiguous =
-    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
-
   auto owned_padded = make_device_padded_dataset(f.res, f.narrow_matrix());
   auto padded_view  = owned_padded->view();
   ASSERT_NE(static_cast<int64_t>(padded_view.data_const_view().stride(0)), f.dim)
     << "padded copy was not actually strided";
-  const auto padded = gpipnn_graph(f.res, make_gpipnn_params(), padded_view);
-  ASSERT_EQ(contiguous, padded);
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), padded_view), std::exception);
 }
 
-// A host-resident dataset is staged to device by the same conforming step. Same bytes in, so the
-// graph must match the device-resident build.
-TEST(AnnCagraGpipnn, HostDatasetMatchesDevice)
+// A padded view whose `dim` already meets CAGRA's row alignment is laid out exactly like a standard
+// one, so the stride rule has to let it through: rejecting the padded view *type* would turn away
+// data GPiPNN can consume as is. This is also the shape the parameterized sweep builds from.
+TEST(AnnCagraGpipnn, AlignedPaddedViewAccepted)
 {
   if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
   gpipnn_fixture f(/*dim=*/8);
-  const auto from_device =
-    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
+  // `make_device_padded_dataset` refuses a dataset that is already correctly strided and asks for
+  // the view factory instead, which is itself the point: this layout needs no padded copy.
+  auto padded_view = make_device_padded_dataset_view(f.res, f.narrow_matrix());
+  ASSERT_EQ(static_cast<int64_t>(padded_view.data_const_view().stride(0)), f.dim)
+    << "dim 8 floats should already be 16-byte row aligned";
 
-  auto host = raft::make_host_matrix<float, int64_t>(kGpipnnRows, f.dim);
+  const auto from_padded = gpipnn_graph(f.res, make_gpipnn_params(), padded_view);
+  const auto from_standard =
+    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
+  ASSERT_EQ(from_padded, from_standard);
+}
+
+// A host-resident dataset would have to be staged to device, which is the same hidden copy.
+TEST(AnnCagraGpipnn, HostDatasetRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto host = raft::make_host_matrix<float, int64_t>(f.n_rows, f.dim);
   raft::copy(
     host.data_handle(), f.narrow.data(), host.size(), raft::resource::get_cuda_stream(f.res));
   raft::resource::sync_stream(f.res);
-  const auto from_host =
-    gpipnn_graph(f.res,
-                 make_gpipnn_params(),
-                 make_host_standard_dataset_view(raft::make_const_mdspan(host.view())));
-  ASSERT_EQ(from_device, from_host);
+
+  auto host_view = make_host_standard_dataset_view(raft::make_const_mdspan(host.view()));
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), host_view), std::exception);
 }
 
 // GPiPNN's own `graph_degree`, `max_candidates` and `metric` are overridden to agree with CAGRA's
