@@ -488,8 +488,10 @@ CUVS_EXPORT cuvsError_t cuvsHnswSearchParamsDestroy(cuvsHnswSearchParams_t param
  * @param[in] params cuvsHnswSearchParams_t used to search Hnsw index
  * @param[in] index cuvsHnswIndex which has been returned by `cuvsHnswFromCagra`
  * @param[in] queries DLManagedTensor* queries dataset to search
- * @param[out] neighbors DLManagedTensor* output `k` neighbors for queries
- * @param[out] distances DLManagedTensor* output `k` distances for queries
+ * @param[out] neighbors DLManagedTensor* output `k` neighbors for queries. If a query reaches fewer
+ *                       than `k` elements, its remaining slots are set to `UINT64_MAX`.
+ * @param[out] distances DLManagedTensor* output `k` distances for queries. If a query reaches fewer
+ *                       than `k` elements, its remaining slots are set to `FLT_MAX`.
  */
 CUVS_EXPORT cuvsError_t cuvsHnswSearch(cuvsResources_t res,
                            cuvsHnswSearchParams_t params,

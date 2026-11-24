@@ -638,6 +638,10 @@ def search(SearchParams search_params,
     """
     Find the k nearest neighbors for each query.
 
+    If a query reaches fewer than k elements, its remaining slots hold the
+    maximum uint64 value in neighbors and the maximum float32 value in
+    distances.
+
     Parameters
     ----------
     search_params : SearchParams
