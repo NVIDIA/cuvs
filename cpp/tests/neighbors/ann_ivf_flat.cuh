@@ -624,6 +624,10 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
   {1000, 10000, 4096, 20, 50, 1024, cuvs::distance::DistanceType::InnerProduct, false},
   {1000, 10000, 4096, 20, 50, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
 
+  // k = 512 exceeds warpsort::kMaxCapacity (256), which disables local top-k in the scan kernel
+  {100, 10000, 16, 512, 512, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {100, 10000, 16, 512, 512, 1024, cuvs::distance::DistanceType::InnerProduct, false},
+
   // test splitting the big query batches  (> max gridDim.y) into smaller batches
   {100000, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::InnerProduct, false},
   {100000, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::CosineExpanded, false},
