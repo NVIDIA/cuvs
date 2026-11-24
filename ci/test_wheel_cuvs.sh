@@ -5,6 +5,7 @@
 set -euo pipefail
 
 source rapids-init-pip
+source ci/use_wheels_from_prs.sh
 
 # Delete system libnccl.so to ensure the wheel is used
 rm -rf /usr/lib64/libnccl*

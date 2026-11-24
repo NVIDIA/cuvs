@@ -9,6 +9,8 @@ set -euo pipefail
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
+source ci/use_conda_packages_from_prs.sh
+
 rapids-logger "Downloading artifacts from previous jobs"
 CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
 PYTHON_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_python cuvs cuvs --stable --cuda "$RAPIDS_CUDA_VERSION")")
@@ -19,6 +21,7 @@ rapids-dependency-file-generator \
   --file-key test_python \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION};dependencies=${RAPIDS_DEPENDENCIES}" \
   --prepend-channel "${CPP_CHANNEL}" \
+  "${RAFT_PR_PREPEND_CHANNEL_ARGS[@]}" \
   --prepend-channel "${PYTHON_CHANNEL}" \
   | tee env.yaml
 

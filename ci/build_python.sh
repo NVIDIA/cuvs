@@ -19,6 +19,8 @@ version=$(rapids-generate-version)
 export RAPIDS_PACKAGE_VERSION=${version}
 echo "${version}" > VERSION
 
+source ci/use_conda_packages_from_prs.sh
+
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
 
