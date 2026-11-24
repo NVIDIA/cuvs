@@ -173,4 +173,17 @@ CUVS_INST_HNSW_SERIALIZE(int8_t);
 
 #undef CUVS_INST_HNSW_SERIALIZE
 
+// The element data type is inferred from the external dataset; the dispatcher selects the typed
+// implementation, instantiating the float/half/uint8_t/int8_t materialize paths in this TU.
+void materialize_to_hnswlib(raft::resources const& res,
+                            const materialize_params& params,
+                            const std::string& layered_artifact_path,
+                            const std::string& output_path,
+                            int dim,
+                            cuvs::distance::DistanceType metric)
+{
+  detail::materialize_layered_to_hnswlib_on_disk_dispatch(
+    res, params, layered_artifact_path, output_path, dim, metric);
+}
+
 }  // namespace cuvs::neighbors::hnsw

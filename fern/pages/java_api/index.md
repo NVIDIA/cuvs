@@ -40,6 +40,7 @@ For the Apache Lucene codecs built on this API, see the [Lucene API Documentatio
 - [HnswAceParams](/api-reference/java-api-com-nvidia-cuvs-hnswaceparams)
 - [HnswIndex](/api-reference/java-api-com-nvidia-cuvs-hnswindex)
 - [HnswIndexParams](/api-reference/java-api-com-nvidia-cuvs-hnswindexparams)
+- [HnswMaterializeParams](/api-reference/java-api-com-nvidia-cuvs-hnswmaterializeparams)
 - [HnswQuery](/api-reference/java-api-com-nvidia-cuvs-hnswquery)
 - [HnswSearchParams](/api-reference/java-api-com-nvidia-cuvs-hnswsearchparams)
 - [MultiPartitionCagraSearch](/api-reference/java-api-com-nvidia-cuvs-multipartitioncagrasearch)

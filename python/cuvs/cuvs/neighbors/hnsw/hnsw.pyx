@@ -213,7 +213,6 @@ cdef class IndexParams:
     def ace_params(self):
         return self._ace_params
 
-
 cdef class Index:
     """
     HNSW index object. This object stores the trained HNSW index state
@@ -263,6 +262,68 @@ cdef class ExtendParams:
     def __init__(self, *,
                  num_threads=0):
         self.params.num_threads = num_threads
+
+    @property
+    def num_threads(self):
+        return self.params.num_threads
+
+
+cdef class MaterializeParams:
+    """
+    Parameters for materializing a layered HNSW artifact into an hnswlib
+    index on disk.
+
+    Parameters
+    ----------
+    dataset_path : string, default = None (optional)
+        Local dataset path holding the original-ID-ordered vectors used to
+        build the artifact. Supported formats match layered deserialization:
+        `.npy` and ANN benchmark `*.bin` files with a
+        `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`,
+        `.i8bin`).
+    max_host_memory_gb : float, default = 0 (optional)
+        Upper bound on host memory (in GiB) used for the base-topology reorder
+        buffer. When <= 0, the whole base topology is reordered in a single
+        in-memory pass (no temporary files). When set, the base topology is
+        reordered through bucketed temporary files so that peak host memory
+        stays close to this budget.
+    num_threads : int, default = 0 (optional)
+        Number of host threads to use. When 0, the maximum number of threads
+        is used.
+    """
+
+    cdef cuvsHnswMaterializeParams* params
+    cdef object _dataset_path_bytes
+
+    def __cinit__(self):
+        check_cuvs(cuvsHnswMaterializeParamsCreate(&self.params))
+        self._dataset_path_bytes = None
+
+    def __dealloc__(self):
+        if self.params is not NULL:
+            check_cuvs(cuvsHnswMaterializeParamsDestroy(self.params))
+
+    def __init__(self, *,
+                 dataset_path=None,
+                 max_host_memory_gb=0,
+                 num_threads=0):
+        if dataset_path is not None:
+            self._dataset_path_bytes = dataset_path.encode('utf-8')
+            self.params.dataset_path = self._dataset_path_bytes
+        else:
+            self.params.dataset_path = NULL
+        self.params.max_host_memory_gb = max_host_memory_gb
+        self.params.num_threads = num_threads
+
+    @property
+    def dataset_path(self):
+        if self.params.dataset_path is not NULL:
+            return self.params.dataset_path.decode('utf-8')
+        return None
+
+    @property
+    def max_host_memory_gb(self):
+        return self.params.max_host_memory_gb
 
     @property
     def num_threads(self):
@@ -403,6 +464,85 @@ def load(IndexParams index_params, filename, dim, dtype, metric="sqeuclidean",
     ))
     idx.trained = True
     return idx
+
+
+@auto_sync_resources
+def materialize_to_hnswlib(MaterializeParams materialize_params,
+                           layered_artifact_path,
+                           output_path,
+                           dim,
+                           metric="sqeuclidean",
+                           resources=None):
+    """
+    Materialize a layered HNSW artifact into a standard hnswlib index file
+    on disk.
+
+    Materializes a `GRAPH_ONLY` artifact (graph topology only, stored
+    in ACE order) plus a local dataset into a standard hnswlib index file,
+    without ever holding the full materialized index in host memory. The
+    resulting file is compatible with the original hnswlib library and can be
+    read back through `load()` with `hierarchy="cpu"`. The element data type
+    (float32, float16, uint8, int8) is inferred from the external dataset.
+    GRAPH_ONLY artifacts are currently produced through the C++ API.
+
+    Parameters
+    ----------
+    materialize_params : MaterializeParams
+        Materialization parameters. `dataset_path` must point to the
+        original-ID-ordered vectors used to build the artifact.
+    layered_artifact_path : string
+        Path to the layered HNSW artifact.
+    output_path : string
+        Path to the hnswlib index file to write.
+    dim : int
+        Dimensions of the training dataset.
+    metric : string denoting the metric type, default="sqeuclidean"
+        Valid values for metric: ["sqeuclidean", "inner_product"], where
+            - sqeuclidean is the euclidean distance without the square root
+              operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,
+            - inner_product distance is defined as
+              distance(a, b) = \\sum_i a_i * b_i.
+    {resources_docstring}
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cuvs.neighbors import hnsw
+    >>> n_features = 50
+    >>> # Assume a layered artifact was produced by an ACE GPU build and the
+    >>> # original-ID-ordered vectors are stored in "dataset.fbin".
+    >>> materialize_params = hnsw.MaterializeParams(
+    ...     dataset_path="dataset.fbin"
+    ... )
+    >>> hnsw.materialize_to_hnswlib(
+    ...     materialize_params,
+    ...     "layered_artifact.cuvs",
+    ...     "index.bin",
+    ...     n_features,
+    ...     metric="sqeuclidean",
+    ... )
+    >>> # The materialized index can be loaded as a standard hnswlib index.
+    >>> index = hnsw.load(
+    ...     hnsw.IndexParams(hierarchy="cpu"),
+    ...     "index.bin",
+    ...     n_features,
+    ...     np.float32,
+    ...     "sqeuclidean",
+    ... )
+    """
+    cdef string c_artifact = layered_artifact_path.encode('utf-8')
+    cdef string c_output = output_path.encode('utf-8')
+    cdef cuvsDistanceType distance_type = DISTANCE_TYPES[metric]
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+
+    check_cuvs(cuvsHnswMaterializeToHnswlib(
+        res,
+        materialize_params.params,
+        c_artifact.c_str(),
+        c_output.c_str(),
+        dim,
+        distance_type
+    ))
 
 
 @auto_sync_resources
