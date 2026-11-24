@@ -6,15 +6,19 @@
 
 #include "../common/ann_types.hpp"
 #include "../common/util.hpp"
-#include "../cuvs/cuvs_ann_bench_utils.h"
 #include <cuvs/neighbors/refine.hpp>
 
+// Faiss classes partially override overloaded virtual functions, triggering
+// NVCC warning 611 which -Werror=all-warnings promotes to an error.
+#pragma nv_diagnostic push
+#pragma nv_diag_suppress 611
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
 #include <faiss/IndexIVFPQ.h>
 #include <faiss/IndexRefine.h>
 #include <faiss/IndexScalarQuantizer.h>
+#include <faiss/gpu/Dataset.h>
 #include <faiss/gpu/GpuIndexCagra.h>
 #include <faiss/gpu/GpuIndexFlat.h>
 #include <faiss/gpu/GpuIndexIVFFlat.h>
@@ -23,6 +27,7 @@
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/impl/ScalarQuantizer.h>
 #include <faiss/index_io.h>
+#pragma nv_diagnostic pop
 #include <omp.h>
 
 #include <raft/core/device_mdarray.hpp>
@@ -35,6 +40,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -156,6 +162,8 @@ class faiss_gpu : public algo<T>, public algo_gpu {
   // simply owning a configured_raft_resource object takes care of setting the pool memory resource
   configured_raft_resources handle_{};
   mutable std::shared_ptr<faiss::gpu::StandardGpuResources> gpu_resource_;
+  // CAGRA borrows its Dataset; keep it alive until after the shared index is destroyed.
+  std::shared_ptr<faiss::gpu::Dataset> cagra_dataset_;
   std::shared_ptr<faiss::gpu::GpuIndex> index_;
   std::shared_ptr<faiss::IndexRefineFlat> index_refine_{nullptr};
   faiss::MetricType metric_type_;
@@ -164,7 +172,7 @@ class faiss_gpu : public algo<T>, public algo_gpu {
   double training_sample_fraction_;
   std::shared_ptr<faiss::SearchParameters> search_params_;
   std::shared_ptr<faiss::IndexRefineSearchParameters> refine_search_params_{nullptr};
-  const T* dataset_;
+  const T* dataset_   = nullptr;
   float refine_ratio_ = 1.0;
 };
 
@@ -196,8 +204,7 @@ void faiss_gpu<T>::build(const T* dataset, size_t nrow)
   }
   index_->train(nrow, dataset);  // faiss::gpu::GpuIndexFlat::train() will do nothing
   assert(index_->is_trained);
-  auto index_cagra = dynamic_cast<faiss::gpu::GpuIndexCagra*>(index_.get());
-  if (index_cagra == nullptr) { index_->add(nrow, dataset); }
+  index_->add(nrow, dataset);
 }
 
 template <typename T>
@@ -530,6 +537,7 @@ class faiss_gpu_cagra : public faiss_gpu<T> {
   using typename faiss_gpu<T>::search_param_base;
   struct search_param : public faiss_gpu<T>::search_param {
     faiss::gpu::SearchParametersCagra p;
+    [[nodiscard]] auto needs_dataset() const -> bool override { return true; }
   };
 
   faiss_gpu_cagra(Metric metric, int dim, const build_param& param)
@@ -539,9 +547,6 @@ class faiss_gpu_cagra : public faiss_gpu<T> {
     config.graph_degree              = param.graph_degree;
     config.intermediate_graph_degree = param.intermediate_graph_degree;
     config.device                    = this->device_;
-    // TODO: Remove on upgrade to Faiss nightly, which removes store_dataset.
-    // Host-built indexes then require explicit device dataset attachment before search.
-    config.store_dataset = false;
     if (param.cagra_build_algo == "IVF_PQ") {
       config.build_algo           = faiss::gpu::graph_build_algo::IVF_PQ;
       this->ivf_pq_build_params_  = param.ivf_pq_build_params;
@@ -556,6 +561,31 @@ class faiss_gpu_cagra : public faiss_gpu<T> {
 
     this->index_ = std::make_shared<faiss::gpu::GpuIndexCagra>(
       this->gpu_resource_.get(), dim, parse_metric_faiss(this->metric_), config);
+  }
+
+  void build(const T* dataset, size_t nrow) override
+  {
+    omp_single_thread_scope omp_single_thread;
+    auto input           = make_dataset_view(dataset, nrow);
+    this->cagra_dataset_ = std::make_shared<faiss::gpu::Dataset>(std::move(input));
+    static_cast<faiss::gpu::GpuIndexCagra*>(this->index_.get())->train(*this->cagra_dataset_);
+  }
+
+  void set_search_dataset(const T* dataset, size_t nrow) override
+  {
+    auto* index = static_cast<faiss::gpu::GpuIndexCagra*>(this->index_.get());
+    if (index->isSearchReady() && this->dataset_ == dataset &&
+        static_cast<size_t>(this->cagra_dataset_->getNumRows()) == nrow) {
+      return;
+    }
+    auto input          = make_dataset_view(dataset, nrow);
+    auto search_dataset = std::make_shared<faiss::gpu::Dataset>(
+      input.isCagraCompatible()
+        ? std::move(input)
+        : faiss::gpu::Dataset::makeDevicePadded(this->gpu_resource_.get(), input, this->device_));
+    index->updateDataset(*search_dataset);
+    this->cagra_dataset_ = std::move(search_dataset);
+    faiss_gpu<T>::set_search_dataset(dataset, nrow);
   }
 
   void set_search_param(const search_param_base& param, const void* filter_bitset) override
@@ -584,6 +614,15 @@ class faiss_gpu_cagra : public faiss_gpu<T> {
   std::shared_ptr<faiss::gpu::GpuIndex> faiss_index() { return this->index_; }
 
  private:
+  auto make_dataset_view(const T* dataset, size_t nrow) const -> faiss::gpu::Dataset
+  {
+    if (raft::get_device_for_address(dataset) >= 0) {
+      return faiss::gpu::Dataset::viewDevice(
+        dataset, nrow, this->dim_, faiss::Float32, this->dim_, this->device_);
+    }
+    return faiss::gpu::Dataset::viewHost(dataset, nrow, this->dim_, faiss::Float32, this->dim_);
+  }
+
   std::shared_ptr<faiss::gpu::IVFPQBuildCagraConfig> ivf_pq_build_params_;
   std::shared_ptr<faiss::gpu::IVFPQSearchCagraConfig> ivf_pq_search_params_;
 };
