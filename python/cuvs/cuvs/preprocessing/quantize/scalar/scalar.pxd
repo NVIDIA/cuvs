@@ -1,8 +1,10 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
+
+from libc.stdint cimport uintptr_t
 
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
@@ -21,8 +23,7 @@ cdef extern from "cuvs/preprocessing/quantize/scalar.h" nogil:
         cuvsScalarQuantizerParams_t params)
 
     ctypedef struct cuvsScalarQuantizer:
-        double min_
-        double max_
+        uintptr_t addr
 
     ctypedef cuvsScalarQuantizer* cuvsScalarQuantizer_t
 
@@ -31,6 +32,9 @@ cdef extern from "cuvs/preprocessing/quantize/scalar.h" nogil:
 
     cuvsError_t cuvsScalarQuantizerDestroy(
         cuvsScalarQuantizer_t quantizer)
+
+    cuvsError_t cuvsScalarQuantizerGetBounds(
+        cuvsScalarQuantizer_t quantizer, double* min, double* max)
 
     cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,
                                          cuvsScalarQuantizerParams_t params,

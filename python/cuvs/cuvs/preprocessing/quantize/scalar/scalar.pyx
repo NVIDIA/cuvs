@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -61,11 +61,15 @@ cdef class Quantizer:
 
     @property
     def min(self):
-        return self.quantizer.min_
+        cdef double min_ = 0, max_ = 0
+        check_cuvs(cuvsScalarQuantizerGetBounds(self.quantizer, &min_, &max_))
+        return min_
 
     @property
     def max(self):
-        return self.quantizer.max_
+        cdef double min_ = 0, max_ = 0
+        check_cuvs(cuvsScalarQuantizerGetBounds(self.quantizer, &min_, &max_))
+        return max_
 
     def __repr__(self):
         return f"scalar.Quantizer(min={self.min}, max={self.max})"

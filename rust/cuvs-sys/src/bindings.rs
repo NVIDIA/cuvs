@@ -3004,19 +3004,28 @@ unsafe extern "C" {
         use_vq: *mut bool,
     ) -> cuvsError_t;
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsScalarQuantizationMode {
+    CUVS_SCALAR_GLOBAL = 0,
+    CUVS_SCALAR_PER_DIMENSION = 1,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsScalarQuantizerParams {
     pub quantile: f32,
+    pub mode: cuvsScalarQuantizationMode,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of cuvsScalarQuantizerParams"]
-        [::std::mem::size_of::<cuvsScalarQuantizerParams>() - 4usize];
+        [::std::mem::size_of::<cuvsScalarQuantizerParams>() - 8usize];
     ["Alignment of cuvsScalarQuantizerParams"]
         [::std::mem::align_of::<cuvsScalarQuantizerParams>() - 4usize];
     ["Offset of field: cuvsScalarQuantizerParams::quantile"]
         [::std::mem::offset_of!(cuvsScalarQuantizerParams, quantile) - 0usize];
+    ["Offset of field: cuvsScalarQuantizerParams::mode"]
+        [::std::mem::offset_of!(cuvsScalarQuantizerParams, mode) - 4usize];
 };
 pub type cuvsScalarQuantizerParams_t = *mut cuvsScalarQuantizerParams;
 unsafe extern "C" {
@@ -3031,17 +3040,14 @@ unsafe extern "C" {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsScalarQuantizer {
-    pub min_: f64,
-    pub max_: f64,
+    pub addr: usize,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsScalarQuantizer"][::std::mem::size_of::<cuvsScalarQuantizer>() - 16usize];
+    ["Size of cuvsScalarQuantizer"][::std::mem::size_of::<cuvsScalarQuantizer>() - 8usize];
     ["Alignment of cuvsScalarQuantizer"][::std::mem::align_of::<cuvsScalarQuantizer>() - 8usize];
-    ["Offset of field: cuvsScalarQuantizer::min_"]
-        [::std::mem::offset_of!(cuvsScalarQuantizer, min_) - 0usize];
-    ["Offset of field: cuvsScalarQuantizer::max_"]
-        [::std::mem::offset_of!(cuvsScalarQuantizer, max_) - 8usize];
+    ["Offset of field: cuvsScalarQuantizer::addr"]
+        [::std::mem::offset_of!(cuvsScalarQuantizer, addr) - 0usize];
 };
 pub type cuvsScalarQuantizer_t = *mut cuvsScalarQuantizer;
 unsafe extern "C" {
@@ -3051,6 +3057,22 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[must_use]
     pub fn cuvsScalarQuantizerDestroy(quantizer: cuvsScalarQuantizer_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsScalarQuantizerGetBounds(
+        quantizer: cuvsScalarQuantizer_t,
+        min: *mut f64,
+        max: *mut f64,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsScalarQuantizerSetBounds(
+        quantizer: cuvsScalarQuantizer_t,
+        min: f64,
+        max: f64,
+    ) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
