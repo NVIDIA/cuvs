@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -11,8 +11,17 @@ public interface CuVSHostMatrix extends CuVSMatrix {
   int get(int row, int col);
 
   default CuVSDeviceMatrix toDevice(CuVSResources resources) {
-    var deviceMatrix = CuVSMatrix.deviceBuilder(resources, size(), columns(), dataType()).build();
-    toDevice(deviceMatrix, resources);
-    return deviceMatrix;
+    try (var builder = CuVSMatrix.deviceBuilder(resources, size(), columns(), dataType())) {
+      var deviceMatrix = builder.build();
+      try {
+        toDevice(deviceMatrix, resources);
+        return deviceMatrix;
+      } catch (RuntimeException | Error failure) {
+        // The caller owns the destination only after the copy succeeds.
+        try (deviceMatrix) {
+          throw failure;
+        }
+      }
+    }
   }
 }

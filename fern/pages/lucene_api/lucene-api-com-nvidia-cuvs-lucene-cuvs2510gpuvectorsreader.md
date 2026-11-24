@@ -99,7 +99,7 @@ Return the k nearest neighbor documents as determined by comparison of their vec
 
 This is not supported.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:739`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:732`_
 
 ### getCagraIndexForField
 
@@ -130,7 +130,7 @@ the CAGRA index, or `null`
 | --- | --- |
 | `IOException` | I/O exception |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:852`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:845`_
 
 ### getFieldInfos
 
@@ -144,7 +144,7 @@ Gets the instance of FieldInfos.
 
 the instance of FieldInfos
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:870`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:863`_
 
 ### getCuvsIndexes
 
@@ -158,7 +158,7 @@ Gets the map of `GPUIndex` objects.
 
 the map of GPU index objects, or `null` if the reader was opened with a merge `IOContext`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:880`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:873`_
 
 ### getFieldEntries
 
@@ -172,7 +172,7 @@ Gets the map of FieldEntry objects that hold the meta information for the field.
 
 the map of FieldEntry objects
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:889`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:882`_
 
 ### getOffHeapByteSize
 

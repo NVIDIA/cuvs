@@ -321,69 +321,72 @@ public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
 
       // Upload the query vector to device once; the same matrix view is searched against every
       // partition by the cuVS multi-partition API.
-      CuVSMatrix.Builder<?> vectorBuilder =
-          CuVSMatrix.deviceBuilder(resources, 1, target.length, CuVSMatrix.DataType.FLOAT);
-      vectorBuilder.addVector(target);
+      try (CuVSMatrix.Builder<?> vectorBuilder =
+          CuVSMatrix.deviceBuilder(resources, 1, target.length, CuVSMatrix.DataType.FLOAT)) {
+        vectorBuilder.addVector(target);
 
-      List<FilterBitsetHandle> filterHandles = null;
-      if (filterBitsets != null) {
-        filterHandles = new ArrayList<>(filterBitsets.size());
-        for (CachedFilterBitset cached : filterBitsets) {
-          filterHandles.add(cached == null ? null : cached.handle());
-        }
-      }
-
-      ScoreDoc[] scoreDocs;
-      try (CuVSMatrix queryVector = vectorBuilder.build()) {
-        for (int i = 0; i < leaves.size(); i++) {
-          cagraIndices.add(gpuReaders.get(i).getCagraIndexForField(field));
-        }
-
-        CagraQuery cagraQuery =
-            new CagraQuery.Builder(resources)
-                .withTopK(k)
-                .withSearchParams(searchParams)
-                .withQueryVectors(queryVector)
-                .build();
-
-        MultiPartitionSearchResults results =
-            MultiPartitionCagraSearch.search(resources, cagraIndices, cagraQuery, k, filterHandles);
-
-        // Every segment reaching this point holds either no candidates or more than k of them (the
-        // k in max(k, perLeafTopK) above), so k hits must exist once the filtered corpus holds at
-        // least k; a short result means the approximate search missed them.
-        if (hasExplicitFilter && totalCardinality >= k && results.count() < k) {
-          return super.rewrite(indexSearcher);
-        }
-
-        if (results.count() == 0) {
-          return new MatchNoDocsQuery();
-        }
-
-        // Map (segmentIdx, ordinal) → global Lucene doc ID; compute normalized score.
-        // Stash FloatVectorValues per segment: results.count() can be far larger than the
-        // number of segments, and getFloatVectorValues() allocates on each call.
-        FloatVectorValues[] segVectorValues = new FloatVectorValues[leaves.size()];
-        scoreDocs = new ScoreDoc[results.count()];
-        for (int j = 0; j < results.count(); j++) {
-          int segIdx = results.getPartitionIndex(j);
-          int ordinal = results.getOrdinal(j);
-          float dist = results.getDistance(j);
-
-          FloatVectorValues fvv = segVectorValues[segIdx];
-          if (fvv == null) {
-            fvv = gpuReaders.get(segIdx).getFloatVectorValues(field);
-            segVectorValues[segIdx] = fvv;
+        List<FilterBitsetHandle> filterHandles = null;
+        if (filterBitsets != null) {
+          filterHandles = new ArrayList<>(filterBitsets.size());
+          for (CachedFilterBitset cached : filterBitsets) {
+            filterHandles.add(cached == null ? null : cached.handle());
           }
-          LeafReaderContext ctx = leaves.get(segIdx);
-          int globalDoc = ctx.docBase + fvv.ordToDoc(ordinal);
-          float score = 1.0f / (1.0f + dist);
-          scoreDocs[j] = new ScoreDoc(globalDoc, score);
         }
 
-        Arrays.sort(scoreDocs, Comparator.comparingDouble((ScoreDoc sd) -> sd.score).reversed());
+        ScoreDoc[] scoreDocs;
+        try (CuVSMatrix queryVector = vectorBuilder.build()) {
+          for (int i = 0; i < leaves.size(); i++) {
+            cagraIndices.add(gpuReaders.get(i).getCagraIndexForField(field));
+          }
 
-        return docAndScoreQuery(scoreDocs);
+          CagraQuery cagraQuery =
+              new CagraQuery.Builder(resources)
+                  .withTopK(k)
+                  .withSearchParams(searchParams)
+                  .withQueryVectors(queryVector)
+                  .build();
+
+          MultiPartitionSearchResults results =
+              MultiPartitionCagraSearch.search(
+                  resources, cagraIndices, cagraQuery, k, filterHandles);
+
+          // Every segment reaching this point holds either no candidates or more than k of them
+          // (the
+          // k in max(k, perLeafTopK) above), so k hits must exist once the filtered corpus holds at
+          // least k; a short result means the approximate search missed them.
+          if (hasExplicitFilter && totalCardinality >= k && results.count() < k) {
+            return super.rewrite(indexSearcher);
+          }
+
+          if (results.count() == 0) {
+            return new MatchNoDocsQuery();
+          }
+
+          // Map (segmentIdx, ordinal) → global Lucene doc ID; compute normalized score.
+          // Stash FloatVectorValues per segment: results.count() can be far larger than the
+          // number of segments, and getFloatVectorValues() allocates on each call.
+          FloatVectorValues[] segVectorValues = new FloatVectorValues[leaves.size()];
+          scoreDocs = new ScoreDoc[results.count()];
+          for (int j = 0; j < results.count(); j++) {
+            int segIdx = results.getPartitionIndex(j);
+            int ordinal = results.getOrdinal(j);
+            float dist = results.getDistance(j);
+
+            FloatVectorValues fvv = segVectorValues[segIdx];
+            if (fvv == null) {
+              fvv = gpuReaders.get(segIdx).getFloatVectorValues(field);
+              segVectorValues[segIdx] = fvv;
+            }
+            LeafReaderContext ctx = leaves.get(segIdx);
+            int globalDoc = ctx.docBase + fvv.ordToDoc(ordinal);
+            float score = 1.0f / (1.0f + dist);
+            scoreDocs[j] = new ScoreDoc(globalDoc, score);
+          }
+
+          Arrays.sort(scoreDocs, Comparator.comparingDouble((ScoreDoc sd) -> sd.score).reversed());
+
+          return docAndScoreQuery(scoreDocs);
+        }
       }
 
     } catch (Throwable t) {
