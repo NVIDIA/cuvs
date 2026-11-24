@@ -91,11 +91,10 @@ auto unpack_row(const uint8_t* row, int64_t dim, bbq_code_layout layout) -> std:
     case bbq_code_layout::packed_7b:
     case bbq_code_layout::packed_8b: std::copy(row, row + dim, codes.begin()); break;
     case bbq_code_layout::packed_4b:
-      // Dims 2k and 2k+1 share byte k, high nibble first. An odd dim has no byte for its last
-      // component, which is why the tests below quantize an even number of dimensions.
-      for (int64_t d = 0; d + 1 < dim; d += 2) {
-        codes[d]     = row[d / 2] >> 4;
-        codes[d + 1] = row[d / 2] & 0x0f;
+      // Dims 2k and 2k+1 share byte k, high nibble first. An odd dim keeps its last component in
+      // the high nibble of the last byte.
+      for (int64_t d = 0; d < dim; ++d) {
+        codes[d] = d % 2 == 0 ? row[d / 2] >> 4 : row[d / 2] & 0x0f;
       }
       break;
     default: {
@@ -352,6 +351,7 @@ const std::vector<BbqQuantizationInputs> inputs = {
    bbq_code_layout::transposed_2b,
    bbq_code_layout::transposed_4b,
    DistanceType::L2Expanded},
+  {64, 41, bbq_code_layout::packed_4b, bbq_code_layout::packed_4b, DistanceType::L2Expanded},
   {64, 41, bbq_code_layout::packed_1b, bbq_code_layout::packed_4b, DistanceType::L2Expanded},
   {64, 41, bbq_code_layout::packed_1b, bbq_code_layout::packed_1b, DistanceType::L2Expanded},
   {64, 7, bbq_code_layout::packed_8b, bbq_code_layout::packed_8b, DistanceType::L2Expanded},

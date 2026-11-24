@@ -20,10 +20,13 @@
 #include <raft/stats/mean.cuh>
 #include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/pow2_utils.cuh>
 #include <raft/util/reduction.cuh>
+#include <raft/util/vectorized.cuh>
 
 #include <cstdint>
 #include <limits>
+#include <utility>
 
 namespace cuvs::preprocessing::quantize::bbq::detail {
 
@@ -248,11 +251,11 @@ __device__ inline float2 optimize_intervals(float2 interval,
 
 /**
  * Writes the codes of dimensions [@p base, base + WarpSize) of one row, one code per lane, in
- * @p Layout. Lanes past the end of the row must pass a zero code; the whole warp has to take part
- * because the packed layouts span lanes.
+ * @p Layout. Lanes past the end of the row must pass a zero code
  *
- * Mirrors the host reference's pack_codes, which in turn follows Lucene packAsBinary, packNibbles,
- * transposeDibit and transposeHalfByte.
+ * Mirrors Lucene packAsBinary (packed_1b), transposeDibit (transposed_2b) and transposeHalfByte
+ * (transposed_4b). packed_4b is a special case and doesn't follow Lucene's packNibbles: it packs
+ * dimensions contiguously.
  */
 template <bbq_code_layout Layout>
 __device__ inline void write_code_group(uint8_t* code_row,
@@ -267,11 +270,10 @@ __device__ inline void write_code_group(uint8_t* code_row,
   if constexpr (Layout == bbq_code_layout::packed_8b || Layout == bbq_code_layout::packed_7b) {
     if (d < dim) { code_row[d] = static_cast<uint8_t>(code); }
   } else if constexpr (Layout == bbq_code_layout::packed_4b) {
-    // Contiguous pairing: dims 2k and 2k+1 share byte k, high nibble first. This is not Lucene's
-    // packNibbles (which pairs dim i with dim dim/2 + i) -- see the host reference for why.
-    // An odd dim drops its last component, whose byte the caller has already zeroed.
+    // Contiguous pairing: dims 2k and 2k+1 share byte k, high nibble first.
+    // An odd dim leaves the low nibble of its last byte zero: the lane past the end passes code 0.
     const uint32_t low = __shfl_down_sync(0xffffffffu, code, 1);
-    if (lane % 2 == 0 && d + 1 < dim) {
+    if (lane % 2 == 0 && d < dim) {
       code_row[d / 2] = static_cast<uint8_t>((code << 4) | (low & 0x0fu));
     }
   } else {
@@ -318,10 +320,7 @@ __global__ void quantize_kernel(
 
   const auto dim = static_cast<uint32_t>(dataset.extent(1));
 
-  // Every warp in the block re-reads the whole centroid on each of the dozen or so passes a row
-  // takes, so it is staged once per block. `stage_centroid` is false when the centroid does not fit
-  // in shared memory, and the global copy is then read in place. The staging has to happen before
-  // the bounds check below, so that the barrier sees the whole block.
+  // `stage_centroid` is false when the centroid does not fit in shared memory.
   extern __shared__ float staged_centroid[];
   if (stage_centroid) {
     for (uint32_t d = threadIdx.x; d < dim; d += blockDim.x) {
@@ -333,7 +332,6 @@ __global__ void quantize_kernel(
 
   const int64_t row_id =
     (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) / raft::WarpSize;
-  // A warp shares its row, so the whole warp leaves together and the reductions below stay whole.
   if (row_id >= dataset.extent(0)) { return; }
 
   const auto* row_ptr = &dataset(row_id, 0);
@@ -521,6 +519,11 @@ inline void transform(raft::resources const& res,
                "BBQ transform: at most %lld rows are supported, got %lld",
                static_cast<long long>(kMaxQuantizeRows),
                static_cast<long long>(n_rows));
+  const auto* rows      = dataset.data_handle();
+  const bool is_aligned = dim % 4 == 0
+                            ? raft::Pow2<sizeof(float4)>::isAligned(rows)
+                            : (dim % 2 == 0 ? raft::Pow2<sizeof(float2)>::isAligned(rows) : true);
+  RAFT_EXPECTS(is_aligned, "BBQ transform: the dataset is not aligned");
 
   const auto data     = out.data_view();
   const auto manifest = out.manifest_view();

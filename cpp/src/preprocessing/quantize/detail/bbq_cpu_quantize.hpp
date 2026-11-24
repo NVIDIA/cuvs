@@ -237,6 +237,8 @@ inline std::vector<uint8_t> pack_codes(const std::vector<uint8_t>& unpacked,
       for (size_t i = 0; i < pairs; ++i) {
         output[i] = static_cast<uint8_t>((input[2 * i] << 4) | (input[2 * i + 1] & 0x0f));
       }
+      // An odd dim leaves the low nibble of its last byte zero, like Lucene's padded dimensions.
+      if (dim % 2 != 0) { output[pairs] = static_cast<uint8_t>(input[dim - 1] << 4); }
       continue;
     }
     for (size_t d = 0; d < dim; ++d) {
