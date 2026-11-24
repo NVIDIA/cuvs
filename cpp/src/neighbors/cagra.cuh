@@ -150,6 +150,7 @@ void build_knn_graph(
  *
  * The following distance metrics are supported:
  * - L2Expanded
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}

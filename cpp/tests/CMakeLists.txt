@@ -255,6 +255,8 @@ ConfigureTest(
   PERCENT 100
 )
 
+ConfigureTest(NAME NEIGHBORS_ANN_CAGRA_JACCARD_TEST PATH neighbors/ann_cagra/test_jaccard.cu)
+
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FILTER_UDF_TEST
   PATH neighbors/ann_cagra/test_filter_udf.cu

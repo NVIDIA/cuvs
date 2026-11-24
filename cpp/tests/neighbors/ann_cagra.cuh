@@ -326,6 +326,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
       case cuvs::distance::DistanceType::L2Expanded: return "L2";
       case cuvs::distance::DistanceType::BitwiseHamming: return "BitwiseHamming";
       case cuvs::distance::DistanceType::CosineExpanded: return "Cosine";
+      case cuvs::distance::DistanceType::BitwiseJaccard: return "BitwiseJaccard";
       case cuvs::distance::DistanceType::L1: return "L1";
       default: break;
     }
@@ -369,8 +370,9 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
   template <typename SearchIdxT = IdxT>
   void testCagra()
   {
-    // IVF_PQ graph build does not support BitwiseHamming
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+    // Packed bitwise metrics require uint8_t search and a non-IVF-PQ builder.
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
       GTEST_SKIP();
     // If the dataset dimension is small and the dataset size is large, there can be a lot of
@@ -1241,8 +1243,9 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
-    // IVF_PQ graph build does not support BitwiseHamming
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+    // Packed bitwise metrics require uint8_t search and a non-IVF-PQ builder.
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
       GTEST_SKIP();
     // If the dataset dimension is small and the dataset size is large, there can be a lot of
@@ -1507,8 +1510,9 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
          (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
           ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
       GTEST_SKIP();
-    // IVF_PQ graph build does not support BitwiseHamming
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+    // Packed bitwise metrics require uint8_t search and a non-IVF-PQ builder.
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
       GTEST_SKIP();
     // If the dataset dimension is small and the dataset size is large, there can be a lot of
@@ -1850,6 +1854,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -1875,6 +1880,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1},
     {cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -1927,6 +1933,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::L1},
     {false},
     {true},
@@ -1955,6 +1962,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -1982,6 +1990,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -2206,6 +2215,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
       case cuvs::distance::DistanceType::InnerProduct: return "InnerProduct";
       case cuvs::distance::DistanceType::L2Expanded: return "L2";
       case cuvs::distance::DistanceType::CosineExpanded: return "Cosine";
+      case cuvs::distance::DistanceType::BitwiseJaccard: return "BitwiseJaccard";
       default: return "Unknown";
     }
   };
@@ -2548,6 +2558,10 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
 
   void SetUp() override
   {
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        !std::is_same_v<DataT, uint8_t>) {
+      GTEST_SKIP();
+    }
     database.resize(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);
     search_queries.resize(static_cast<size_t>(ps.n_queries) * ps.dim, stream_);
     raft::random::RngState r(1234ULL);
@@ -2590,7 +2604,9 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
       for (auto algo : {search_algo::SINGLE_CTA, search_algo::MULTI_CTA}) {
         for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
                             cuvs::distance::DistanceType::InnerProduct,
-                            cuvs::distance::DistanceType::CosineExpanded}) {
+                            cuvs::distance::DistanceType::CosineExpanded,
+                            cuvs::distance::DistanceType::BitwiseJaccard}) {
+          const auto itopk_size = metric == cuvs::distance::DistanceType::BitwiseJaccard ? 256 : 64;
           inputs.push_back(
             AnnCagraMpInputs{/*n_queries*/ 100,
                              /*n_rows*/ 10000,
@@ -2600,7 +2616,7 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
                              split,
                              graph_build_algo::NN_DESCENT,
                              algo,
-                             /*itopk_size*/ 64,
+                             /*itopk_size*/ itopk_size,
                              metric,
                              // Lower than the single-index 0.985 convention. These
                              // low-redundancy single-partition / skewed configs dip

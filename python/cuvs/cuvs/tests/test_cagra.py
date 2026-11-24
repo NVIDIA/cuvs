@@ -37,6 +37,11 @@ def run_cagra_build_search_test(
     search_params={},
     serialize=False,
 ):
+    if metric == "bitwise_jaccard":
+        if dtype != np.uint8 or build_algo == "ivf_pq":
+            pytest.skip(
+                "packed Jaccard requires uint8 and a non-IVF-PQ builder"
+            )
     dataset = generate_data((n_rows, n_cols), dtype)
     if metric == "inner_product" or metric == "cosine":
         if dtype in [np.int8, np.uint8]:
@@ -125,12 +130,18 @@ def run_cagra_build_search_test(
         "inner_product": "cosine",
         "euclidean": "euclidean",
         "cosine": "cosine",
+        "bitwise_jaccard": "jaccard",
     }[metric]
     nn_skl = NearestNeighbors(
         n_neighbors=k, algorithm="brute", metric=skl_metric
     )
-    nn_skl.fit(dataset)
-    skl_idx = nn_skl.kneighbors(queries, return_distance=False)
+    reference_dataset, reference_queries = dataset, queries
+    if metric == "bitwise_jaccard":
+        # Unpack only for sklearn; cuVS receives the original packed uint8 data.
+        reference_dataset = np.unpackbits(dataset, axis=1).astype(bool)
+        reference_queries = np.unpackbits(queries, axis=1).astype(bool)
+    nn_skl.fit(reference_dataset)
+    skl_idx = nn_skl.kneighbors(reference_queries, return_distance=False)
 
     recall = calc_recall(out_idx, skl_idx)
     assert recall > 0.7
@@ -176,7 +187,9 @@ def run_cagra_build_search_test(
 @pytest.mark.parametrize("dtype", [np.float32, np.float16, np.int8, np.uint8])
 @pytest.mark.parametrize("array_type", ["device"])
 @pytest.mark.parametrize("build_algo", ["ivf_pq", "nn_descent"])
-@pytest.mark.parametrize("metric", ["sqeuclidean", "inner_product", "cosine"])
+@pytest.mark.parametrize(
+    "metric", ["sqeuclidean", "inner_product", "cosine", "bitwise_jaccard"]
+)
 @pytest.mark.parametrize("serialize", [True, False])
 def test_cagra_dataset_dtype_host_device(
     dtype, array_type, inplace, build_algo, metric, serialize
