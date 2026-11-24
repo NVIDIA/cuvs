@@ -188,6 +188,64 @@ public class VamanaBuildAndSerializeIT extends CuVSTestCase {
   }
 
   @Test
+  public void testBuildFromCagraGraph() throws Throwable {
+    float[][] dataset = randomFloatDataset();
+    CagraIndexParams cagraParams =
+        new CagraIndexParams.Builder()
+            .withCagraGraphBuildAlgo(CagraIndexParams.CagraGraphBuildAlgo.NN_DESCENT)
+            .withIntermediateGraphDegree(2 * GRAPH_DEGREE)
+            .withGraphDegree(GRAPH_DEGREE)
+            .build();
+    try (CuVSResources resources = CuVSResources.create();
+        CagraIndex cagra =
+            CagraIndex.newBuilder(resources)
+                .fromDataset(dataset)
+                .withIndexParams(cagraParams)
+                .build();
+        CuVSHostMatrix graph = cagra.getGraph().toHost()) {
+      var params = new VamanaIndexParams.Builder().withVisitedSize(64).withInitialGraph(graph);
+      try (VamanaIndex index =
+          VamanaIndex.newBuilder(resources)
+              .withDataset(dataset)
+              .withIndexParams(params.withGraphDegree(GRAPH_DEGREE).build())
+              .build()) {
+        assertEquals(DIMENSIONS, index.getDimensions());
+      }
+      // The graph has GRAPH_DEGREE columns, so a build with twice that degree rejects it.
+      var wider = params.withGraphDegree(2 * GRAPH_DEGREE).withVisitedSize(128).build();
+      var builder = VamanaIndex.newBuilder(resources).withDataset(dataset).withIndexParams(wider);
+      assertThrows(RuntimeException.class, builder::build);
+    }
+  }
+
+  @Test
+  public void testInitialGraphWithPaddedRowsIsRejected() throws Throwable {
+    float[][] dataset = randomFloatDataset();
+    int rowStride = 2 * GRAPH_DEGREE;
+    var graphBuilder =
+        CuVSMatrix.hostBuilder(ROWS, GRAPH_DEGREE, rowStride, -1, CuVSMatrix.DataType.UINT);
+    for (int i = 0; i < ROWS; i++) {
+      int[] row = new int[GRAPH_DEGREE];
+      for (int j = 0; j < GRAPH_DEGREE; j++) {
+        row[j] = (i + j + 1) % ROWS;
+      }
+      graphBuilder.addVector(row);
+    }
+    try (CuVSResources resources = CuVSResources.create();
+        CuVSHostMatrix graph = graphBuilder.build()) {
+      var params =
+          new VamanaIndexParams.Builder()
+              .withGraphDegree(GRAPH_DEGREE)
+              .withVisitedSize(64)
+              .withInitialGraph(graph)
+              .build();
+      var builder = VamanaIndex.newBuilder(resources).withDataset(dataset).withIndexParams(params);
+      IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
+      assertTrue(e.getMessage(), e.getMessage().contains("row stride (" + rowStride + ")"));
+    }
+  }
+
+  @Test
   public void testBuildUnsignedByteDataset() throws Throwable {
     try (CuVSResources resources = CuVSResources.create();
         CuVSMatrix dataset = hostMatrix(CuVSMatrix.DataType.BYTE);

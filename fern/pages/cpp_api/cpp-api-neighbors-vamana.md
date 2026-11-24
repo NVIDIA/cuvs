@@ -48,6 +48,7 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t queue_size;
   uint32_t reverse_batchsize;
   std::optional<codebook_params<float>> codebooks;
+  std::optional<raft::host_matrix_view<const uint32_t, int64_t, raft::row_major>> initial_graph;
 };
 ```
 
@@ -64,6 +65,7 @@ struct index_params : cuvs::neighbors::index_params {
 | `queue_size` | `uint32_t` | Size of candidate queue structure - should be (2^x)-1 |
 | `reverse_batchsize` | `uint32_t` | Max batchsize of reverse edge processing (reduces memory footprint) |
 | `codebooks` | [`std::optional<codebook_params<float>>`](/api-reference/cpp-api-neighbors-vamana#neighbors-vamana-codebook-params) | Codebooks and related parameters |
+| `initial_graph` | `std::optional<raft::host_matrix_view<const uint32_t, int64_t, raft::row_major>>` | Optional graph [n_rows, graph_degree] to start the insertion passes from instead of an empty graph, for example the graph of a CAGRA index built with NN-descent. Rows must be full, and each lists neighbor ids below n_rows other than the row's own id, in any order. The build rejects a graph with an id at or above n_rows or a row that lists itself, copies the graph, sorts each row by distance, and then inserts in full batches from the first pass. |
 
 ## Vamana index type
 
