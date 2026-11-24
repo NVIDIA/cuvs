@@ -239,7 +239,7 @@ auto train(raft::resources const& res,
 
       raft::copy_matrix(threshold_ptr + dim_offset,
                         size_t(1),
-                        sampled_dataset_chunk.data_handle() + (num_samples - 1) / 2,
+                        transposed_sampled_dataset_chunk.data_handle() + (num_samples - 1) / 2,
                         num_samples,
                         size_t(1),
                         dim_chunk,
