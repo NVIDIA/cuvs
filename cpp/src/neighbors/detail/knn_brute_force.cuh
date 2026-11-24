@@ -52,6 +52,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <variant>
@@ -91,14 +92,22 @@ void tiled_brute_force_knn(const raft::resources& handle,
   size_t tile_cols = 0;
   auto stream      = raft::resource::get_cuda_stream(handle);
 
+  // Grow the row tiles past the default only for metrics computed with a GEMM. The other metrics
+  // use the pairwise distance kernel, whose int offsets overflow on very large tiles.
+  bool grow_tile_rows = metric == cuvs::distance::DistanceType::L2Expanded ||
+                        metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                        metric == cuvs::distance::DistanceType::InnerProduct ||
+                        metric == cuvs::distance::DistanceType::CosineExpanded;
+
   // select_k keeps k distances and indices per query row in its workspace
-  cuvs::neighbors::detail::faiss_select::chooseTileSize(m,
-                                                        std::max(n, k),
-                                                        d,
-                                                        sizeof(DistanceT),
-                                                        k * (sizeof(DistanceT) + sizeof(IndexType)),
-                                                        tile_rows,
-                                                        tile_cols);
+  cuvs::neighbors::detail::faiss_select::chooseTileSize(
+    m, std::max(n, k), d, sizeof(DistanceT), grow_tile_rows, tile_rows, tile_cols);
+
+  // Round grown row tiles down so each tile's query pointer stays 256-byte aligned.
+  if (tile_rows < m) {
+    size_t row_alignment = 256 / std::gcd<size_t>(256, d * sizeof(ElementType));
+    tile_rows            = tile_rows / row_alignment * row_alignment;
+  }
 
   // for unittesting, its convenient to be able to put a max size on the tiles
   // so we can test the tiling logic without having to use huge inputs.
