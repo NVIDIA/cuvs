@@ -164,6 +164,45 @@ void predict(const raft::resources& handle,
                                          raft::resource::get_workspace_resource_ref(handle));
 }
 
+/**
+ * @brief Predict the closest cluster each sample in X belongs to, using the IVF-based
+ * (approximate) nearest-centroid assignment instead of an exhaustive scan.
+ *
+ * Internal: this is the only entry point through which other code reaches
+ * `ivf_assign::assign`.
+ *
+ * @param[in]  handle     The raft resources
+ * @param[in]  idx        IVF index built from the centroids
+ * @param[in]  search_params IVF search parameters
+ * @param[in]  X          Dataset for which to infer the closest clusters.
+ *                        [dim = n_samples x n_features]
+ * @param[out] labels     The output labels [dim = n_samples]
+ * @param[in]  mapping_op (optional) Functor to convert from the input datatype to float. If
+ *                        DataT is float, this must be the identity.
+ */
+template <typename DataT, typename IndexT, typename MappingOpT = raft::identity_op>
+void predict(const raft::resources& handle,
+             const cuvs::cluster::kmeans::detail::ivf_assign::index& idx,
+             const cuvs::cluster::kmeans::detail::ivf_assign::search_params& search_params,
+             raft::device_matrix_view<const DataT, IndexT> X,
+             raft::device_vector_view<uint32_t, IndexT> labels,
+             MappingOpT mapping_op = raft::identity_op())
+{
+  RAFT_EXPECTS(X.extent(0) == labels.extent(0),
+               "Number of rows in dataset and labels are different");
+  RAFT_EXPECTS(static_cast<uint64_t>(X.extent(1)) == static_cast<uint64_t>(idx.dim),
+               "Number of features in dataset and IVF index are different");
+  cuvs::cluster::kmeans::detail::predict(handle,
+                                         idx,
+                                         search_params,
+                                         X.data_handle(),
+                                         X.extent(0),
+                                         X.extent(1),
+                                         labels.data_handle(),
+                                         mapping_op,
+                                         raft::resource::get_workspace_resource_ref(handle));
+}
+
 namespace helpers {
 
 /**

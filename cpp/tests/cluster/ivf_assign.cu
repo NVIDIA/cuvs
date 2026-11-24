@@ -6,11 +6,15 @@
 #include "../test_utils.cuh"
 
 #include "../../src/cluster/detail/ivf_assign.hpp"
+#include "../../src/cluster/kmeans_balanced.cuh"
 #include <cuvs/distance/distance.hpp>
 
+#include <cuda_fp16.h>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
 
@@ -236,6 +240,64 @@ TEST_P(IvfAssignTest, MisalignedQueriesAreRejected)
     sp.algo = algo;
     EXPECT_THROW(assign(res_, sp, *idx_, queries, labels.view()), raft::exception);
   }
+}
+
+// kmeans_balanced::predict with a IVF index runs the same assignment as `assign`.
+TEST_P(IvfAssignTest, PredictOverloadMatchesAssign)
+{
+  const inputs p = GetParam();
+  search_params sp;
+  sp.n_probes   = 0;
+  auto expected = run(0, assign_algo::AUTO);
+  auto labels   = raft::make_device_vector<uint32_t, int64_t>(res_, p.n_queries);
+  cuvs::cluster::kmeans_balanced::predict(
+    res_, *idx_, sp, raft::make_const_mdspan(d_queries_->view()), labels.view());
+  std::vector<uint32_t> out(p.n_queries);
+  raft::update_host(out.data(), labels.data_handle(), out.size(), stream_);
+  raft::resource::sync_stream(res_);
+  EXPECT_EQ(out, expected);
+}
+
+// Non-float data is mapped to float before the assignment: the labels equal those of `assign` on
+// the half-rounded queries.
+TEST_P(IvfAssignTest, PredictOverloadHalfData)
+{
+  const inputs p  = GetParam();
+  auto q_half     = raft::make_device_matrix<half, int64_t>(res_, p.n_queries, p.dim);
+  auto q_round    = raft::make_device_matrix<float, int64_t>(res_, p.n_queries, p.dim);
+  const int64_t n = p.n_queries * p.dim;
+  raft::linalg::map(
+    res_,
+    raft::make_device_vector_view<const float, int64_t>(d_queries_->data_handle(), n),
+    raft::make_device_vector_view<half, int64_t>(q_half.data_handle(), n),
+    raft::cast_op<half>());
+  raft::linalg::map(res_,
+                    raft::make_device_vector_view<const half, int64_t>(q_half.data_handle(), n),
+                    raft::make_device_vector_view<float, int64_t>(q_round.data_handle(), n),
+                    raft::cast_op<float>());
+  search_params sp;
+  auto expected = raft::make_device_vector<uint32_t, int64_t>(res_, p.n_queries);
+  assign(res_, sp, *idx_, raft::make_const_mdspan(q_round.view()), expected.view());
+  auto labels = raft::make_device_vector<uint32_t, int64_t>(res_, p.n_queries);
+  cuvs::cluster::kmeans_balanced::predict(
+    res_, *idx_, sp, raft::make_const_mdspan(q_half.view()), labels.view(), raft::cast_op<float>());
+  std::vector<uint32_t> a(p.n_queries), b(p.n_queries);
+  raft::update_host(a.data(), expected.data_handle(), a.size(), stream_);
+  raft::update_host(b.data(), labels.data_handle(), b.size(), stream_);
+  raft::resource::sync_stream(res_);
+  EXPECT_EQ(a, b);
+}
+
+// A dataset whose dim differs from the index's is rejected.
+TEST_P(IvfAssignTest, PredictOverloadDimMismatchThrows)
+{
+  const inputs p = GetParam();
+  auto q         = raft::make_device_matrix<float, int64_t>(res_, 4, p.dim + 4);
+  auto labels    = raft::make_device_vector<uint32_t, int64_t>(res_, 4);
+  search_params sp;
+  EXPECT_THROW(cuvs::cluster::kmeans_balanced::predict(
+                 res_, *idx_, sp, raft::make_const_mdspan(q.view()), labels.view()),
+               raft::exception);
 }
 
 const std::vector<inputs> kInputs = {
