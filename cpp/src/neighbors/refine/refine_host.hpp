@@ -349,6 +349,18 @@ inline DistanceT cosine_distance(DataT const* a, DataT const* b, size_t n)
   return static_cast<DistanceT>(dist);
 }
 
+// Distance used to rank a candidate, smaller is closer. `DC::postprocess` converts it to the value
+// returned to the caller.
+template <typename DC, typename DistanceT, typename DataT>
+inline DistanceT refine_distance(DataT const* a, DataT const* b, size_t n)
+{
+  if constexpr (std::is_same_v<DC, distance_comp_cosine>) {
+    return cosine_distance<DistanceT, DataT>(a, b, n);
+  } else {
+    return euclidean_distance_squared<DC, DistanceT, DataT>(a, b, n);
+  }
+}
+
 template <typename DC, typename IdxT, typename DataT, typename DistanceT, typename ExtentsT>
 [[gnu::optimize(3), gnu::optimize("tree-vectorize")]] void refine_host_impl(
   raft::host_matrix_view<const DataT, ExtentsT, raft::row_major> dataset,
@@ -399,9 +411,7 @@ template <typename DC, typename IdxT, typename DataT, typename DistanceT, typena
           distance = std::numeric_limits<DistanceT>::max();
         } else {
           const DataT* row = dataset.data_handle() + dim * id;
-          for (size_t k = 0; k < dim; k++) {
-            distance += DC::template eval<DistanceT>(query[k], row[k]);
-          }
+          distance         = refine_distance<DC, DistanceT, DataT>(query, row, dim);
         }
         refined_pairs[i][j] = std::make_tuple(distance, id);
       }
@@ -440,11 +450,7 @@ template <typename DC, typename IdxT, typename DataT, typename DistanceT, typena
             distance = std::numeric_limits<DistanceT>::max();
           } else {
             const DataT* row = dataset.data_handle() + dim * id;
-            if constexpr (std::is_same_v<DC, distance_comp_cosine>) {
-              distance = cosine_distance<DistanceT, DataT>(query, row, dim);
-            } else {
-              distance = euclidean_distance_squared<DC, DistanceT, DataT>(query, row, dim);
-            }
+            distance         = refine_distance<DC, DistanceT, DataT>(query, row, dim);
           }
           refined_pairs[tid][j] = std::make_tuple(distance, id);
         }
@@ -491,11 +497,6 @@ struct distance_comp_inner {
 };
 
 struct distance_comp_cosine {
-  template <typename DistanceT>
-  static inline auto eval(const DistanceT&, const DistanceT&) -> DistanceT
-  {
-    return DistanceT{0};
-  }
   template <typename DistanceT>
   static inline auto postprocess(const DistanceT& a) -> DistanceT
   {
