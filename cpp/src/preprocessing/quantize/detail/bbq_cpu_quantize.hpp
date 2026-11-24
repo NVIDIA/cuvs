@@ -100,7 +100,7 @@ inline double loss(
   const double a        = interval[0];
   const double b        = interval[1];
   const double step     = (b - a) / (points - 1.0);
-  const double step_inv = 1.0 / step;
+  const double step_inv = a == b ? 0.0 : 1.0 / step;
   double xe             = 0.0;
   double e              = 0.0;
   for (double xi : vector) {
@@ -118,13 +118,15 @@ inline void optimize_intervals(float interval[2],
                                float lambda = kDefaultLambda,
                                int iters    = kDefaultIters)
 {
-  double initial_loss = loss(vector, interval, points, norm2, lambda);
-  const float scale   = (1.0f - lambda) / norm2;
+  const float scale = (1.0f - lambda) / norm2;
   if (!std::isfinite(scale)) { return; }
+  double initial_loss = loss(vector, interval, points, norm2, lambda);
   for (int i = 0; i < iters; ++i) {
-    const float a        = interval[0];
-    const float b        = interval[1];
+    const float a = interval[0];
+    const float b = interval[1];
+    if (a == b) { return; }
     const float step_inv = (points - 1.0f) / (b - a);
+    if (!std::isfinite(step_inv)) { return; }
     double daa = 0.0, dab = 0.0, dbb = 0.0, dax = 0.0, dbx = 0.0;
     for (float xi : vector) {
       const float k =
@@ -194,14 +196,15 @@ inline row_result scalar_quantize(std::vector<float>& vector,
     static_cast<float>(clamp(kMinimumMseGrid[bits - 1][1] * vec_std + vec_mean, min, max));
   optimize_intervals(interval, vector, norm2, points);
 
-  const float n_steps = static_cast<float>((1 << bits) - 1);
-  const float a       = interval[0];
-  const float b       = interval[1];
-  const float step    = (b - a) / n_steps;
-  int sum_query       = 0;
+  const float n_steps    = static_cast<float>((1 << bits) - 1);
+  const float a          = interval[0];
+  const float b          = interval[1];
+  const float step       = (b - a) / n_steps;
+  const bool eq_interval = !(step > 0.0f);
+  int sum_query          = 0;
   for (int h = 0; h < n; ++h) {
     const float xi       = static_cast<float>(clamp(vector[h], a, b));
-    const int assignment = static_cast<int>(round((xi - a) / step));
+    const int assignment = eq_interval ? 0 : static_cast<int>(round((xi - a) / step));
     sum_query += assignment;
     destination[h] = static_cast<uint8_t>(assignment);
   }
