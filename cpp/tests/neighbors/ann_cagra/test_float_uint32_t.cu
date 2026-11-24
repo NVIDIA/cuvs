@@ -301,4 +301,191 @@ TEST(AnnCagraMultiPartition, MixedGraphDegreeRejected)
                                        cagra::search_params{});
 }
 
+// GPiPNN reaches CAGRA through two pieces of glue the parameterized sweep above cannot isolate: a
+// validation step that refuses any dataset view other than the contiguous, even-`dim`,
+// device-resident matrix GPiPNN takes, and a reconciliation step that silently rewrites the
+// caller's GPiPNN parameters to agree with CAGRA's. The sweep can only cover shapes that are
+// accepted, so the refusals are pinned here.
+namespace {
+
+constexpr int64_t kGpipnnRows    = 512;
+constexpr uint32_t kGpipnnDegree = 32;
+
+auto make_gpipnn_params(cuvs::distance::DistanceType metric =
+                          cuvs::distance::DistanceType::L2Expanded) -> cagra::index_params
+{
+  cagra::index_params params;
+  params.metric                    = metric;
+  params.graph_degree              = kGpipnnDegree;
+  params.intermediate_graph_degree = kGpipnnDegree * 2;
+  graph_build_params::gpipnn_params gp;
+  gp.graph_degree           = kGpipnnDegree;  // agrees with CAGRA's, so nothing is reconciled
+  gp.metric                 = metric;
+  params.graph_build_params = gp;
+  return params;
+}
+
+/** Builds with the GPiPNN builder and returns the resulting graph on the host. */
+template <typename DatasetViewT>
+auto gpipnn_graph(raft::resources const& res,
+                  cagra::index_params const& params,
+                  DatasetViewT const& dataset) -> std::vector<uint32_t>
+{
+  auto index = cagra::build(res, params, dataset);
+  std::vector<uint32_t> out(index.graph().size());
+  raft::copy(
+    out.data(), index.graph().data_handle(), out.size(), raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  return out;
+}
+
+/** Random rows of `dim` columns. */
+struct gpipnn_fixture {
+  raft::resources res;
+  int64_t dim;
+  int64_t n_rows;
+  rmm::device_uvector<float> narrow;
+
+  explicit gpipnn_fixture(int64_t d, int64_t rows = kGpipnnRows)
+    : dim(d),
+      n_rows(rows),
+      narrow(static_cast<size_t>(rows * d), raft::resource::get_cuda_stream(res))
+  {
+    raft::random::RngState r(1234ULL);
+    InitDataset(res,
+                narrow.data(),
+                static_cast<uint32_t>(n_rows),
+                static_cast<uint32_t>(dim),
+                cuvs::distance::DistanceType::L2Expanded,
+                r);
+    raft::resource::sync_stream(res);
+  }
+
+  auto narrow_matrix() const -> raft::device_matrix_view<const float, int64_t>
+  {
+    return raft::make_device_matrix_view<const float, int64_t>(narrow.data(), n_rows, dim);
+  }
+};
+
+}  // namespace
+
+// Conforming any of the three unsupported dataset shapes below would mean allocating a second copy
+// of the dataset behind the caller's back, so each is refused and the caller is asked to hand over
+// a dataset GPiPNN can consume directly. Refusing matters more than it looks: GPiPNN is only ever
+// selected explicitly, so quietly conforming or falling back would hand back a graph built from
+// data, or by an algorithm, other than the one that was asked for.
+TEST(AnnCagraGpipnn, OddDimRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/7);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), dataset), std::exception);
+}
+
+// A padded dataset carries a row stride wider than the logical `dim`, which GPiPNN's GEMM cannot
+// address. Rejection is on the stride rather than the view type, so this needs a `dim` that CAGRA
+// actually pads: 6 floats pads to a stride of 8 while staying even, isolating the stride from the
+// odd-`dim` rule above.
+TEST(AnnCagraGpipnn, PaddedStrideRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/6);
+  auto owned_padded = make_device_padded_dataset(f.res, f.narrow_matrix());
+  auto padded_view  = owned_padded->view();
+  ASSERT_NE(static_cast<int64_t>(padded_view.data_const_view().stride(0)), f.dim)
+    << "padded copy was not actually strided";
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), padded_view), std::exception);
+}
+
+// A padded view whose `dim` already meets CAGRA's row alignment is laid out exactly like a standard
+// one, so the stride rule has to let it through: rejecting the padded view *type* would turn away
+// data GPiPNN can consume as is. This is also the shape the parameterized sweep builds from.
+TEST(AnnCagraGpipnn, AlignedPaddedViewAccepted)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  // `make_device_padded_dataset` refuses a dataset that is already correctly strided and asks for
+  // the view factory instead, which is itself the point: this layout needs no padded copy.
+  auto padded_view = make_device_padded_dataset_view(f.res, f.narrow_matrix());
+  ASSERT_EQ(static_cast<int64_t>(padded_view.data_const_view().stride(0)), f.dim)
+    << "dim 8 floats should already be 16-byte row aligned";
+
+  const auto from_padded = gpipnn_graph(f.res, make_gpipnn_params(), padded_view);
+  const auto from_standard =
+    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
+  ASSERT_EQ(from_padded, from_standard);
+}
+
+// A host-resident dataset would have to be staged to device, which is the same hidden copy.
+TEST(AnnCagraGpipnn, HostDatasetRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto host = raft::make_host_matrix<float, int64_t>(f.n_rows, f.dim);
+  raft::copy(
+    host.data_handle(), f.narrow.data(), host.size(), raft::resource::get_cuda_stream(f.res));
+  raft::resource::sync_stream(f.res);
+
+  auto host_view = make_host_standard_dataset_view(raft::make_const_mdspan(host.view()));
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), host_view), std::exception);
+}
+
+// GPiPNN's own `graph_degree`, `max_candidates` and `metric` are overridden to agree with CAGRA's
+// rather than being rejected. The override has to actually happen: `max_candidates` below
+// `graph_degree` would otherwise fail GPiPNN's own validation, and a disagreeing degree or metric
+// would quietly produce the wrong graph.
+TEST(AnnCagraGpipnn, ParametersReconciledWithCagra)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+
+  auto params       = make_gpipnn_params();
+  auto& gp          = std::get<graph_build_params::gpipnn_params>(params.graph_build_params);
+  gp.graph_degree   = kGpipnnDegree / 2;
+  gp.max_candidates = 4;
+  gp.metric         = cuvs::distance::DistanceType::CosineExpanded;
+
+  const auto reconciled = gpipnn_graph(f.res, params, dataset);
+  ASSERT_EQ(reconciled.size(), static_cast<size_t>(kGpipnnRows) * kGpipnnDegree);
+
+  // CAGRA's values win, so the graph must equal the one built from parameters that already agreed.
+  const auto agreed = gpipnn_graph(f.res, make_gpipnn_params(), dataset);
+  ASSERT_EQ(reconciled, agreed);
+}
+
+// A dataset smaller than the requested degree has its `graph_degree` lowered by
+// `check_graph_degree` to `n_rows - 1`. GPiPNN has to build at the lowered degree like the other
+// builders do: with the requested one it would trip its own "more rows than graph_degree" check
+// and reject a dataset CAGRA accepts.
+TEST(AnnCagraGpipnn, ReducedGraphDegreeForSmallDataset)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  constexpr int64_t kSmallRows = 48;
+  gpipnn_fixture f(/*dim=*/8, kSmallRows);
+
+  auto params                      = make_gpipnn_params();
+  params.graph_degree              = 64;  // deliberately larger than the dataset
+  params.intermediate_graph_degree = 128;
+  std::get<graph_build_params::gpipnn_params>(params.graph_build_params).graph_degree =
+    params.graph_degree;
+
+  const auto graph =
+    gpipnn_graph(f.res, params, make_device_standard_dataset_view(f.narrow_matrix()));
+  ASSERT_EQ(graph.size(), static_cast<size_t>(kSmallRows * (kSmallRows - 1)));
+}
+
+// Only L2Expanded and CosineExpanded are supported; anything else must be refused rather than
+// quietly built as L2. On a GPU too old for GPiPNN the builder is swapped for NN-descent before
+// this check runs, which would make the metric legal again.
+TEST(AnnCagraGpipnn, UnsupportedMetricRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+  EXPECT_THROW(
+    cagra::build(f.res, make_gpipnn_params(cuvs::distance::DistanceType::InnerProduct), dataset),
+    std::exception);
+}
+
 }  // namespace cuvs::neighbors::cagra
