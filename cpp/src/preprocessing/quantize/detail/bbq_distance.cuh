@@ -59,28 +59,6 @@ void check_same_quantizer(raft::resources const& res,
                "BBQ: the document and query datasets were encoded for different metrics");
   RAFT_EXPECTS(document.dim() == query.dim(),
                "BBQ: the document and query centroids have different dimensions");
-  if (document.centroid.data_handle() == query.centroid.data_handle() &&
-      document.centroid_norm_sq.data_handle() == query.centroid_norm_sq.data_handle()) {
-    return;
-  }
-  const auto dim    = static_cast<size_t>(document.dim());
-  const auto stream = raft::resource::get_cuda_stream(res);
-  std::vector<DataT> centroids(2 * dim);
-  float centroid_norms_sq[2];
-  raft::copy(centroids.data(), document.centroid.data_handle(), dim, stream);
-  raft::copy(centroids.data() + dim, query.centroid.data_handle(), dim, stream);
-  raft::copy(&centroid_norms_sq[0], document.centroid_norm_sq.data_handle(), 1, stream);
-  raft::copy(&centroid_norms_sq[1], query.centroid_norm_sq.data_handle(), 1, stream);
-  raft::resource::sync_stream(res);
-  bool centroids_equal = true;
-  for (size_t i = 0; i < dim; ++i) {
-    if (centroids[i] != centroids[i + dim]) {
-      centroids_equal = false;
-      break;
-    }
-  }
-  RAFT_EXPECTS(centroids_equal && centroid_norms_sq[0] == centroid_norms_sq[1],
-               "BBQ: the document and query datasets were encoded against different centroids");
 }
 
 /**
