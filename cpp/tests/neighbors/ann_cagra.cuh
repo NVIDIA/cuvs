@@ -350,7 +350,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
   if ((int)p.build_algo == 0 && p.ivf_pq_search_refine_ratio) {
     os << "(refine_rate=" << *p.ivf_pq_search_refine_ratio << ')';
   }
-  os << '}' << std::endl;
+  os << '}';
   return os;
 }
 
@@ -2200,7 +2200,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
      << ", k=" << p.k << ", num_partitions=" << p.num_partitions
      << ", split=" << (p.split == partition_split::EVEN ? "even" : "skewed") << ", "
      << algo_name[p.algo] << ", itopk_size=" << p.itopk_size << ", metric=" << metric_str(p.metric)
-     << ", max_queries=" << p.max_queries << '}' << std::endl;
+     << ", max_queries=" << p.max_queries << '}';
   return os;
 }
 
