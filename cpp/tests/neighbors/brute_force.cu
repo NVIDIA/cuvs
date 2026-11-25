@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <numeric>
 #include <vector>
 
 namespace cuvs::neighbors::brute_force {
@@ -271,6 +273,68 @@ TEST(BruteForceEqualNorms, PreservesNeighborOrdering)
       }
     }
   }
+}
+
+TEST(BruteForceSmallIndex, PadsMissingNeighbors)
+{
+  raft::resources handle;
+  auto stream                  = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_database = 4;
+  constexpr int64_t n_queries  = 5;
+  constexpr int64_t k          = 6;
+
+  // 1-d points, so the expected neighbors of each query are unambiguous.
+  std::vector<float> database_x{0.0f, 1.0f, 2.0f, 3.0f};
+  std::vector<float> queries_x{0.125f, 1.125f, 2.125f, 3.125f, -1.0f};
+  std::vector<half> h_database(n_database);
+  std::vector<half> h_queries(n_queries);
+  std::ranges::transform(database_x, h_database.begin(), [](float v) { return __float2half(v); });
+  std::ranges::transform(queries_x, h_queries.begin(), [](float v) { return __float2half(v); });
+
+  auto database = raft::make_device_matrix<half, int64_t>(handle, n_database, 1);
+  auto queries  = raft::make_device_matrix<half, int64_t>(handle, n_queries, 1);
+  raft::update_device(database.data_handle(), h_database.data(), h_database.size(), stream);
+  raft::update_device(queries.data_handle(), h_queries.data(), h_queries.size(), stream);
+
+  index_params index_params;
+  index_params.metric = cuvs::distance::DistanceType::L2Expanded;
+  auto index          = build(handle, index_params, raft::make_const_mdspan(database.view()));
+
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(handle, n_queries, k);
+  auto distances = raft::make_device_matrix<float, int64_t>(handle, n_queries, k);
+  search(handle,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view(),
+         filtering::none_sample_filter{});
+
+  std::vector<int64_t> expected_neighbors(n_queries * k, -1);
+  std::vector<float> expected_distances(n_queries * k, std::numeric_limits<float>::max());
+  for (int64_t q = 0; q < n_queries; ++q) {
+    std::vector<int64_t> order(n_database);
+    std::iota(order.begin(), order.end(), int64_t{0});
+    std::ranges::sort(order, [&](int64_t lhs, int64_t rhs) -> bool {
+      return std::abs(queries_x[q] - database_x[lhs]) < std::abs(queries_x[q] - database_x[rhs]);
+    });
+    for (int64_t i = 0; i < n_database; ++i) {
+      float diff                    = queries_x[q] - database_x[order[i]];
+      expected_neighbors[q * k + i] = order[i];
+      expected_distances[q * k + i] = diff * diff;
+    }
+  }
+
+  ASSERT_TRUE(devArrMatchHost(expected_neighbors.data(),
+                              neighbors.data_handle(),
+                              expected_neighbors.size(),
+                              Compare<int64_t>(),
+                              stream.get()));
+  ASSERT_TRUE(devArrMatchHost(expected_distances.data(),
+                              distances.data_handle(),
+                              expected_distances.size(),
+                              CompareApprox<float>(1e-4f),
+                              stream.get()));
 }
 
 // Also test with larger random inputs, including col-major inputs
