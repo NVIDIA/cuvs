@@ -36,7 +36,7 @@ type StandardDatasetView struct {
 	view C.cuvsDataset_t
 }
 
-// Matches C++ cagra_required_row_width (16-byte default alignment).
+// Matches C++ cuvs::padded_row_width (16-byte default alignment).
 func cagraRequiredRowWidth(logicalColumns int64, sizeofValue int) int64 {
 	alignBytes := 16
 	lcm := lcm(alignBytes, sizeofValue)

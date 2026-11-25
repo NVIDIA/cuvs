@@ -20,6 +20,7 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Roaring Allowlist](/api-reference/cpp-api-core-roaring-allowlist)
 - [Sparse](/api-reference/cpp-api-core-dataset-sparse)
 - [SQ](/api-reference/cpp-api-core-dataset-sq)
+- [Traits](/api-reference/cpp-api-core-dataset-traits)
 - [Type](/api-reference/cpp-api-core-dataset-type)
 - [View](/api-reference/cpp-api-core-dataset-view)
 - [Vpq](/api-reference/cpp-api-core-dataset-vpq)

@@ -8,6 +8,39 @@ _Source header: `cuvs/preprocessing/quantize/pq.hpp`_
 
 ## Product Quantizer utilities
 
+<a id="preprocessing-quantize-pq-vpq-params"></a>
+### preprocessing::quantize::pq::vpq_params
+
+Parameters for VPQ compression.
+
+```cpp
+struct vpq_params {
+  uint32_t pq_bits;
+  uint32_t pq_dim;
+  uint32_t vq_n_centers;
+  uint32_t kmeans_n_iters;
+  double vq_kmeans_trainset_fraction;
+  double pq_kmeans_trainset_fraction;
+  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type;
+  uint32_t max_train_points_per_pq_code;
+  uint32_t max_train_points_per_vq_cluster;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
+| `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
+| `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
+| `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
+| `vq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
+| `pq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
+| `pq_kmeans_type` | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-neighbors-common#cluster-kmeans-kmeans-type) | Type of k-means algorithm for PQ training. Balanced k-means tends to be faster than regular k-means for PQ training, for problem sets where the number of points per cluster are approximately equal. Regular k-means may be better for skewed cluster distributions. |
+| `max_train_points_per_pq_code` | `uint32_t` | The max number of data points to use per PQ code during PQ codebook training. Using more data points per PQ code may increase the quality of PQ codebook but may also increase the build time. We will use `pq_n_centers * max_train_points_per_pq_code` training points to train each PQ codebook. |
+| `max_train_points_per_vq_cluster` | `uint32_t` | The max number of data points to use per VQ cluster during training. |
+
 <a id="kmeans-params-variant"></a>
 ### kmeans_params_variant
 
@@ -94,7 +127,7 @@ Defines and stores VPQ codebooks upon training
 template <typename T>
 struct quantizer {
   params params_quantizer;
-  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
+  cuvs::device_vpq_dataset<T, int64_t> vpq_codebooks;
 };
 ```
 
@@ -103,7 +136,7 @@ struct quantizer {
 | Name | Type | Description |
 | --- | --- | --- |
 | `params_quantizer` | [`params`](/api-reference/cpp-api-preprocessing-quantize-pq#preprocessing-quantize-pq-params) | Parameters used to build this quantizer. |
-| `vpq_codebooks` | `cuvs::neighbors::device_vpq_dataset<T, int64_t>` | VPQ codebooks produced during training. |
+| `vpq_codebooks` | `cuvs::device_vpq_dataset<T, int64_t>` | VPQ codebooks produced during training. |
 
 <a id="preprocessing-quantize-pq-build"></a>
 ### preprocessing::quantize::pq::build
@@ -262,12 +295,11 @@ Train VPQ storage (codebooks + encoded rows) from a row-major mdspan/mdarray/dat
 ```cpp
 template <typename SrcT>
 [[nodiscard]] auto make_vpq_dataset(raft::resources const& res,
-cuvs::neighbors::vpq_params const& params,
-SrcT const& src)
--> cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+cuvs::preprocessing::quantize::pq::vpq_params const& params,
+SrcT const& src) -> cuvs::device_vpq_dataset<half, int64_t>;
 ```
 
-Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset view exposing `data_const_view`, in which case the logical `dim()` is quantized and the row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension) are passed through to training as they are; a wider row pitch triggers a contiguous dense copy first. Host-resident rows are subsampled for training and encoded in bounded batches, so the dense dataset is never staged on the device in full; they must be tightly packed. Empty sources are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
+Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same pattern as `cuvs::make_device_padded_dataset`), or any cuVS dense dataset / dataset view exposing `data_const_view`, in which case the logical `dim()` is quantized and the row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension) are passed through to training as they are; a wider row pitch triggers a contiguous dense copy first. Host-resident rows are subsampled for training and encoded in bounded batches, so the dense dataset is never staged on the device in full; they must be tightly packed. Empty sources are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
 
 Typical **CAGRA-Q** usage: compress the source rows, then build the graph directly from the VPQ dataset (the metric must be `L2Expanded`). Keep the `device_vpq_dataset` alive because the index holds a non-owning view of it.
 
@@ -276,9 +308,9 @@ Typical **CAGRA-Q** usage: compress the source rows, then build the graph direct
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
-| `params` |  | [`cuvs::neighbors::vpq_params const&`](/api-reference/cpp-api-neighbors-cagra#neighbors-vpq-params) |  |
+| `params` |  | [`cuvs::preprocessing::quantize::pq::vpq_params const&`](/api-reference/cpp-api-preprocessing-quantize-pq#preprocessing-quantize-pq-vpq-params) |  |
 | `src` |  | `SrcT const&` |  |
 
 **Returns**
 
-`cuvs::neighbors::device_vpq_dataset<half, int64_t>`
+`cuvs::device_vpq_dataset<half, int64_t>`

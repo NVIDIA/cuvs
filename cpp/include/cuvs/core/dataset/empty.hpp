@@ -56,5 +56,7 @@ struct empty_spec {
 
 template <typename T, typename IdxT>
 using empty_dataset = dataset<T, IdxT, empty_spec>;
+template <typename T, typename IdxT>
+using empty_dataset_view = typename empty_dataset<T, IdxT>::const_view_type;
 
 }  // namespace CUVS_EXPORT cuvs

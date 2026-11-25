@@ -176,10 +176,11 @@ void serialize_cagra_dense_dataset(const raft::resources& res,
 
 template <typename IdxT>
 auto deserialize_empty(raft::resources const& res, std::istream& is)
-  -> std::unique_ptr<device_empty_dataset<IdxT>>
+  -> std::unique_ptr<cuvs::empty_dataset<void, IdxT>>
 {
+  using empty_t      = cuvs::empty_dataset<void, IdxT>;
   auto suggested_dim = raft::deserialize_scalar<uint32_t>(res, is);
-  return std::make_unique<device_empty_dataset<IdxT>>(suggested_dim);
+  return std::make_unique<empty_t>(typename empty_t::data_type{suggested_dim});
 }
 
 /** Read and validate shared dense wire metadata and the tight `[n_rows x dim]` NumPy header. */
@@ -492,11 +493,11 @@ auto deserialize_dense_dataset(raft::resources const& res, Input& input)
                static_cast<int>(expected_dtype));
   if constexpr (std::is_same_v<OwningDatasetT, device_padded_dataset<DataT, IdxT>>) {
     return deserialize_device_dense<DataT, IdxT, OwningDatasetT>(res, input);
-  } else if constexpr (std::is_same_v<OwningDatasetT, device_standard_dataset<DataT, IdxT>>) {
+  } else if constexpr (std::is_same_v<OwningDatasetT, device_contiguous_dataset<DataT, IdxT>>) {
     return deserialize_device_dense<DataT, IdxT, OwningDatasetT>(res, input);
   } else if constexpr (std::is_same_v<OwningDatasetT, host_padded_dataset<DataT, IdxT>>) {
     return deserialize_host_dense<DataT, IdxT, OwningDatasetT>(res, is);
-  } else if constexpr (std::is_same_v<OwningDatasetT, host_standard_dataset<DataT, IdxT>>) {
+  } else if constexpr (std::is_same_v<OwningDatasetT, host_contiguous_dataset<DataT, IdxT>>) {
     return deserialize_host_dense<DataT, IdxT, OwningDatasetT>(res, is);
   } else {
     static_assert(!std::is_same_v<OwningDatasetT, OwningDatasetT>,
@@ -535,10 +536,10 @@ auto deserialize_padded_dataset(raft::resources const& res, Input& input)
 }
 
 template <typename DataT, typename IdxT, typename Input>
-auto deserialize_standard_dataset(raft::resources const& res, Input& input)
-  -> std::unique_ptr<device_standard_dataset<DataT, IdxT>>
+auto deserialize_contiguous_dataset(raft::resources const& res, Input& input)
+  -> std::unique_ptr<device_contiguous_dataset<DataT, IdxT>>
 {
-  return deserialize_dense_dataset<DataT, IdxT, device_standard_dataset<DataT, IdxT>>(res, input);
+  return deserialize_dense_dataset<DataT, IdxT, device_contiguous_dataset<DataT, IdxT>>(res, input);
 }
 
 template <typename DataT, typename IdxT, typename Input>
@@ -549,10 +550,10 @@ auto deserialize_host_padded_dataset(raft::resources const& res, Input& input)
 }
 
 template <typename DataT, typename IdxT, typename Input>
-auto deserialize_host_standard_dataset(raft::resources const& res, Input& input)
-  -> std::unique_ptr<host_standard_dataset<DataT, IdxT>>
+auto deserialize_host_contiguous_dataset(raft::resources const& res, Input& input)
+  -> std::unique_ptr<host_contiguous_dataset<DataT, IdxT>>
 {
-  return deserialize_dense_dataset<DataT, IdxT, host_standard_dataset<DataT, IdxT>>(res, input);
+  return deserialize_dense_dataset<DataT, IdxT, host_contiguous_dataset<DataT, IdxT>>(res, input);
 }
 
 }  // namespace cuvs::neighbors::detail

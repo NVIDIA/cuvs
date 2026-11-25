@@ -37,7 +37,7 @@
 
 namespace cuvs::neighbors::cagra {
 
-using vpq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+using vpq_dataset_t = cuvs::device_vpq_dataset<half, int64_t>;
 
 namespace {
 
@@ -46,7 +46,7 @@ auto compress(const raft::resources& res,
               uint32_t pq_dim,
               uint32_t pq_bits = 8) -> vpq_dataset_t
 {
-  cuvs::neighbors::vpq_params params;
+  cuvs::preprocessing::quantize::pq::vpq_params params;
   params.pq_dim         = pq_dim;
   params.pq_bits        = pq_bits;
   params.vq_n_centers   = 32;

@@ -98,14 +98,14 @@ TEST_F(cagra_serialize_dataset_layouts_test, load_into_standard_dataset)
   params.graph_degree              = 16;
   params.intermediate_graph_degree = 32;
   auto standard_view =
-    cuvs::neighbors::make_device_standard_dataset_view(raft::make_const_mdspan(dataset_->view()));
+    cuvs::make_device_contiguous_dataset_view(raft::make_const_mdspan(dataset_->view()));
   auto standard_index = cagra::build(res_, params, standard_view);
   std::stringstream ss;
   cagra::serialize(res_, ss, standard_index, true);
   raft::resource::sync_stream(res_);
 
   cagra::device_standard_index<data_type, index_type> index(res_);
-  std::unique_ptr<cuvs::neighbors::device_standard_dataset<data_type, int64_t>> loaded;
+  std::unique_ptr<cuvs::device_contiguous_dataset<data_type, int64_t>> loaded;
   cagra::deserialize(res_, ss, &index, &loaded);
   ASSERT_NE(loaded, nullptr);
   check_rows(loaded->view(), n_dim);
@@ -124,7 +124,8 @@ TEST_F(cagra_serialize_dataset_layouts_test, load_wide_stride_payload_into_stand
   cuvs::neighbors::detail::serialize_cagra_dense_dataset<data_type, int64_t>(res_, ss, padded.view);
   raft::resource::sync_stream(res_);
 
-  auto loaded = cuvs::neighbors::detail::deserialize_standard_dataset<data_type, int64_t>(res_, ss);
+  auto loaded =
+    cuvs::neighbors::detail::deserialize_contiguous_dataset<data_type, int64_t>(res_, ss);
   ASSERT_NE(loaded, nullptr);
   check_rows(loaded->view(), n_dim);
 }
@@ -135,7 +136,7 @@ TEST_F(cagra_serialize_dataset_layouts_test, load_into_padded_dataset)
   auto const stride = serialize_padded_index(ss);
 
   cagra::device_padded_index<data_type, index_type> index(res_);
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<data_type, int64_t>> loaded;
+  std::unique_ptr<cuvs::device_padded_dataset<data_type, int64_t>> loaded;
   cagra::deserialize(res_, ss, &index, &loaded);
   ASSERT_NE(loaded, nullptr);
   check_rows(loaded->view(), stride);
@@ -147,11 +148,11 @@ TEST_F(cagra_serialize_dataset_layouts_test, standard_view_requires_dense_rows)
   auto padded_buffer = raft::make_device_matrix<data_type, int64_t>(res_, n_rows, stride);
   auto strided_view  = raft::make_device_strided_matrix_view<const data_type, int64_t>(
     padded_buffer.data_handle(), n_rows, n_dim, stride);
-  ASSERT_THROW(cuvs::neighbors::make_device_standard_dataset_view(strided_view), raft::exception);
+  ASSERT_THROW(cuvs::make_device_contiguous_dataset_view(strided_view), raft::exception);
 
   auto dense_view = raft::make_device_strided_matrix_view<const data_type, int64_t>(
     padded_buffer.data_handle(), n_rows, n_dim, n_dim);
-  ASSERT_NO_THROW(cuvs::neighbors::make_device_standard_dataset_view(dense_view));
+  ASSERT_NO_THROW(cuvs::make_device_contiguous_dataset_view(dense_view));
 }
 
 }  // namespace cuvs::neighbors::cagra

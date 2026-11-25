@@ -90,7 +90,7 @@ void serialize_dataset_view(raft::resources const& res,
  */
 template <typename T>
 void serialize_dataset(raft::resources const& res,
-                       const cuvs::neighbors::device_padded_dataset_view<T, int64_t>* dataset,
+                       const cuvs::device_padded_dataset_view<T, int64_t>* dataset,
                        const std::string& dataset_base_file)
 {
   if (dataset == nullptr) { return; }
@@ -129,12 +129,11 @@ void serialize_dataset(raft::resources const& res,
  *
  */
 template <typename T, typename IdxT, typename HostMatT>
-void serialize_sector_aligned(
-  raft::resources const& res,
-  const HostMatT& h_graph,
-  const cuvs::neighbors::device_padded_dataset_view<T, int64_t>& dataset,
-  const uint64_t medoid,
-  std::ostream& output_writer)
+void serialize_sector_aligned(raft::resources const& res,
+                              const HostMatT& h_graph,
+                              const cuvs::device_padded_dataset_view<T, int64_t>& dataset,
+                              const uint64_t medoid,
+                              std::ostream& output_writer)
 {
   if constexpr (!std::is_same_v<IdxT, uint32_t>) {
     RAFT_FAIL("serialization is only implemented for uint32_t graph");

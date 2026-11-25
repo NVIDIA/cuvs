@@ -100,13 +100,13 @@ void search_main_core(
   // batched path when stride==dim).
   const DataT* queries_buf{};
   uint32_t query_row_stride{};
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> queries_padded_own;
-  if (cuvs::neighbors::matrix_row_width_matches_cagra_required(queries)) {
-    auto v           = cuvs::neighbors::make_device_padded_dataset_view(res, queries);
+  std::unique_ptr<cuvs::device_padded_dataset<DataT, int64_t>> queries_padded_own;
+  if (cuvs::matrix_has_padded_row_width(queries)) {
+    auto v           = cuvs::make_device_padded_dataset_view(res, queries);
     queries_buf      = v.data_const_view().data_handle();
     query_row_stride = v.data_const_view().stride(0);
   } else {
-    queries_padded_own = cuvs::neighbors::make_device_padded_dataset(res, queries);
+    queries_padded_own = cuvs::make_device_padded_dataset(res, queries);
     auto v             = queries_padded_own->view();
     queries_buf        = v.data_const_view().data_handle();
     query_row_stride   = v.data_const_view().stride(0);
@@ -188,7 +188,7 @@ template <typename T,
           typename CagraSampleFilterT,
           typename IdxT      = uint32_t,
           typename DistanceT = float,
-          cuvs::neighbors::ann_dataset_view DatasetViewT>
+          cuvs::dataset_like DatasetViewT>
 void search_main(raft::resources const& res,
                  search_params params,
                  const index<T, IdxT, DatasetViewT>& index,
@@ -206,7 +206,7 @@ void search_main(raft::resources const& res,
 
   const uint32_t query_logical_dim = index.dim();
   const uint32_t query_row_width   = static_cast<uint32_t>(queries.extent(1));
-  const uint32_t required_stride = cuvs::neighbors::cagra_required_row_width<T>(query_logical_dim);
+  const uint32_t required_stride   = cuvs::padded_row_width<T>(query_logical_dim);
   RAFT_EXPECTS(query_row_width == query_logical_dim || query_row_width == required_stride,
                "CAGRA search queries must have %u logical dimensions or CAGRA-padded row width %u "
                "(got %u).",
@@ -243,7 +243,7 @@ void search_main(raft::resources const& res,
       sample_filter);
   };
 
-  if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::is_empty_dataset_view_v<DatasetViewT>) {
     RAFT_FAIL(
       "Attempted to search without a dataset. Please call "
       "cagra::update_dataset(res, std::move(index), dataset) first.");
@@ -268,10 +268,10 @@ void search_main(raft::resources const& res,
       distances,
       query_logical_dim,
       sample_filter);
-  } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (cuvs::neighbors::is_device_contiguous_dataset_view_v<DatasetViewT>) {
     auto const stride = index.dataset().data_const_view().stride(0);
     RAFT_EXPECTS(
-      cuvs::neighbors::cagra_required_row_width<T>(stride) == stride,
+      cuvs::padded_row_width<T>(stride) == stride,
       "CAGRA search requires each dataset row to have the CAGRA-aligned stride. Create a padded "
       "dataset with make_device_padded_dataset() and attach it with cagra::update_dataset().");
     run_strided_like(index.dataset());
