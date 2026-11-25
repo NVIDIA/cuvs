@@ -208,6 +208,13 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_IVF_PQ_TRANSFORM_TEST
+  PATH neighbors/ivf_pq_transform.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
   PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu neighbors/ann_ivf_rabitq/test_exact_match.cu
   GPUS 1

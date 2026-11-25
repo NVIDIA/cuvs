@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cuvs/cluster/assignment.hpp>
 #include <cuvs/core/cuda_fp16.hpp>
 
 #include <cuvs/neighbors/common.hpp>
@@ -2004,6 +2005,71 @@ void transform(raft::resources const& handle,
                raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset,
                raft::device_vector_view<uint32_t, int64_t> output_labels,
                raft::device_matrix_view<uint8_t, int64_t> output_dataset);
+/**
+ * @brief Transform a dataset by applying pq-encoding to each vector, with a chosen assignment of
+ * the vectors to their cluster
+ *
+ * Same as the overload without `assignment`, except that the cluster of each vector (its label) is
+ * found with the given assignment backend. An empty `assignment` is the exhaustive assignment,
+ * i.e. the same as the overload without it. With `ivf_assignment_params` the labels are
+ * approximate (see there) and, unless `ivf_assignment_params::index` is set, an assignment
+ * index is built from the cluster centers once per call. To transform many batches, build the
+ * index once with `cuvs::cluster::build_ivf_assignment_index` (from the index's cluster
+ * centers, with the index's coarse metric: L2Expanded for InnerProduct, else the index metric) and
+ * pass it in the params.
+ *
+ * @param[in] handle
+ * @param[in] index ivf-pq constructed index
+ * @param[in] dataset a device matrix view to a row-major matrix [n_rows, index.dim()]
+ * @param[out] output_labels a device vector view [n_rows] that will get populated with the
+ * cluster ids (labels) for each vector in the input dataset
+ * @param[out] output_dataset a device matrix view [n_rows, ceildiv(index.pq_dim() *
+ * index.pq_bits(), 8)]] that will get populated with the pq-encoded dataset
+ * @param[in] assignment how to find the cluster of each vector
+ */
+void transform(raft::resources const& handle,
+               const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+               raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+               raft::device_vector_view<uint32_t, int64_t> output_labels,
+               raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+               const std::optional<cuvs::cluster::assignment_params>& assignment);
+/** @brief Same as the overload above, for other data types. */
+void transform(raft::resources const& handle,
+               const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+               raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
+               raft::device_vector_view<uint32_t, int64_t> output_labels,
+               raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+               const std::optional<cuvs::cluster::assignment_params>& assignment);
+/** @brief Same as the overload above, for other data types. */
+void transform(raft::resources const& handle,
+               const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+               raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset,
+               raft::device_vector_view<uint32_t, int64_t> output_labels,
+               raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+               const std::optional<cuvs::cluster::assignment_params>& assignment);
+/** @brief Same as the overload above, for other data types. */
+void transform(raft::resources const& handle,
+               const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+               raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset,
+               raft::device_vector_view<uint32_t, int64_t> output_labels,
+               raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+               const std::optional<cuvs::cluster::assignment_params>& assignment);
+/**
+ * @brief Build an IVF assignment index from the cluster centers of an IVF-PQ index.
+ *
+ * The result is what `transform` builds internally when no index is given, so passing it through
+ * `ivf_assignment_params::index` gives the same labels while building the index only once. It
+ * uses the coarse metric of the index (L2Expanded for an InnerProduct index, else the index
+ * metric), which a hand-built index must match.
+ *
+ * @param[in] handle
+ * @param[in] index ivf-pq constructed index
+ * @param[in] params `n_lists` and `kmeans_n_iters` are used; the rest is ignored
+ */
+auto build_ivf_assignment_index(raft::resources const& handle,
+                                const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+                                const cuvs::cluster::ivf_assignment_params& params)
+  -> cuvs::cluster::ivf_assignment_index;
 /**
  * @}
  */

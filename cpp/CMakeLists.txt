@@ -1523,6 +1523,7 @@ if(NOT BUILD_CPU_ONLY)
     ${ivf_flat_serialize_inst_files}
     src/neighbors/ivf_pq_index.cu
     src/neighbors/ivf_pq/ivf_pq_build_common.cu
+    src/neighbors/ivf_pq/ivf_pq_assignment_index.cu
     src/neighbors/ivf_pq/ivf_pq_serialize.cu
     src/neighbors/ivf_pq/ivf_pq_deserialize.cu
     ${ivf_pq_build_extend_inst_files}
