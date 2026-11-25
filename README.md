@@ -16,7 +16,7 @@
 - [Build and Install Guide](https://docs.nvidia.com/cuvs/installation): Instructions for installing and building cuVS.
 - [Getting Started Guide](https://docs.nvidia.com/cuvs/getting-started): Guide to getting started with cuVS.
 - [Code Examples](https://github.com/NVIDIA/cuvs/tree/HEAD/examples): Self-contained Code Examples.
-- [API Reference Documentation](https://docs.nvidia.com/cuvs/api_reference): API Documentation.
+- [API Reference Documentation](https://docs.nvidia.com/cuvs/api-reference): API Documentation.
 - [GitHub repository](https://github.com/NVIDIA/cuvs): Download the cuVS source code.
 - [Issue tracker](https://github.com/NVIDIA/cuvs/issues): Report issues or request features.
 
@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/NVIDIA/cuvs/tree/main/examples/rust).
+For a complete CUDA-backed example of the Rust API, see the [Rust examples](https://github.com/NVIDIA/cuvs/tree/main/rust/cuvs/examples) directory.
 
 ## Contributing
 
