@@ -523,7 +523,7 @@ class KmeansMGNcclTest : public ::testing::TestWithParam<KmeansMGNcclInputs<T>> 
 const std::vector<KmeansMGNcclInputs<float>> mg_nccl_inputsf = {
   // n_row, n_col, n_clusters, tol, weight_mode, device_buffer_samples, n_init,
   // partitions_per_rank[, init[, max_iter]]
-  {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1, 1},
+  {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1, 5},
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 1000, 1, 2},
   // K=4 with batch < partition rows: partition and batch loops both iterate.
   {1000, 32, 5, 0.0001f, kmeans_weight_mode::none, 128, 1, 4},
@@ -582,7 +582,7 @@ const std::vector<KmeansMGNcclInputs<float>> mg_nccl_inputsf = {
    0.0001f,
    kmeans_weight_mode::none,
    512,
-   1,
+   5,
    2,
    cuvs::cluster::kmeans::params::KMeansPlusPlus,
    20,
