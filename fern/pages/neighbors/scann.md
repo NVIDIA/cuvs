@@ -16,7 +16,7 @@ The NVIDIA cuVS SCaNN API currently builds and serializes indexes from C++. It d
 ```cpp
 #include <cuvs/neighbors/scann.hpp>
 
-using namespace cuvs::neighbors::experimental;
+using namespace cuvs::neighbors;
 
 raft::device_resources res;
 auto dataset = load_device_dataset();
@@ -50,7 +50,7 @@ The build API also accepts host row-major `float` data. C, Python, Java, Rust, a
 
 #include <cuvs/neighbors/scann.hpp>
 
-using namespace cuvs::neighbors::experimental;
+using namespace cuvs::neighbors;
 
 raft::device_resources res;
 auto dataset = load_device_dataset();

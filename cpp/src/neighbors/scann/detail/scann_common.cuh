@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/matrix/gather.cuh>
 
-namespace cuvs::neighbors::experimental::scann::detail {
+namespace cuvs::neighbors::scann::detail {
 
 template <typename T, typename IdxT>
 struct gather_functor {
@@ -60,4 +60,4 @@ struct gather_functor {
   }
 };
 
-}  // namespace cuvs::neighbors::experimental::scann::detail
+}  // namespace cuvs::neighbors::scann::detail

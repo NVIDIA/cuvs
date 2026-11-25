@@ -18,7 +18,7 @@
 
 #include <cuvs/neighbors/common.hpp>
 
-namespace cuvs::neighbors::experimental::scann {
+namespace cuvs::neighbors::scann {
 
 /**
  * @defgroup ScaNN ANN Graph-based nearest neighbor search
@@ -59,8 +59,7 @@ index<T, IdxT> build(
   const index_params& params,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset)
 {
-  return cuvs::neighbors::experimental::scann::detail::build<T, IdxT, Accessor>(
-    res, params, dataset);
+  return cuvs::neighbors::scann::detail::build<T, IdxT, Accessor>(res, params, dataset);
 }
 
 template <typename T, typename IdxT>
@@ -68,9 +67,9 @@ void serialize(raft::resources const& res,
                const std::string& file_prefix,
                const index<T, IdxT>& index_)
 {
-  cuvs::neighbors::experimental::scann::detail::serialize<T, IdxT>(res, file_prefix, index_);
+  cuvs::neighbors::scann::detail::serialize<T, IdxT>(res, file_prefix, index_);
 }
 
 /** @} */  // end group scann
 
-}  // namespace cuvs::neighbors::experimental::scann
+}  // namespace cuvs::neighbors::scann

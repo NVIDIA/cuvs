@@ -1553,7 +1553,13 @@ if(NOT BUILD_CPU_ONLY)
     ${refine_device_inst_files}
     ${refine_host_inst_files}
     src/neighbors/scann/scann_build_float.cu
+    src/neighbors/scann/scann_build_half.cu
+    src/neighbors/scann/scann_build_int8_t.cu
+    src/neighbors/scann/scann_build_uint8_t.cu
     src/neighbors/scann/scann_serialize_float.cu
+    src/neighbors/scann/scann_serialize_half.cu
+    src/neighbors/scann/scann_serialize_int8_t.cu
+    src/neighbors/scann/scann_serialize_uint8_t.cu
     src/neighbors/sample_filter.cu
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu

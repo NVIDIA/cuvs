@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,6 +16,8 @@
 #include <raft/linalg/reduce.cuh>
 #include <raft/linalg/transpose.cuh>
 #include <raft/matrix/argmin.cuh>
+
+#include "../../detail/ann_utils.cuh"
 
 /**
  * @brief Compute SOAR labels for each dataset vector
@@ -36,13 +38,18 @@
 template <typename T, typename LabelT>
 void compute_soar_labels(raft::resources const& dev_resources,
                          raft::device_matrix_view<const T, int64_t> dataset,
-                         raft::device_matrix_view<const T, int64_t> residuals,
-                         raft::device_matrix_view<T, int64_t> centers,
+                         raft::device_matrix_view<const float, int64_t> residuals,
+                         raft::device_matrix_view<float, int64_t> centers,
                          raft::device_vector_view<const LabelT, int64_t> labels,
                          raft::device_vector_view<LabelT, int64_t> soar_labels,
                          float lambda)
 {
   auto dim = dataset.extent(1);
+
+  // Transform the dataset into floats to use gemm operations from cublas.
+  auto ds_f = raft::make_device_matrix<float, int64_t>(dev_resources, dataset.extent(0), dim);
+  raft::linalg::map(
+    dev_resources, ds_f.view(), cuvs::spatial::knn::detail::utils::mapping<float>{}, dataset);
 
   // compute SOAR metric for each center
   auto soar_scores =
@@ -74,7 +81,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
                                             1,
                                             dim,
                                             alpha.data_handle(),
-                                            dataset.data_handle(),
+                                            ds_f.data_handle(),
                                             1,
                                             dim,
                                             residuals_norm.data_handle(),
@@ -88,7 +95,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
 
   auto centers_norm = raft::make_device_vector<float, int64_t>(dev_resources, centers.extent(0));
   auto centers_transpose =
-    raft::make_device_matrix<T, int64_t>(dev_resources, centers.extent(1), centers.extent(0));
+    raft::make_device_matrix<float, int64_t>(dev_resources, centers.extent(1), centers.extent(0));
 
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(dev_resources,
                                                 raft::make_const_mdspan(centers),
@@ -119,7 +126,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
                     raft::make_const_mdspan(soar_scores.view()));
 
   auto nc_dataset = raft::make_device_matrix_view<float, int64_t>(
-    const_cast<float*>(dataset.data_handle()), dataset.extent(0), dataset.extent(1));
+    ds_f.data_handle(), ds_f.extent(0), ds_f.extent(1));
 
   alpha(0) = -2.0;
   beta(0)  = 1.0;
