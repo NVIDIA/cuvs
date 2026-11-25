@@ -11,6 +11,14 @@ groups:
     search:
       itopk: [32, 64, 128, 256, 512]
       search_width: [1, 2, 4, 8, 16, 32, 64]
+  nightly:
+    build:
+      graph_degree: [32, 64]
+      intermediate_graph_degree: [64]
+      graph_build_algo: ["NN_DESCENT"]
+    search:
+      itopk: [32, 128, 512]
+      search_width: [1, 8]
   test:
     build:
       graph_degree: [32]
