@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,6 +17,9 @@ struct tag_metric_cosine {};
 // returning a min-close value).
 template <int Capacity>
 struct fragment_tag_ivf_sq_scan {};
+
+template <int Capacity>
+struct fragment_tag_ivf_sq_scan_stable {};
 
 template <typename FilterTag>
 struct fragment_tag_ivf_sq_filter {};
