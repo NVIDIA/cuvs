@@ -155,9 +155,13 @@ func (p *SearchParams) SetRandXorMask(rand_xor_mask uint64) (*SearchParams, erro
 
 // Destroys SearchParams
 func (p *SearchParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraSearchParamsDestroy(p.params)))
 	if err != nil {
 		return err
 	}
+	p.params = nil
 	return nil
 }
