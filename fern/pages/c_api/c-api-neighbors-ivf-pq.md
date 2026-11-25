@@ -760,3 +760,61 @@ DLManagedTensor* output_dataset);
 **Returns**
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsivfpqtransformwithassignment"></a>
+### cuvsIvfPqTransformWithAssignment
+
+Transform the input data by applying pq-encoding, with a chosen assignment of the vectors to their cluster
+
+```c
+cuvsError_t cuvsIvfPqTransformWithAssignment(cuvsResources_t res,
+cuvsIvfPqIndex_t index,
+DLManagedTensor* input_dataset,
+DLManagedTensor* output_labels,
+DLManagedTensor* output_dataset,
+cuvsAssignmentParams_t assignment);
+```
+
+Same as `cuvsIvfPqTransform`, except that the cluster of each vector (its label) is found with the given assignment backend. With `assignment` NULL this is `cuvsIvfPqTransform`. With the IVF backend the labels are approximate and, unless `assignment->index` is set, an assignment index is built from the cluster centers once per call; build it once with `cuvsIvfPqBuildAssignmentIndex` to reuse it across calls.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `index` | in | [`cuvsIvfPqIndex_t`](/api-reference/c-api-neighbors-ivf-pq#cuvsivfpqindex) | IVF-PQ index |
+| `input_dataset` | in | `DLManagedTensor*` | DLManagedTensor* vectors to transform |
+| `output_labels` | out | `DLManagedTensor*` | DLManagedTensor* Vector of cluster labels for each vector in the input |
+| `output_dataset` | out | `DLManagedTensor*` | DLManagedTensor* input vectors after pq-encoding |
+| `assignment` | in | [`cuvsAssignmentParams_t`](/api-reference/c-api-cluster-assignment#cuvsassignmentparams) | how to find the cluster of each vector, or NULL for the default |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsivfpqbuildassignmentindex"></a>
+### cuvsIvfPqBuildAssignmentIndex
+
+Build an assignment index from the cluster centers of an IVF-PQ index
+
+```c
+cuvsError_t cuvsIvfPqBuildAssignmentIndex(cuvsResources_t res,
+cuvsIvfPqIndex_t index,
+cuvsAssignmentParams_t params,
+cuvsAssignmentIndex_t assignment_index);
+```
+
+The result is what `cuvsIvfPqTransformWithAssignment` builds internally when no index is given; it uses the coarse metric of the IVF-PQ index. Pass it back through `params->index`. Only the index-building parameters of `params` are used (`params->index` is ignored).
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `index` | in | [`cuvsIvfPqIndex_t`](/api-reference/c-api-neighbors-ivf-pq#cuvsivfpqindex) | IVF-PQ index |
+| `params` | in | [`cuvsAssignmentParams_t`](/api-reference/c-api-cluster-assignment#cuvsassignmentparams) | assignment backend and its index-building parameters |
+| `assignment_index` | out | [`cuvsAssignmentIndex_t`](/api-reference/c-api-cluster-assignment#cuvsassignmentindex) | index to build, allocated with `cuvsAssignmentIndexCreate`; a previously built index is replaced |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
