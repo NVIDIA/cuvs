@@ -1442,6 +1442,7 @@ if(NOT BUILD_CPU_ONLY)
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/detail/ivf_assign.cu
+    src/cluster/ivf_assignment.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
     src/cluster/kmeans_cluster_cost.cu

@@ -801,7 +801,7 @@ void predict(const raft::resources& handle,
  * @param[in] search_params IVF search parameters (n_probes, ...)
  * @param[in] dataset Pointer to the data [n_rows, dim]; dim must equal idx.dim
  * @param[out] labels Output predictions [n_rows]
- * @param[in] mapping_op Mapping operation from T to float
+ * @param[in] mapping_op Mapping operation from T to float (not used when T is float)
  */
 template <typename T, typename IdxT, typename MappingOpT>
 void predict(const raft::resources& handle,
@@ -822,8 +822,6 @@ void predict(const raft::resources& handle,
   if (n_rows == 0) { return; }
 
   if constexpr (std::is_same_v<T, float>) {
-    static_assert(std::is_same_v<MappingOpT, raft::identity_op>,
-                  "float data must use the identity mapping");
     ivf_assign::assign(
       handle,
       search_params,
