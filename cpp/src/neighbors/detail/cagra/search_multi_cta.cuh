@@ -185,7 +185,8 @@ struct search
     intermediate_distances.resize(num_intermediate_results * max_queries,
                                   raft::resource::get_cuda_stream(res));
 
-    hashmap.resize(hashmap_size, raft::resource::get_cuda_stream(res));
+    // Convert the byte size to the element count required by resize().
+    hashmap.resize(hashmap_size / sizeof(INDEX_T), raft::resource::get_cuda_stream(res));
 
     topk_workspace_size = _cuann_find_topk_bufferSize(
       topk, max_queries, num_intermediate_results, utils::get_cuda_data_type<DATA_T>());
