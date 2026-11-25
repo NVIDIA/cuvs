@@ -12,7 +12,7 @@ public class FilterCuVSServiceProvider extends CuVSServiceProvider
 
 A provider that creates instances of FilterCuVSProvider.
 
-## Public Members
+## Public and Protected Members
 
 ### get
 

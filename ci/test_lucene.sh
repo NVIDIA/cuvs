@@ -140,9 +140,11 @@ rapids-logger "Run cuvs-lucene tests against the amd64-built classes"
 
 # -Dskip.compile activates the pom's "skip-compile" profile, which disables all
 # compilation for this run, forcing test to use amd64-compiled jar instead of
-# local code. --fail-at-end tests every module even if an earlier one fails.
+# local code. -DfailIfNoTests fails a module whose restored target/ holds no tests,
+# instead of letting it pass without running any. --fail-at-end tests every module
+# even if an earlier one fails.
 pushd java/cuvs-lucene
-MAVEN_TEST_ARGS=(--fail-at-end -Dskip.compile=true)
+MAVEN_TEST_ARGS=(--fail-at-end -Dskip.compile=true -DfailIfNoTests=true)
 if [ "${MIN_JDK}" = true ]; then
   NEWEST_MODULE="$(find . -maxdepth 1 -type d -name 'lucene-*' -printf '%f\n' | sort -V | tail -1)"
   rapids-logger "Testing ${NEWEST_MODULE} on JDK ${JDK_VERSION}"

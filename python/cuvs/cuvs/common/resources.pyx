@@ -7,7 +7,7 @@
 import functools
 
 from cuda.bindings.cyruntime cimport cudaStream_t
-from libc.stdint cimport int64_t
+from libc.stdint cimport int64_t, uintptr_t
 
 from cuvs.common.c_api cimport (
     cuvsResources_t,
@@ -87,7 +87,10 @@ cdef class Resources:
         else:
             check_cuvs(cuvsResourcesCreate(&self.c_obj))
         if stream:
-            check_cuvs(cuvsStreamSet(self.c_obj, <cudaStream_t>stream))
+            # ``stream`` is the integer handle (e.g. ``cupy.cuda.Stream.ptr``);
+            # casting the Python object directly would pass its address.
+            check_cuvs(cuvsStreamSet(self.c_obj,
+                                     <cudaStream_t><uintptr_t>stream))
 
     def sync(self):
         check_cuvs(cuvsStreamSync(self.c_obj))

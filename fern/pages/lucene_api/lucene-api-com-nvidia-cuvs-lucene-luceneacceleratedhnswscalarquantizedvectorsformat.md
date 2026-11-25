@@ -12,7 +12,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
 
 cuVS based Scalar Quantized KnnVectorsFormat for indexing on GPU and searching on the CPU.
 
-## Public Members
+Stores the vectors with Lucene's `Lucene99ScalarQuantizedVectorsFormat`, which Lucene
+10.4 moved to its backward codecs. On Lucene 10.4 and later this format can only read existing
+indexes; use `CuVSCodecs#acceleratedHNSWScalarQuantizedFormat` to write.
+
+## Public and Protected Members
 
 ### LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
 
@@ -28,7 +32,7 @@ Initializes `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat` with default val
 | --- | --- |
 | `LibraryException` | if the native library fails to load |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:41`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:29`_
 
 ### LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
 
@@ -44,7 +48,7 @@ Initializes `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat` with the given t
 | --- | --- |
 | `acceleratedHNSWParams` | An instance of `AcceleratedHNSWParams` |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:50`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:38`_
 
 ### fieldsWriter
 
@@ -54,7 +58,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Returns a KnnVectorsWriter to write the scalar quantized vectors to the index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:59`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:64`_
 
 ### fieldsReader
 
@@ -64,7 +68,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Returns a KnnVectorsReader to read the scalar quantized vectors from the index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:85`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:127`_
 
 ### getMaxDimensions
 
@@ -72,8 +76,9 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 @Override public int getMaxDimensions(String fieldName)
 ```
 
-Returns the maximum number of vector dimensions supported by this Codec for the given field name.
+Returns the maximum number of vector dimensions supported by this format for the given field
+name.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:113`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/BaseAcceleratedHNSWScalarQuantizedVectorsFormat.java:157`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:27`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:19`_

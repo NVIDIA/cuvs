@@ -5,7 +5,7 @@
 # cmake-format: on
 # =============================================================================
 
-cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.3 FATAL_ERROR)
 include(../cmake/rapids_config.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
@@ -17,6 +17,9 @@ project(
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX C
 )
+
+# Find C++ libraries from RAPIDS wheels in site-packages.
+set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
 set(CMAKE_INSTALL_MESSAGE LAZY)
 
 # Disable C++20 module scanning (not using modules, just C++20 features)
@@ -105,6 +108,7 @@ add_library(
   src/preprocessing/quantize/binary.cpp
   src/preprocessing/quantize/bbq.cpp
   src/preprocessing/quantize/pq.cpp
+  src/preprocessing/quantize/rabitq.cpp
   src/preprocessing/quantize/scalar.cpp
   src/distance/pairwise_distance.cpp
   src/selection/select_k.cpp

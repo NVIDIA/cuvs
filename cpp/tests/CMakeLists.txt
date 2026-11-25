@@ -133,10 +133,12 @@ ConfigureTest(
 ConfigureTest(
   NAME CLUSTER_TEST
   PATH cluster/kmeans.cu
+       cluster/cluster_cost.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
        cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
+       cluster/kmeans_batch_loader.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
        cluster/spectral.cu
@@ -151,8 +153,10 @@ ConfigureTest(
   PERCENT 100
 )
 target_compile_definitions(
-  CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
-                            CUVS_CUTILE_SM107_ENABLED=${CUVS_CUTILE_SM107_ENABLED}
+  CUTILE_SMOKE_TEST
+  PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+          CUVS_CUTILE_SM103_ENABLED=${CUVS_CUTILE_SM103_ENABLED}
+          CUVS_CUTILE_SM107_ENABLED=${CUVS_CUTILE_SM107_ENABLED}
 )
 if(CUVS_CUTILE_ENABLED)
   # These are intentionally library-private implementation symbols. Build the smoke executable with
@@ -204,7 +208,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
-  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
+  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu neighbors/ann_ivf_rabitq/test_exact_match.cu
   GPUS 1
   PERCENT 100
 )
@@ -308,6 +312,27 @@ ConfigureTest(
        neighbors/ann_nn_descent/test_int8_t_uint32_t.cu
        neighbors/ann_nn_descent/test_uint8_t_uint32_t.cu
        neighbors/ann_nn_descent/test_bbq_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_GPIPNN_FLOAT_UINT32_TEST
+  PATH neighbors/ann_gpipnn/test_float_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_GPIPNN_HALF_UINT32_TEST
+  PATH neighbors/ann_gpipnn/test_half_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_GPIPNN_INT8_UINT32_TEST
+  PATH neighbors/ann_gpipnn/test_int8_t_uint32_t.cu
   GPUS 1
   PERCENT 100
 )
@@ -479,6 +504,7 @@ ConfigureTest(
        preprocessing/binary_quantization.cu
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu
+       preprocessing/rabitq_quantization.cu
        preprocessing/pca.cu
   GPUS 1
   PERCENT 100
