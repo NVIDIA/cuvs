@@ -76,6 +76,16 @@ struct index_params : cuvs::neighbors::index_params {
   /** Max batchsize of reverse edge processing (reduces memory footprint) */
   uint32_t reverse_batchsize = 1000000;
 
+  /** Use a bloom filter as the GreedySearch visited set to skip duplicate
+   * neighbor visits during each search instead of scanning the visited list
+   * (probabilistic; a small false-positive rate may skip some nodes and
+   * marginally affect recall). */
+  bool use_bloom_filter = false;
+  /** Size of the GreedySearch bloom filter in bits (must be a multiple of 32).
+   * Larger values lower the false-positive rate at the cost of more shared
+   * memory per block. Ignored unless use_bloom_filter is true. */
+  uint32_t bloom_bits = 32768;
+
   /** Codebooks and related parameters */
   std::optional<codebook_params<float>> codebooks = std::nullopt;
 };

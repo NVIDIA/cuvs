@@ -282,7 +282,9 @@ __inline__ __device__ void parallel_pq_max_enqueue_warp(Node<SUMTYPE>* pq,
   }
 }
 
-// Warp-level version: lane 0 does insert_back, no __syncthreads
+// Warp-level version: lane 0 does insert_back, no __syncthreads. When a bloom
+// filter is supplied, neighbors already marked are skipped so their distance is
+// computed only once per search.
 template <typename QueryT, typename DataT, typename accT, typename IdxT>
 __forceinline__ __device__ void enqueue_all_neighbors_warp(int num_neighbors,
                                                            Point<QueryT, accT>* query_vec,
@@ -291,9 +293,19 @@ __forceinline__ __device__ void enqueue_all_neighbors_warp(int num_neighbors,
                                                            PriorityQueue<IdxT, accT>& heap_queue,
                                                            int dim,
                                                            cuvs::distance::DistanceType metric,
-                                                           int laneId)
+                                                           int laneId,
+                                                           uint32_t* bloom_filter = nullptr,
+                                                           int bloom_bits         = 0)
 {
   for (int i = 0; i < num_neighbors; i++) {
+    if (bloom_filter != nullptr) {
+      bool seen = false;
+      if (laneId == 0) {
+        seen = bloom_check_and_mark<IdxT>(bloom_filter, bloom_bits, neighbor_array[i]);
+      }
+      seen = raft::ballot(seen) != 0;
+      if (seen) { continue; }
+    }
     const DataT* neighbor_vec = &vec_ptr[(size_t)(neighbor_array[i]) * (size_t)(dim)];
     accT dist_out;
     if constexpr (std::is_same_v<QueryT, __half>) {
@@ -321,7 +333,9 @@ __forceinline__ __device__ void enqueue_all_neighbors_warp(
   PriorityQueue<IdxT, accT>& heap_queue,
   int dim,
   cuvs::distance::DistanceType metric,
-  int laneId)
+  int laneId,
+  uint32_t* bloom_filter = nullptr,
+  int bloom_bits         = 0)
 {
   // fp16-query-in-smem never applies to a half dataset (see greedy_search_use_fp16_query_smem),
   // so the half-query branch is compile-time excluded for half T to avoid instantiating the dead
@@ -330,20 +344,44 @@ __forceinline__ __device__ void enqueue_all_neighbors_warp(
     Point<float, accT> query_vec;
     query_vec.coords = reinterpret_cast<float*>(s_coords);
     query_vec.Dim    = dim;
-    enqueue_all_neighbors_warp<float, T, accT, IdxT>(
-      num_neighbors, &query_vec, vec_ptr, neighbor_array, heap_queue, dim, metric, laneId);
+    enqueue_all_neighbors_warp<float, T, accT, IdxT>(num_neighbors,
+                                                     &query_vec,
+                                                     vec_ptr,
+                                                     neighbor_array,
+                                                     heap_queue,
+                                                     dim,
+                                                     metric,
+                                                     laneId,
+                                                     bloom_filter,
+                                                     bloom_bits);
   } else if (fp16_query_smem) {
     Point<__half, accT> query_vec;
     query_vec.coords = s_coords_half;
     query_vec.Dim    = dim;
-    enqueue_all_neighbors_warp<__half, T, accT, IdxT>(
-      num_neighbors, &query_vec, vec_ptr, neighbor_array, heap_queue, dim, metric, laneId);
+    enqueue_all_neighbors_warp<__half, T, accT, IdxT>(num_neighbors,
+                                                      &query_vec,
+                                                      vec_ptr,
+                                                      neighbor_array,
+                                                      heap_queue,
+                                                      dim,
+                                                      metric,
+                                                      laneId,
+                                                      bloom_filter,
+                                                      bloom_bits);
   } else {
     Point<T, accT> query_vec;
     query_vec.coords = reinterpret_cast<T*>(s_coords);
     query_vec.Dim    = dim;
-    enqueue_all_neighbors_warp<T, T, accT, IdxT>(
-      num_neighbors, &query_vec, vec_ptr, neighbor_array, heap_queue, dim, metric, laneId);
+    enqueue_all_neighbors_warp<T, T, accT, IdxT>(num_neighbors,
+                                                 &query_vec,
+                                                 vec_ptr,
+                                                 neighbor_array,
+                                                 heap_queue,
+                                                 dim,
+                                                 metric,
+                                                 laneId,
+                                                 bloom_filter,
+                                                 bloom_bits);
   }
 }
 
