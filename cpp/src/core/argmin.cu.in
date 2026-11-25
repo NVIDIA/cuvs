@@ -1,0 +1,26 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/matrix_argmin_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/argmin.cuh>
+
+namespace cuvs::detail {
+
+template <typename math_t, typename idx_t, typename matrix_idx_t>
+void argmin(raft::resources const& handle,
+            raft::device_matrix_view<const math_t, matrix_idx_t, row_major> in,
+            raft::device_vector_view<idx_t, matrix_idx_t> out)
+
+{
+  return raft::matrix::argmin(handle, in, out);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
