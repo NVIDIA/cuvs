@@ -459,10 +459,13 @@ void batched_insert_vamana(
     }
 
     DistPair<IdxT, accT>* edge_dist_pair_ptr = edge_dist_pair.data_handle();
-    raft::linalg::map_offset(
-      res,
-      raft::make_device_vector_view<IdxT, int64_t>(edge_dest.data_handle(), total_edges),
-      [edge_dist_pair_ptr] __device__(size_t i) { return edge_dist_pair_ptr[i].idx; });
+    // No edges if the first inserted point is the medoid; skip to avoid zero-sized launches
+    if (total_edges > 0) {
+      raft::linalg::map_offset(
+        res,
+        raft::make_device_vector_view<IdxT, int64_t>(edge_dest.data_handle(), total_edges),
+        [edge_dist_pair_ptr] __device__(size_t i) { return edge_dist_pair_ptr[i].idx; });
+    }
 
     // Sort to group reverse edges by destination
     cub::DeviceMergeSort::SortPairs(temp_sort_storage.data_handle(),
@@ -480,7 +483,9 @@ void batched_insert_vamana(
     // Find which node IDs have reverse edges and their indices in the reverse edge list
     raft::copy(edge_dest_vec.data_handle(), edge_dest.data_handle(), total_edges, stream);
     auto unique_indices = raft::make_device_vector<int>(res, total_edges);
-    raft::linalg::map_offset(res, unique_indices.view(), raft::identity_op{});
+    if (total_edges > 0) {
+      raft::linalg::map_offset(res, unique_indices.view(), raft::identity_op{});
+    }
 
     thrust::unique_by_key(rmm::exec_policy_nosync(stream, large_ws),
                           thrust::device_pointer_cast(edge_dest_vec.data_handle()),
