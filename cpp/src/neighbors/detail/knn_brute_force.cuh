@@ -56,6 +56,12 @@
 #include <set>
 #include <variant>
 
+extern template void raft::sparse::convert::detail::calc_nnz_by_rows<unsigned int, long, long>(
+  raft::resources const&, unsigned int const*, long, long, long*, size_t&, long&);
+
+extern template void raft::sparse::convert::detail::gpu_repeat_csr<long, long>(
+  raft::resources const&, long const*, long const*, long, long, long*, long*);
+
 namespace cuvs::neighbors::detail {
 
 /**
