@@ -38,10 +38,13 @@
 
 #include <rmm/device_uvector.hpp>
 
+#include <cuda_pipeline.h>
 #include <cuda_runtime.h>
 
 #include <mma.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <numeric>
@@ -215,9 +218,6 @@ constexpr int DEGREE_ON_DEVICE{32};
 constexpr int MAX_NUM_BI_SAMPLES        = 64;
 constexpr int SKEWED_MAX_NUM_BI_SAMPLES = skew_dim<float>(MAX_NUM_BI_SAMPLES);
 constexpr int BLOCK_SIZE                = 512;
-constexpr int WMMA_M                    = 16;
-constexpr int WMMA_N                    = 16;
-constexpr int WMMA_K                    = 16;
 
 template <typename Data_t>
 __device__ __forceinline__ void load_vec(Data_t* vec_buffer,
@@ -599,6 +599,49 @@ struct DistAccumulator {
 // Full-precision joins over the original vectors: SIMT and fp16 tensor core.
 // --------------------------------------------------------------------------
 
+// Stages and deduplicates the new/old neighbor lists for all local-join kernels.
+// The caller keeps the block-uniform early return for an empty new list.
+template <typename Index_t>
+__device__ __forceinline__ void stage_neighbor_lists(Index_t* new_neighbors,
+                                                     Index_t* old_neighbors,
+                                                     int* s_unique_counter,
+                                                     const Index_t* graph_new,
+                                                     const Index_t* rev_graph_new,
+                                                     const Index_t* graph_old,
+                                                     const Index_t* rev_graph_old,
+                                                     const size_t list_id,
+                                                     const int width,
+                                                     const int2 new_size2,
+                                                     const int2 old_size2,
+                                                     int& new_size,
+                                                     int& old_size)
+{
+  const int tx = threadIdx.x;
+  if (tx == 0) {
+    s_unique_counter[0] = 0;
+    s_unique_counter[1] = 0;
+  }
+  if (tx < new_size2.x) {
+    new_neighbors[tx] = graph_new[list_id * width + tx];
+  } else if (tx < new_size) {
+    new_neighbors[tx] = rev_graph_new[list_id * width + tx - new_size2.x];
+  }
+  if (tx < old_size2.x) {
+    old_neighbors[tx] = graph_old[list_id * width + tx];
+  } else if (tx < old_size) {
+    old_neighbors[tx] = rev_graph_old[list_id * width + tx - old_size2.x];
+  }
+  __syncthreads();
+
+  remove_duplicates(
+    new_neighbors, new_size2.x, new_neighbors + new_size2.x, new_size2.y, s_unique_counter[0], 0);
+  remove_duplicates(
+    old_neighbors, old_size2.x, old_neighbors + old_size2.x, old_size2.y, s_unique_counter[1], 1);
+  __syncthreads();
+  new_size = new_size2.x + s_unique_counter[0];
+  old_size = old_size2.x + s_unique_counter[1];
+}
+
 template <typename Data_t,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
@@ -606,8 +649,7 @@ template <typename Data_t,
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Use minBlocksPerMultiprocessor = 4 on specific arches
-#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
-  (__CUDA_ARCH__) == 1000
+#if (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || (__CUDA_ARCH__) == 1000
 __launch_bounds__(BLOCK_SIZE, 4)
 #else
 __launch_bounds__(BLOCK_SIZE)
@@ -642,11 +684,6 @@ __launch_bounds__(BLOCK_SIZE)
   // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
   int* s_unique_counter = (int*)&s_ov[0][0];
 
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
-
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
 
@@ -659,36 +696,19 @@ __launch_bounds__(BLOCK_SIZE)
   if (!list_new_size) return;
   int tx = threadIdx.x;
 
-  if (tx < list_new_size2.x) {
-    new_neighbors[tx] = graph_new[list_id * width + tx];
-  } else if (tx >= list_new_size2.x && tx < list_new_size) {
-    new_neighbors[tx] = rev_graph_new[list_id * width + tx - list_new_size2.x];
-  }
-
-  if (tx < list_old_size2.x) {
-    old_neighbors[tx] = graph_old[list_id * width + tx];
-  } else if (tx >= list_old_size2.x && tx < list_old_size) {
-    old_neighbors[tx] = rev_graph_old[list_id * width + tx - list_old_size2.x];
-  }
-
-  __syncthreads();
-
-  remove_duplicates(new_neighbors,
-                    list_new_size2.x,
-                    new_neighbors + list_new_size2.x,
-                    list_new_size2.y,
-                    s_unique_counter[0],
-                    0);
-
-  remove_duplicates(old_neighbors,
-                    list_old_size2.x,
-                    old_neighbors + list_old_size2.x,
-                    list_old_size2.y,
-                    s_unique_counter[1],
-                    1);
-  __syncthreads();
-  list_new_size = list_new_size2.x + s_unique_counter[0];
-  list_old_size = list_old_size2.x + s_unique_counter[1];
+  stage_neighbor_lists(new_neighbors,
+                       old_neighbors,
+                       s_unique_counter,
+                       graph_new,
+                       rev_graph_new,
+                       graph_old,
+                       rev_graph_old,
+                       list_id,
+                       width,
+                       list_new_size2,
+                       list_old_size2,
+                       list_new_size,
+                       list_old_size);
 
   int warp_id             = threadIdx.x / raft::warp_size();
   int lane_id             = threadIdx.x % raft::warp_size();
@@ -870,8 +890,7 @@ template <typename Data_t,
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Use minBlocksPerMultiprocessor = 4 on specific arches
-#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
-  (__CUDA_ARCH__) == 1000
+#if (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || (__CUDA_ARCH__) == 1000
 __launch_bounds__(BLOCK_SIZE, 4)
 #else
 __launch_bounds__(BLOCK_SIZE)
@@ -897,6 +916,9 @@ __launch_bounds__(BLOCK_SIZE)
   using namespace nvcuda;
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
 
+  constexpr int WMMA_M         = 16;
+  constexpr int WMMA_N         = 16;
+  constexpr int WMMA_K         = 16;
   constexpr int APAD           = 8;
   constexpr int BPAD           = 8;
   constexpr int TILE_COL_WIDTH = 128;
@@ -907,11 +929,6 @@ __launch_bounds__(BLOCK_SIZE)
   // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
   float* s_distances    = (float*)&s_ov[0][0];
   int* s_unique_counter = (int*)&s_ov[0][0];
-
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -925,36 +942,19 @@ __launch_bounds__(BLOCK_SIZE)
   if (!list_new_size) return;
   int tx = threadIdx.x;
 
-  if (tx < list_new_size2.x) {
-    new_neighbors[tx] = graph_new[list_id * width + tx];
-  } else if (tx >= list_new_size2.x && tx < list_new_size) {
-    new_neighbors[tx] = rev_graph_new[list_id * width + tx - list_new_size2.x];
-  }
-
-  if (tx < list_old_size2.x) {
-    old_neighbors[tx] = graph_old[list_id * width + tx];
-  } else if (tx >= list_old_size2.x && tx < list_old_size) {
-    old_neighbors[tx] = rev_graph_old[list_id * width + tx - list_old_size2.x];
-  }
-
-  __syncthreads();
-
-  remove_duplicates(new_neighbors,
-                    list_new_size2.x,
-                    new_neighbors + list_new_size2.x,
-                    list_new_size2.y,
-                    s_unique_counter[0],
-                    0);
-
-  remove_duplicates(old_neighbors,
-                    list_old_size2.x,
-                    old_neighbors + list_old_size2.x,
-                    list_old_size2.y,
-                    s_unique_counter[1],
-                    1);
-  __syncthreads();
-  list_new_size = list_new_size2.x + s_unique_counter[0];
-  list_old_size = list_old_size2.x + s_unique_counter[1];
+  stage_neighbor_lists(new_neighbors,
+                       old_neighbors,
+                       s_unique_counter,
+                       graph_new,
+                       rev_graph_new,
+                       graph_old,
+                       rev_graph_old,
+                       list_id,
+                       width,
+                       list_new_size2,
+                       list_old_size2,
+                       list_new_size,
+                       list_old_size);
 
   int warp_id             = threadIdx.x / raft::warp_size();
   int lane_id             = threadIdx.x % raft::warp_size();
@@ -1136,7 +1136,7 @@ __launch_bounds__(BLOCK_SIZE)
 }
 // --------------------------------------------------------------------------
 // BBQ local-join kernels
-// Quantized-code joins: SIMT (popc / dp4a) and int4 tensor core (u4 wmma).
+// Quantized-code joins: SIMT (popc / dp4a) and u8 WMMA over packed 4-bit codes.
 // --------------------------------------------------------------------------
 
 // The code promotion, the dequant factors and the raw-dot-product-to-distance conversion live
@@ -1147,23 +1147,20 @@ using cuvs::preprocessing::quantize::bbq::detail::bbq_dequant_factors;
 using cuvs::preprocessing::quantize::bbq::detail::get_dequant_factors;
 using cuvs::preprocessing::quantize::bbq::detail::packed_1b_to_4b;
 
-// Stages one K-tile of `count` neighbor rows into SMEM. Shared skeleton: one warp per row,
-// lanes strided along native uint32 words, last-tile zero-pad so compute reads a full tile.
-//
-// stage_tile_simt copies native codes in storage layout (Planes > 1 gathers bit-sliced planes).
-// stage_promoted_tile expands packed_1b to u4 for int4 MMA (packed_4b is a plain copy).
+// Stages native code planes with four-byte copies and zero-filled tails.
+// SM80+ copies are asynchronous; callers commit and wait before consuming the tile.
 template <int Planes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
-                                                const quantizer_view<DataT, int64_t>& quantizer,
-                                                const Index_t* neighbors,
-                                                const int count,
-                                                const size_t base,
-                                                const int plane_extent,
-                                                const int num_load_u32,
-                                                const int plane_tile_u32,
-                                                const bool last_tile,
-                                                const int warp_id,
-                                                const int lane_id)
+__device__ __forceinline__ void stage_transposed_tile(
+  uint8_t (*dst)[RowStride],
+  const quantizer_view<DataT, int64_t>& quantizer,
+  const Index_t* neighbors,
+  const int count,
+  const size_t base,
+  const int plane_extent,
+  const int num_load_u32,
+  const int plane_tile_u32,
+  const int warp_id,
+  const int lane_id)
 {
   constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
   for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; ++i) {
@@ -1171,46 +1168,121 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
     const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
-    for (int w = lane_id; w < num_load_u32; w += raft::warp_size()) {
+    for (int w = lane_id; w < plane_tile_u32; w += raft::warp_size()) {
+      const bool valid = w < num_load_u32;
 #pragma unroll
       for (int p = 0; p < Planes; ++p) {
-        s[p * plane_tile_u32 + w] = src[p * plane_extent + w];
-      }
-    }
-    if (last_tile) {
-      for (int w = num_load_u32 + lane_id; w < plane_tile_u32; w += raft::warp_size()) {
-#pragma unroll
-        for (int p = 0; p < Planes; ++p) {
-          s[p * plane_tile_u32 + w] = 0;
-        }
+        auto* target = &s[p * plane_tile_u32 + w];
+#if (__CUDA_ARCH__ >= 800)
+        const void* source = valid ? static_cast<const void*>(&src[p * plane_extent + w])
+                                   : quantizer.codes.data_handle();
+        __pipeline_memcpy_async(target, source, sizeof(uint32_t), valid ? 0 : sizeof(uint32_t));
+#else
+        *target = valid ? src[p * plane_extent + w] : 0;
+#endif
       }
     }
   }
 }
 
-// `native_row_bytes` is the layout's own encoded row length. One native tile is
-// RowStride-independent: BBQ_ROW_BYTES / expansion native bytes promote to exactly BBQ_ROW_BYTES
-// promoted bytes, so a single n_tiles drives every operand regardless of how compact each one's
-// on-disk format is.
-template <bbq_code_layout Layout, int TileBytes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
+// Copies packed_4b words for code buffers and row strides aligned to four bytes.
+template <int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_4b_simt(uint8_t (*dst)[RowStride],
+                                                   const quantizer_view<DataT, int64_t>& quantizer,
+                                                   const Index_t* neighbors,
+                                                   int count,
+                                                   int step,
+                                                   int native_row_bytes)
+{
+  static_assert(TileBytes % sizeof(uint32_t) == 0);
+  static_assert(RowStride % alignof(uint32_t) == 0);
+  constexpr int words_per_row = TileBytes / sizeof(uint32_t);
+  static_assert(BLOCK_SIZE % words_per_row == 0);
+  constexpr int rows_per_pass = BLOCK_SIZE / words_per_row;
+  static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
+  const int base      = step * TileBytes;
+  const int remaining = native_row_bytes - base;
+  const int num_load_words =
+    (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / sizeof(uint32_t);
+  for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
+    const int idx  = i * rows_per_pass + threadIdx.x / words_per_row;
+    const int word = threadIdx.x % words_per_row;
+    if (idx >= count) continue;
+    auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
+    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    s[word]         = word < num_load_words ? src[word] : 0;
+  }
+}
+
+// Issues native packed_4b copies; callers commit and wait before consuming the shared tile.
+template <int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_4b_async(uint8_t (*dst)[RowStride],
                                                     const quantizer_view<DataT, int64_t>& quantizer,
                                                     const Index_t* neighbors,
-                                                    const int count,
-                                                    const int step,
-                                                    const int native_row_bytes)
+                                                    int count,
+                                                    int step,
+                                                    int native_row_bytes)
 {
-  static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b,
-                "int4 MMA path supports packed_1b (1b), packed_4b (4b)");
-  // A u4 MMA fragment needs 4 bits per value, so a layout storing `bits` bits per value expands
-  // one native word into 4/bits promoted words. packed_4b is the identity case (a plain word
-  // copy), which is why the symmetric kernel needs no separate "no promotion" path -- and why a
-  // promoted query works exactly like a promoted document.
-  constexpr int expansion       = Layout == bbq_code_layout::packed_1b ? 4 : 1;
-  constexpr int native_tile     = TileBytes / expansion;
+  static_assert(TileBytes % sizeof(uint4) == 0);
+  static_assert(RowStride % alignof(uint4) == 0);
+  constexpr int vectors_per_row = TileBytes / sizeof(uint4);
+  static_assert(BLOCK_SIZE % vectors_per_row == 0);
+  constexpr int rows_per_pass = BLOCK_SIZE / vectors_per_row;
+  static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
+  const int base      = step * TileBytes;
+  const int remaining = native_row_bytes - base;
+  const int num_load_vectors =
+    (remaining < TileBytes ? (remaining > 0 ? remaining : 0) : TileBytes) / sizeof(uint4);
+
+  for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
+    const int idx = i * rows_per_pass + threadIdx.x / vectors_per_row;
+    const int v   = threadIdx.x % vectors_per_row;
+    if (idx >= count) continue;
+    auto* s         = reinterpret_cast<uint4*>(dst[idx]);
+    const auto* src = reinterpret_cast<const uint4*>(&quantizer.codes(neighbors[idx], base));
+    // Keep the source address in bounds even for zero-filled tail vectors.
+    const bool valid = v < num_load_vectors;
+    __pipeline_memcpy_async(
+      &s[v],
+      valid ? static_cast<const void*>(&src[v]) : quantizer.codes.data_handle(),
+      16,
+      valid ? 0 : 16);
+  }
+}
+
+// Alignment is selected at launch; architectures before Ampere always use SIMT loads.
+template <int Alignment, int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_4b(uint8_t (*dst)[RowStride],
+                                              const quantizer_view<DataT, int64_t>& quantizer,
+                                              const Index_t* neighbors,
+                                              int count,
+                                              int step,
+                                              int native_row_bytes)
+{
+  static_assert(Alignment == 4 || Alignment == 16);
+#if (__CUDA_ARCH__ >= 800)
+  if constexpr (Alignment == 16) {
+    stage_tile_4b_async<TileBytes>(dst, quantizer, neighbors, count, step, native_row_bytes);
+  } else
+#endif
+  {
+    stage_tile_4b_simt<TileBytes>(dst, quantizer, neighbors, count, step, native_row_bytes);
+  }
+}
+
+// Expands each packed_1b word into four packed_4b words for the MMA operands.
+template <int TileBytes, int RowStride, typename DataT, typename Index_t>
+__device__ __forceinline__ void stage_tile_1b(uint8_t (*dst)[RowStride],
+                                              const quantizer_view<DataT, int64_t>& quantizer,
+                                              const Index_t* neighbors,
+                                              int count,
+                                              int step,
+                                              int native_row_bytes)
+{
+  constexpr int native_tile     = TileBytes / 4;
   constexpr int native_tile_u32 = native_tile / 4;
-  // packed_4b's native tile is 32 u32s (one per thread). packed_1b's is 8, so a warp-per-row
-  // map would leave 24 lanes idle; instead give each row native_tile_u32 threads.
+  // A 128-byte promoted tile needs only eight native words. Give each row eight threads
+  // rather than a full warp so promotion keeps all lanes busy.
   static_assert(BLOCK_SIZE % native_tile_u32 == 0);
   constexpr int rows_per_pass = BLOCK_SIZE / native_tile_u32;
   static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
@@ -1227,61 +1299,59 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
     const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
     if (w < num_load_u32) {
-      if constexpr (expansion == 4) {
-        reinterpret_cast<uint4*>(s)[w] = packed_1b_to_4b(src[w]);
-      } else {
-        s[w] = src[w];
-      }
+      reinterpret_cast<uint4*>(s)[w] = packed_1b_to_4b(src[w]);
     } else {
-      if constexpr (expansion == 4) {
-        reinterpret_cast<uint4*>(s)[w] = uint4{0, 0, 0, 0};
-      } else {
-        s[w] = 0;
-      }
+      reinterpret_cast<uint4*>(s)[w] = uint4{0, 0, 0, 0};
     }
   }
 }
 
-// Stages this block's new/old neighbour lists into shared memory and drops duplicates. Identical
-// in the SIMT and wmma BBQ kernels, so it lives here rather than twice. The caller keeps the
-// `if (!new_size) return;` early-out, which has to stay at kernel scope.
-template <typename Index_t>
-__device__ __forceinline__ void stage_neighbor_lists(Index_t* new_neighbors,
-                                                     Index_t* old_neighbors,
-                                                     int* s_unique_counter,
-                                                     const Index_t* graph_new,
-                                                     const Index_t* rev_graph_new,
-                                                     const Index_t* graph_old,
-                                                     const Index_t* rev_graph_old,
-                                                     const size_t list_id,
-                                                     const int width,
-                                                     const int2 new_size2,
-                                                     const int2 old_size2,
-                                                     int& new_size,
-                                                     int& old_size)
+// Both distance matrices are complete before any graph updates start.
+template <int Stride, typename Index_t, typename ID_t>
+__device__ __forceinline__ void bbq_update_graph(const Index_t* new_neighbors,
+                                                 int new_size,
+                                                 const Index_t* old_neighbors,
+                                                 int old_size,
+                                                 const DistData_t* distances_nn,
+                                                 const DistData_t* distances_no,
+                                                 ID_t* graph,
+                                                 DistData_t* dists,
+                                                 int* locks)
 {
-  const int tx = threadIdx.x;
-  if (tx < new_size2.x) {
-    new_neighbors[tx] = graph_new[list_id * width + tx];
-  } else if (tx < new_size) {
-    new_neighbors[tx] = rev_graph_new[list_id * width + tx - new_size2.x];
+  constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
+  const int warp_id       = threadIdx.x / raft::warp_size();
+  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
+    const int idx = step * num_warps + warp_id;
+    if (idx >= new_size) continue;
+    auto min_elem =
+      get_min_item(new_neighbors[idx], idx, new_neighbors, distances_nn, true, Stride, new_size);
+    if (min_elem.id() < gridDim.x) {
+      insert_to_global_graph(min_elem, new_neighbors[idx], graph, dists, locks);
+    }
   }
-  if (tx < old_size2.x) {
-    old_neighbors[tx] = graph_old[list_id * width + tx];
-  } else if (tx < old_size) {
-    old_neighbors[tx] = rev_graph_old[list_id * width + tx - old_size2.x];
+  if (!old_size) return;
+  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
+    const int idx = step * num_warps + warp_id;
+    if (idx >= new_size) continue;
+    auto min_elem =
+      get_min_item(new_neighbors[idx], idx, old_neighbors, distances_no, true, Stride, old_size);
+    if (min_elem.id() < gridDim.x) {
+      insert_to_global_graph(min_elem, new_neighbors[idx], graph, dists, locks);
+    }
   }
-  __syncthreads();
-
-  remove_duplicates(
-    new_neighbors, new_size2.x, new_neighbors + new_size2.x, new_size2.y, s_unique_counter[0], 0);
-  remove_duplicates(
-    old_neighbors, old_size2.x, old_neighbors + old_size2.x, old_size2.y, s_unique_counter[1], 1);
-  __syncthreads();
-  new_size = new_size2.x + s_unique_counter[0];
-  old_size = old_size2.x + s_unique_counter[1];
+  for (int step = 0; step < raft::ceildiv(old_size, num_warps); ++step) {
+    const int idx = step * num_warps + warp_id;
+    if (idx >= old_size) continue;
+    auto min_elem =
+      get_min_item(old_neighbors[idx], idx, new_neighbors, distances_no, false, Stride, new_size);
+    if (min_elem.id() < gridDim.x) {
+      insert_to_global_graph(min_elem, old_neighbors[idx], graph, dists, locks);
+    }
+  }
 }
 
+// BBQ local join using u8 WMMA over packed 4-bit codes for symmetric and asymmetric inputs.
+// Accumulators stay in registers across the K reduction and are stored once per phase.
 template <bbq_code_layout DocumentLayout,
           bbq_code_layout QueryLayout,
           typename DataT,
@@ -1308,50 +1378,38 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     cuvs::preprocessing::quantize::bbq::detail::get_code_planes(DocumentLayout);
   constexpr int query_planes =
     cuvs::preprocessing::quantize::bbq::detail::get_code_planes(QueryLayout);
-
-  // Both operands are tiled at the same per-plane tile so each step covers the same dimension
-  // range on both sides. QUERY_ROW_BYTES fixes the query row width; the document row width then
-  // follows as QUERY_ROW_BYTES / (query_planes / document_planes), i.e. query_plane_tile scaled
-  // by the document's own plane count. Worked out per supported pair:
-  //
-  //   pair     query_plane_tile   doc_row_bytes    doc_stride   query_stride
-  //   ------   ----------------   --------------   ----------   ------------
-  //   1 x 1    128                128 * 1 = 128    128          128
-  //   2t x 2t  64                 64  * 2 = 128    64           64
-  //   1 + 2t   64                 64  * 1 = 64     64           64
-  //   1 + 4t   32                 32  * 1 = 32     32           32
-  //   2t + 4t  32                 32  * 2 = 64     32           32
-  //
-
-  constexpr bool SelfJoin = (DocumentLayout == QueryLayout);
-
+  constexpr bool SelfJoin       = DocumentLayout == QueryLayout;
   constexpr int QUERY_ROW_BYTES = 128;
   constexpr int BBQ_PAD         = alignof(uint32_t);
-  // The document buffer is normally only the A operand (one row broadcast across a warp), so it
-  // needs no bank-conflict pad. Under SelfJoin it doubles as the B operand in phase 1 (32
-  // consecutive columns at one byte offset), so it needs the same skew the query buffer gets.
-  constexpr int DOC_PAD = SelfJoin ? BBQ_PAD : 0;
-  static_assert((QUERY_ROW_BYTES + BBQ_PAD) % alignof(uint32_t) == 0);
+  // Under self join, the document tile is also the new-row query operand.
+  constexpr int DOC_PAD       = SelfJoin ? BBQ_PAD : 0;
+  constexpr int plane_tile    = QUERY_ROW_BYTES / query_planes;
+  constexpr int doc_row_bytes = plane_tile * document_planes;
+  constexpr int DOC_STRIDE    = doc_row_bytes + DOC_PAD;
+  constexpr int QUERY_STRIDE  = QUERY_ROW_BYTES + BBQ_PAD;
+  constexpr int STORE_STRIDE  = MAX_NUM_BI_SAMPLES + SKEWED_MAX_NUM_BI_SAMPLES;
+  static_assert(plane_tile % sizeof(uint32_t) == 0);
+  static_assert(DOC_STRIDE % alignof(uint32_t) == 0);
+  static_assert(QUERY_STRIDE % alignof(uint32_t) == 0);
 
+  constexpr size_t DOC_BYTES    = MAX_NUM_BI_SAMPLES * DOC_STRIDE;
+  constexpr size_t QUERY_BYTES  = MAX_NUM_BI_SAMPLES * QUERY_STRIDE;
+  constexpr size_t VECTOR_BYTES = DOC_BYTES + (SelfJoin ? 1 : 2) * QUERY_BYTES;
+  constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
+  constexpr size_t FACTOR_BYTES = sizeof(bbq_dequant_factors) * MAX_NUM_BI_SAMPLES;
+  static_assert(DIST_BYTES % alignof(bbq_dequant_factors) == 0);
+  static_assert(sizeof(uint32_t) == sizeof(DistData_t));
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
-  __shared__ __align__(alignof(uint32_t)) uint8_t
-    s_doc_vec[MAX_NUM_BI_SAMPLES][QUERY_ROW_BYTES / query_planes * document_planes + DOC_PAD];
-  __shared__ __align__(alignof(uint32_t))
-    uint8_t s_query_vec[MAX_NUM_BI_SAMPLES][QUERY_ROW_BYTES + BBQ_PAD];
-  // Holds the final (post-metric, post-epilogue) float distance per cell
-  __shared__ DistData_t s_distances[MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES];
+  // Distances and factors replace the vector tiles after the feature loop.
+  __shared__ __align__(16) uint8_t s_arena[std::max(VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
+  auto s_document  = reinterpret_cast<uint8_t (*)[DOC_STRIDE]>(s_arena);
+  auto s_query_new = reinterpret_cast<uint8_t (*)[QUERY_STRIDE]>(s_arena + DOC_BYTES);
+  auto s_query_old =
+    reinterpret_cast<uint8_t (*)[QUERY_STRIDE]>(s_arena + DOC_BYTES + (SelfJoin ? 0 : QUERY_BYTES));
+  auto* distances_nn       = reinterpret_cast<DistData_t*>(s_arena);
+  auto* distances_no       = distances_nn + MAX_NUM_BI_SAMPLES;
+  auto* s_document_factors = reinterpret_cast<bbq_dequant_factors*>(s_arena + DIST_BYTES);
   __shared__ int s_unique_counter[2];
-  // Document-side (row axis) dequant factors, indexed by list position -- shared by both phases
-  // below since rows are always the `new_neighbors`/document side in both, so this is staged once
-  // and never restaged. At a given accumulation step, up to MAX_NUM_BI_SAMPLES threads share the
-  // same row (see the pair_idx assignment below), so caching avoids up to 64x redundant scattered
-  // global reads
-  __shared__ bbq_dequant_factors s_document_factors[MAX_NUM_BI_SAMPLES];
-
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -1361,7 +1419,6 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   int new_size           = new_size2.x + new_size2.y;
   int old_size           = old_size2.x + old_size2.y;
   const int tx           = threadIdx.x;
-
   if (!new_size) return;
   stage_neighbor_lists(new_neighbors,
                        old_neighbors,
@@ -1377,22 +1434,9 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                        new_size,
                        old_size);
 
-  const int warp_id       = threadIdx.x / raft::warp_size();
-  const int lane_id       = threadIdx.x % raft::warp_size();
-  constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
-
-  // Rows are always new_neighbors/document in both phases below, so this runs exactly once.
-  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
-    s_document_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
-  }
-  __syncthreads();
-
-  // Each plane gets an equal slice of the row in shared memory, so the cached bytes always form a
-  // valid encoded chunk.
-  // Bytes per plane = encoded row length / plane count. Do NOT assume ceildiv(dim, 8): that is
-  // bytes-per-plane only for the bit-plane layouts (packed_1b, transposed_2b, transposed_4b),
-  // where it happens to equal encoded/planes for all three. The dense byte layouts
-  // (packed_7b/packed_8b) are `dim` bytes in one plane, and would read 1/8 of each row.
+  const int warp_id = tx / raft::warp_size();
+  const int lane_id = tx % raft::warp_size();
+  // Dense byte layouts use dim bytes per plane; bit-sliced layouts use dim / 8.
   const int plane_bytes =
     static_cast<int>(
       cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document)) /
@@ -1401,319 +1445,213 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
          static_cast<int>(
            cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_query)) /
            query_planes);
-  constexpr int query_plane_tile = QUERY_ROW_BYTES / query_planes;
-  constexpr int plane_tile       = query_plane_tile;
-  constexpr int doc_row_bytes    = query_plane_tile * document_planes;
-  static_assert(plane_tile % 4 == 0, "plane_tile must be 4-byte aligned for uint32 loads");
-  // Row strides too: rows are indexed as base + idx * stride and then read as uint32_t, so a
-  // stride that is not a multiple of 4 misaligns every odd row. Derived from QUERY_ROW_BYTES, so
-  // this is what catches an ill-chosen QUERY_ROW_BYTES rather than letting it fault at runtime.
-  static_assert((doc_row_bytes + DOC_PAD) % alignof(uint32_t) == 0,
-                "document row stride must be 4-byte aligned for uint32 loads");
-  static_assert(
-    doc_row_bytes % document_planes == 0 && doc_row_bytes / document_planes == query_plane_tile,
-    "document plane stride must match query plane stride");
-  // plane_bytes is the per-plane stride in bytes; plane_extent is the same in uint32 elements,
-  // computed once so call sites don't re-derive it. Alignment (plane_bytes % 4 == 0, i.e.
-  // dataset dim % 32 == 0) is enforced by the launcher.
-  const int plane_extent             = plane_bytes / 4;
-  constexpr int plane_tile_u32       = plane_tile / 4;
-  constexpr int query_plane_tile_u32 = query_plane_tile / 4;
-  const int n_tiles                  = raft::ceildiv(plane_bytes, plane_tile);
-
-  // One (row, col) cell per pair: pairs_per_thread = 64 * 64 / 512 = 8.
+  const int plane_extent         = plane_bytes / sizeof(uint32_t);
+  constexpr int plane_tile_u32   = plane_tile / sizeof(uint32_t);
+  const int n_tiles              = raft::ceildiv(plane_bytes, plane_tile);
   constexpr int num_pairs        = MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES;
   constexpr int pairs_per_thread = (num_pairs + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
-  // Every thread's column is invariant across its pairs_per_thread iterations, so fetch it once
-  // here and reuse the register copy in both phases' store loops below instead of a shared array.
-  const int my_col = tx % MAX_NUM_BI_SAMPLES;
-  bbq_dequant_factors my_col_factors{};
-  if (my_col < new_size) {
-    my_col_factors = get_dequant_factors(dataset_query, new_neighbors[my_col]);
-  }
-
-  uint32_t acc[pairs_per_thread] = {};
-  for (int step = 0; step < n_tiles; ++step) {
-    const bool last_tile   = (step == n_tiles - 1);
-    const int num_load     = last_tile ? plane_bytes - step * plane_tile : plane_tile;
-    const int num_load_u32 = num_load / 4;
-    const size_t base      = static_cast<size_t>(step) * plane_tile;
-    stage_tile_simt<document_planes, doc_row_bytes + DOC_PAD>(s_doc_vec,
-                                                              dataset_document,
-                                                              new_neighbors,
-                                                              new_size,
-                                                              base,
-                                                              plane_extent,
-                                                              num_load_u32,
-                                                              plane_tile_u32,
-                                                              last_tile,
-                                                              warp_id,
-                                                              lane_id);
-
-    // Query and document tiles cover the same dimension range per step (both tile at
-    // query_plane_tile), so load the query tile once and run the dot product directly -- no
-    // per-step query sub-tile loop. Under SelfJoin phase 1 is new x new on a single quantizer,
-    // so the document buffer already holds exactly what the query buffer would: skip the load
-    // and point the B operand at s_doc_vec.
-    if constexpr (!SelfJoin) {
-      stage_tile_simt<query_planes, QUERY_ROW_BYTES + BBQ_PAD>(s_query_vec,
-                                                               dataset_query,
-                                                               new_neighbors,
-                                                               new_size,
-                                                               base,
-                                                               plane_extent,
-                                                               num_load_u32,
-                                                               query_plane_tile_u32,
-                                                               last_tile,
-                                                               warp_id,
-                                                               lane_id);
-    }
-    __syncthreads();
-
-#pragma unroll
-    for (int k = 0; k < pairs_per_thread; ++k) {
-      const int pair_idx = tx + k * BLOCK_SIZE;
-      if (pair_idx >= num_pairs) continue;
-      const int row = pair_idx / MAX_NUM_BI_SAMPLES;
-      const int col = pair_idx % MAX_NUM_BI_SAMPLES;
-      if (row >= new_size || col >= new_size) continue;
-      // Phase 1 B operand: s_doc_vec under SelfJoin (see the staging note above).
-      const uint8_t* row_b;
-      if constexpr (SelfJoin) {
-        row_b = s_doc_vec[col];
-      } else {
-        row_b = s_query_vec[col];
+  auto* raw_nn                   = reinterpret_cast<uint32_t*>(distances_nn);
+  auto* raw_no                   = reinterpret_cast<uint32_t*>(distances_no);
+  {
+    uint32_t acc_nn[pairs_per_thread] = {};
+    uint32_t acc_no[pairs_per_thread] = {};
+    for (int step = 0; step < n_tiles; ++step) {
+      const int remaining    = plane_bytes - step * plane_tile;
+      const int num_load     = remaining < plane_tile ? remaining : plane_tile;
+      const int num_load_u32 = num_load / sizeof(uint32_t);
+      const size_t base      = static_cast<size_t>(step) * plane_tile;
+      stage_transposed_tile<document_planes, DOC_STRIDE>(s_document,
+                                                         dataset_document,
+                                                         new_neighbors,
+                                                         new_size,
+                                                         base,
+                                                         plane_extent,
+                                                         num_load_u32,
+                                                         plane_tile_u32,
+                                                         warp_id,
+                                                         lane_id);
+      if constexpr (!SelfJoin) {
+        stage_transposed_tile<query_planes, QUERY_STRIDE>(s_query_new,
+                                                          dataset_query,
+                                                          new_neighbors,
+                                                          new_size,
+                                                          base,
+                                                          plane_extent,
+                                                          num_load_u32,
+                                                          plane_tile_u32,
+                                                          warp_id,
+                                                          lane_id);
       }
-      acc[k] += cuvs::preprocessing::quantize::bbq::detail::code_inner_product(
-        s_doc_vec[row], DocumentLayout, row_b, QueryLayout, doc_row_bytes);
-    }
-    __syncthreads();
-  }
+      stage_transposed_tile<query_planes, QUERY_STRIDE>(s_query_old,
+                                                        dataset_query,
+                                                        old_neighbors,
+                                                        old_size,
+                                                        base,
+                                                        plane_extent,
+                                                        num_load_u32,
+                                                        plane_tile_u32,
+                                                        warp_id,
+                                                        lane_id);
+#if (__CUDA_ARCH__ >= 800)
+      __pipeline_commit();
+      __pipeline_wait_prior(0);
+#endif
+      __syncthreads();
 #pragma unroll
-  for (int k = 0; k < pairs_per_thread; ++k) {
-    const int pair_idx = tx + k * BLOCK_SIZE;
-    if (pair_idx >= num_pairs) continue;
-    const int row = pair_idx / MAX_NUM_BI_SAMPLES;
-    const int col = pair_idx % MAX_NUM_BI_SAMPLES;
-    // Gating row keeps a stale new_neighbors[row] past the real list from reaching a
-    // dataset_document lookup (row_norm, for CosineExpanded); the min-search loops below only
-    // visit idx_in_list < new_size, so the cell is never read either way.
-    if (row >= new_size || col >= new_size) continue;
-    s_distances[row * SKEWED_MAX_NUM_BI_SAMPLES + col] =
-      bbq_calculate_metric(acc[k],
-                           s_document_factors[row],
-                           my_col_factors,
-                           dataset_document,
-                           dataset_query,
-                           metric,
-                           dist_epilogue,
-                           new_neighbors[row],
-                           new_neighbors[col]);
-  }
-  __syncthreads();
-
-  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
-    const int idx_in_list = step * num_warps + tx / raft::warp_size();
-    if (idx_in_list >= new_size) continue;
-    auto min_elem = get_min_item(s_list[idx_in_list],
-                                 idx_in_list,
-                                 new_neighbors,
-                                 s_distances,
-                                 true,
-                                 SKEWED_MAX_NUM_BI_SAMPLES,
-                                 new_size);
-    if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
+      for (int k = 0; k < pairs_per_thread; ++k) {
+        const int pair_idx = tx + k * BLOCK_SIZE;
+        const int row      = pair_idx / MAX_NUM_BI_SAMPLES;
+        const int col      = pair_idx % MAX_NUM_BI_SAMPLES;
+        if (pair_idx >= num_pairs || row >= new_size) continue;
+        if (col < new_size) {
+          const uint8_t* row_b;
+          if constexpr (SelfJoin) {
+            row_b = s_document[col];
+          } else {
+            row_b = s_query_new[col];
+          }
+          acc_nn[k] += cuvs::preprocessing::quantize::bbq::detail::code_inner_product(
+            s_document[row], DocumentLayout, row_b, QueryLayout, doc_row_bytes);
+        }
+        if (col < old_size) {
+          acc_no[k] += cuvs::preprocessing::quantize::bbq::detail::code_inner_product(
+            s_document[row], DocumentLayout, s_query_old[col], QueryLayout, doc_row_bytes);
+        }
+      }
+      __syncthreads();
     }
-  }
-
-  if (!old_size) return;
-  __syncthreads();
-
-  // Phase 2's column list is old_neighbors, not new_neighbors -- refetch this thread's column
-  // factors (rows/s_document_factors stay valid unchanged, since rows are new_neighbors in both
-  // phases).
-  const int my_old_col = tx % MAX_NUM_BI_SAMPLES;
-  bbq_dequant_factors my_old_col_factors{};
-  if (my_old_col < old_size) {
-    my_old_col_factors = get_dequant_factors(dataset_query, old_neighbors[my_old_col]);
-  }
-
-  uint32_t acc_old[pairs_per_thread] = {};
-  for (int step = 0; step < n_tiles; ++step) {
-    const bool last_tile   = (step == n_tiles - 1);
-    const int num_load     = last_tile ? plane_bytes - step * plane_tile : plane_tile;
-    const int num_load_u32 = num_load / 4;
-    const size_t base      = static_cast<size_t>(step) * plane_tile;
-    if (n_tiles > 1) {
-      stage_tile_simt<document_planes, doc_row_bytes + DOC_PAD>(s_doc_vec,
-                                                                dataset_document,
-                                                                new_neighbors,
-                                                                new_size,
-                                                                base,
-                                                                plane_extent,
-                                                                num_load_u32,
-                                                                plane_tile_u32,
-                                                                last_tile,
-                                                                warp_id,
-                                                                lane_id);
-    }
-    stage_tile_simt<query_planes, QUERY_ROW_BYTES + BBQ_PAD>(s_query_vec,
-                                                             dataset_query,
-                                                             old_neighbors,
-                                                             old_size,
-                                                             base,
-                                                             plane_extent,
-                                                             num_load_u32,
-                                                             query_plane_tile_u32,
-                                                             last_tile,
-                                                             warp_id,
-                                                             lane_id);
-    __syncthreads();
-
+    // Store raw results before loading factors so the accumulator registers can be released.
 #pragma unroll
     for (int k = 0; k < pairs_per_thread; ++k) {
       const int pair_idx = tx + k * BLOCK_SIZE;
-      if (pair_idx >= num_pairs) continue;
-      const int row = pair_idx / MAX_NUM_BI_SAMPLES;
-      const int col = pair_idx % MAX_NUM_BI_SAMPLES;
-      if (row >= new_size || col >= old_size) continue;
-      acc_old[k] += cuvs::preprocessing::quantize::bbq::detail::code_inner_product(
-        s_doc_vec[row], DocumentLayout, s_query_vec[col], QueryLayout, doc_row_bytes);
+      const int row      = pair_idx / MAX_NUM_BI_SAMPLES;
+      const int col      = pair_idx % MAX_NUM_BI_SAMPLES;
+      if (pair_idx >= num_pairs || row >= new_size) continue;
+      const int offset = row * STORE_STRIDE + col;
+      if (col < new_size) { raw_nn[offset] = acc_nn[k]; }
+      if (col < old_size) { raw_no[offset] = acc_no[k]; }
     }
-    __syncthreads();
   }
-#pragma unroll
-  for (int k = 0; k < pairs_per_thread; ++k) {
-    const int pair_idx = tx + k * BLOCK_SIZE;
-    if (pair_idx >= num_pairs) continue;
-    const int row = pair_idx / MAX_NUM_BI_SAMPLES;
-    const int col = pair_idx % MAX_NUM_BI_SAMPLES;
-    if (row >= new_size || col >= old_size) continue;
-    s_distances[row * SKEWED_MAX_NUM_BI_SAMPLES + col] =
-      bbq_calculate_metric(acc_old[k],
-                           s_document_factors[row],
-                           my_old_col_factors,
-                           dataset_document,
-                           dataset_query,
-                           metric,
-                           dist_epilogue,
-                           new_neighbors[row],
-                           old_neighbors[col]);
+  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
+    s_document_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
   }
   __syncthreads();
 
-  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
-    const int idx_in_list = step * num_warps + tx / raft::warp_size();
-    if (idx_in_list >= new_size) continue;
-    auto min_elem = get_min_item(s_list[idx_in_list],
-                                 idx_in_list,
+  const int col = tx % MAX_NUM_BI_SAMPLES;
+  bbq_dequant_factors new_col_factors{};
+  bbq_dequant_factors old_col_factors{};
+  if (col < new_size) {
+    if constexpr (SelfJoin) {
+      new_col_factors = s_document_factors[col];
+    } else {
+      new_col_factors = get_dequant_factors(dataset_query, new_neighbors[col]);
+    }
+  }
+  if (col < old_size) { old_col_factors = get_dequant_factors(dataset_query, old_neighbors[col]); }
+  for (int i = tx; i < num_pairs; i += BLOCK_SIZE) {
+    const int row = i / MAX_NUM_BI_SAMPLES;
+    if (row >= new_size || (col >= new_size && col >= old_size)) continue;
+    const int offset       = row * STORE_STRIDE + col;
+    const auto row_factors = s_document_factors[row];
+    const Index_t doc_id   = new_neighbors[row];
+    if (col < new_size) {
+      distances_nn[offset] = bbq_calculate_metric(raw_nn[offset],
+                                                  row_factors,
+                                                  new_col_factors,
+                                                  dataset_document,
+                                                  dataset_query,
+                                                  metric,
+                                                  dist_epilogue,
+                                                  doc_id,
+                                                  new_neighbors[col]);
+    }
+    if (col < old_size) {
+      distances_no[offset] = bbq_calculate_metric(raw_no[offset],
+                                                  row_factors,
+                                                  old_col_factors,
+                                                  dataset_document,
+                                                  dataset_query,
+                                                  metric,
+                                                  dist_epilogue,
+                                                  doc_id,
+                                                  old_neighbors[col]);
+    }
+  }
+  __syncthreads();
+  bbq_update_graph<STORE_STRIDE>(new_neighbors,
+                                 new_size,
                                  old_neighbors,
-                                 s_distances,
-                                 true,
-                                 SKEWED_MAX_NUM_BI_SAMPLES,
-                                 old_size);
-    if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
-    }
-  }
-
-  for (int step = 0; step < raft::ceildiv(old_size, num_warps); ++step) {
-    const int idx_in_list = step * num_warps + tx / raft::warp_size();
-    if (idx_in_list >= old_size) continue;
-    const int list_idx = idx_in_list + MAX_NUM_BI_SAMPLES;
-    auto min_elem      = get_min_item(s_list[list_idx],
-                                 idx_in_list,
-                                 new_neighbors,
-                                 s_distances,
-                                 false,
-                                 SKEWED_MAX_NUM_BI_SAMPLES,
-                                 new_size);
-    if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[list_idx], graph, dists, locks);
-    }
-  }
+                                 old_size,
+                                 distances_nn,
+                                 distances_no,
+                                 graph,
+                                 dists,
+                                 locks);
 }
 
-// int4 tensor-core BBQ local join, covering both the symmetric (one quantizer, self-join) and
-// asymmetric (two quantizers) cases. Modeled on local_join_kernel_wmma: a warp-level i4 MMA (see
-// promoted_i4_warp_mma.cuh) replaces the popc/dp4a inner product; the accumulator lives in
-// registers across the whole K reduction and is stored to s_distances once per phase, not
-// accumulated into shared memory every step like the scalar kernel.
+// Symmetric packed_4b joins fuse new/new and new/old over one pass through the codes.
 template <bbq_code_layout DocumentLayout,
           bbq_code_layout QueryLayout,
           typename DataT,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
-          typename DistEpilogue_t>
+          typename DistEpilogue_t,
+          int Alignment = 16>
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Same minBlocksPerMultiprocessor = 4 arches as local_join_kernel_wmma
-#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
-  (__CUDA_ARCH__) == 1000
+#if (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || (__CUDA_ARCH__) == 1000
 __launch_bounds__(BLOCK_SIZE, 4)
 #else
 __launch_bounds__(BLOCK_SIZE)
 #endif
 #endif
-  local_join_kernel_bbq_wmma(const Index_t* graph_new,
-                             const Index_t* rev_graph_new,
-                             const int2* sizes_new,
-                             const Index_t* graph_old,
-                             const Index_t* rev_graph_old,
-                             const int2* sizes_old,
-                             const int width,
-                             const quantizer_view<DataT, int64_t> dataset_document,
-                             const quantizer_view<DataT, int64_t> dataset_query,
-                             ID_t* graph,
-                             DistData_t* dists,
-                             int* locks,
-                             cuvs::distance::DistanceType metric,
-                             DistEpilogue_t dist_epilogue)
+  local_join_kernel_bbq_wmma_sym(const Index_t* graph_new,
+                                 const Index_t* rev_graph_new,
+                                 const int2* sizes_new,
+                                 const Index_t* graph_old,
+                                 const Index_t* rev_graph_old,
+                                 const int2* sizes_old,
+                                 const int width,
+                                 const quantizer_view<DataT, int64_t> dataset_document,
+                                 const quantizer_view<DataT, int64_t>,
+                                 ID_t* graph,
+                                 DistData_t* dists,
+                                 int* locks,
+                                 cuvs::distance::DistanceType metric,
+                                 DistEpilogue_t dist_epilogue)
 {
 #if (__CUDA_ARCH__ >= 750)
-  // The warps form a square WARPS_PER_DIM x WARPS_PER_DIM grid, each owning a WARP_TILE x WARP_TILE
-  // block of the MAX_NUM_BI_SAMPLES x MAX_NUM_BI_SAMPLES output; warp_mma covers that block with
-  // whatever native MMA shape it uses. WARPS_PER_DIM isn't derived (no trivial constexpr integer
-  // sqrt), so the static_assert ties it to BLOCK_SIZE.
+  static_assert(DocumentLayout == bbq_code_layout::packed_4b &&
+                QueryLayout == bbq_code_layout::packed_4b);
+  constexpr bool async_copy   = Alignment == 16 && __CUDA_ARCH__ >= 800;
   constexpr int WARPS_PER_DIM = 4;
-  static_assert(WARPS_PER_DIM * WARPS_PER_DIM == BLOCK_SIZE / raft::warp_size(),
-                "warp grid must be square and match num_warps = BLOCK_SIZE/32");
-  constexpr int WARP_TILE = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
-  static_assert(MAX_NUM_BI_SAMPLES % WARPS_PER_DIM == 0, "warps must evenly tile the output");
+  constexpr int WARP_TILE     = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
+  constexpr int TILE_BYTES    = 128;
+  constexpr int ROW_STRIDE    = TILE_BYTES + 16;
+  // Both products share one row padding region.
+  constexpr int STORE_STRIDE = MAX_NUM_BI_SAMPLES + SKEWED_MAX_NUM_BI_SAMPLES;
+  constexpr int num_warps    = BLOCK_SIZE / raft::warp_size();
+  static_assert(WARPS_PER_DIM * WARPS_PER_DIM == num_warps);
+  using warp_mma = i4_warp_mma_u8<WARP_TILE, ROW_STRIDE>;
+  using raw_t    = typename warp_mma::raw_t;
+  static_assert(TILE_BYTES % warp_mma::KSTEP_BYTES == 0);
+  static_assert(sizeof(raw_t) == sizeof(DistData_t));
 
-  constexpr int BBQ_ROW_BYTES = 128;
-  constexpr int MMA_PAD       = 16;
-  // Strides are in bytes, though the data is packed 4b.
-  constexpr int ROW_STRIDE = BBQ_ROW_BYTES + MMA_PAD;
-  using warp_mma           = i4_warp_mma_u8<WARP_TILE, ROW_STRIDE>;
-  static_assert(BBQ_ROW_BYTES % warp_mma::KSTEP_BYTES == 0, "a tile must be whole k-steps");
-
-  constexpr int MMA_STORE_STRIDE = SKEWED_MAX_NUM_BI_SAMPLES;
-
-  // s_row_vec is the A operand: always the `new` list, document quantizer. s_col_vec is the B
-  // operand: the `new` list in phase 1 and the `old` list in phase 2, query quantizer. Under
-  // SelfJoin, phase 1 leaves s_col_vec untouched and both fragments read s_row_vec.
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
-  __shared__ __align__(16) uint8_t s_row_vec[MAX_NUM_BI_SAMPLES][ROW_STRIDE];
-  // s_col_vec aliases s_distances's memory instead of its own array: their live ranges never
-  // overlap (col_vec fully consumed by the kk-loop before distances are stored; distances fully
-  // consumed by the min-search loop before the next phase re-stages col_vec).
-  __shared__ __align__(16) DistData_t s_distances[MAX_NUM_BI_SAMPLES * MMA_STORE_STRIDE];
-  static_assert(sizeof(s_distances) >= MAX_NUM_BI_SAMPLES * ROW_STRIDE,
-                "s_col_vec aliases s_distances's memory and must fit inside it");
-  auto(*s_col_vec)[ROW_STRIDE] = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_distances);
+  constexpr int TILE_PAIRS      = async_copy ? 2 : 1;
+  constexpr size_t VECTOR_BYTES = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
+  constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
+  constexpr size_t FACTOR_BYTES = sizeof(bbq_dequant_factors) * MAX_NUM_BI_SAMPLES;
+  static_assert(DIST_BYTES % alignof(bbq_dequant_factors) == 0);
+  // Distances and factors replace the vector tiles after the feature loop.
+  __shared__ __align__(16)
+    uint8_t s_arena[std::max(2 * TILE_PAIRS * VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
+  auto s_tiles       = reinterpret_cast<uint8_t (*)[MAX_NUM_BI_SAMPLES][ROW_STRIDE]>(s_arena);
+  auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
+  auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
   __shared__ int s_unique_counter[2];
-  // Document-side (row axis) dequant factors -- see the identical buffer and full rationale in
-  // local_join_kernel_bbq_simt. Staged once below, reused unchanged by both phases (rows are
-  // always new_neighbors/document in both).
-  __shared__ bbq_dequant_factors s_document_factors[MAX_NUM_BI_SAMPLES];
-
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
+  auto* s_new_factors = reinterpret_cast<bbq_dequant_factors*>(s_arena + DIST_BYTES);
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -1723,7 +1661,6 @@ __launch_bounds__(BLOCK_SIZE)
   int new_size           = new_size2.x + new_size2.y;
   int old_size           = old_size2.x + old_size2.y;
   const int tx           = threadIdx.x;
-
   if (!new_size) return;
   stage_neighbor_lists(new_neighbors,
                        old_neighbors,
@@ -1739,151 +1676,294 @@ __launch_bounds__(BLOCK_SIZE)
                        new_size,
                        old_size);
 
-  const int warp_id       = threadIdx.x / raft::warp_size();
-  const int lane_id       = threadIdx.x % raft::warp_size();
-  constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
-  // n_tiles is driven by the *promoted* (4-bit-width) row length, which both operands share at a
-  // given dim; each side's own native row length only sets how many native bytes
-  // stage_promoted_tile reads per tile (dim % 32 == 0 guarantees no rounding either way).
-  const int doc_row_bytes = static_cast<int>(
+  const int warp_id    = tx / raft::warp_size();
+  const int row0       = warp_id / WARPS_PER_DIM * WARP_TILE;
+  const int col0       = warp_id % WARPS_PER_DIM * WARP_TILE;
+  const bool active_nn = row0 < new_size && col0 < new_size;
+  const bool active_no = row0 < new_size && col0 < old_size;
+  const int row_bytes  = static_cast<int>(
+    cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document));
+  const int n_tiles = raft::ceildiv(row_bytes, TILE_BYTES);
+  {
+    if constexpr (async_copy) {
+      stage_tile_4b<Alignment, TILE_BYTES>(
+        s_tiles[0], dataset_document, new_neighbors, new_size, 0, row_bytes);
+      stage_tile_4b<Alignment, TILE_BYTES>(
+        s_tiles[1], dataset_document, old_neighbors, old_size, 0, row_bytes);
+      __pipeline_commit();
+    }
+    warp_mma mma_nn;
+    warp_mma mma_no;
+    for (int step = 0; step < n_tiles; ++step) {
+      const int current = async_copy ? 2 * (step & 1) : 0;
+      if constexpr (async_copy) {
+        __pipeline_wait_prior(0);
+      } else {
+        stage_tile_4b<Alignment, TILE_BYTES>(
+          s_tiles[current], dataset_document, new_neighbors, new_size, step, row_bytes);
+        stage_tile_4b<Alignment, TILE_BYTES>(
+          s_tiles[current + 1], dataset_document, old_neighbors, old_size, step, row_bytes);
+      }
+      __syncthreads();
+      if constexpr (async_copy) {
+        if (step + 1 < n_tiles) {
+          const int next = current ^ 2;
+          stage_tile_4b<Alignment, TILE_BYTES>(
+            s_tiles[next], dataset_document, new_neighbors, new_size, step + 1, row_bytes);
+          stage_tile_4b<Alignment, TILE_BYTES>(
+            s_tiles[next + 1], dataset_document, old_neighbors, old_size, step + 1, row_bytes);
+          __pipeline_commit();
+        }
+      }
+      // Prefetch the next tile pair while both products consume the current pair.
+      if (active_nn) {
+        mma_nn.template accumulate<TILE_BYTES>(s_tiles[current], s_tiles[current], row0, col0);
+      }
+      if (active_no) {
+        mma_no.template accumulate<TILE_BYTES>(s_tiles[current], s_tiles[current + 1], row0, col0);
+      }
+      __syncthreads();
+    }
+    // End both accumulator lifetimes before dequantization and graph insertion.
+    if (active_nn) {
+      mma_nn.template store<STORE_STRIDE>(reinterpret_cast<raw_t*>(distances_nn), row0, col0);
+    }
+    if (active_no) {
+      mma_no.template store<STORE_STRIDE>(reinterpret_cast<raw_t*>(distances_no), row0, col0);
+    }
+  }
+  for (int i = tx; i < new_size; i += BLOCK_SIZE) {
+    s_new_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
+  }
+  __syncthreads();
+
+  const int col = tx % MAX_NUM_BI_SAMPLES;
+  bbq_dequant_factors new_col_factors{};
+  bbq_dequant_factors old_col_factors{};
+  if (col < new_size) { new_col_factors = s_new_factors[col]; }
+  if (col < old_size) {
+    old_col_factors = get_dequant_factors(dataset_document, old_neighbors[col]);
+  }
+  auto* raw_nn = reinterpret_cast<raw_t*>(distances_nn);
+  auto* raw_no = reinterpret_cast<raw_t*>(distances_no);
+  for (int i = tx; i < MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES; i += BLOCK_SIZE) {
+    const int row = i / MAX_NUM_BI_SAMPLES;
+    if (row >= new_size || (col >= new_size && col >= old_size)) continue;
+    const int offset       = row * STORE_STRIDE + col;
+    const auto row_factors = s_new_factors[row];
+    const Index_t doc_id   = new_neighbors[row];
+    if (col < new_size) {
+      distances_nn[offset] = bbq_calculate_metric(static_cast<uint32_t>(raw_nn[offset]),
+                                                  row_factors,
+                                                  new_col_factors,
+                                                  dataset_document,
+                                                  dataset_document,
+                                                  metric,
+                                                  dist_epilogue,
+                                                  doc_id,
+                                                  new_neighbors[col]);
+    }
+    if (col < old_size) {
+      distances_no[offset] = bbq_calculate_metric(static_cast<uint32_t>(raw_no[offset]),
+                                                  row_factors,
+                                                  old_col_factors,
+                                                  dataset_document,
+                                                  dataset_document,
+                                                  metric,
+                                                  dist_epilogue,
+                                                  doc_id,
+                                                  old_neighbors[col]);
+    }
+  }
+  __syncthreads();
+  bbq_update_graph<STORE_STRIDE>(new_neighbors,
+                                 new_size,
+                                 old_neighbors,
+                                 old_size,
+                                 distances_nn,
+                                 distances_no,
+                                 graph,
+                                 dists,
+                                 locks);
+#endif
+}
+
+// Asymmetric packed_1b x packed_4b joins reuse the promoted document tile across both products.
+template <bbq_code_layout DocumentLayout,
+          bbq_code_layout QueryLayout,
+          typename DataT,
+          typename Index_t,
+          typename ID_t = InternalID_t<Index_t>,
+          typename DistEpilogue_t,
+          int Alignment = 16>
+RAFT_KERNEL
+#ifdef __CUDA_ARCH__
+// Same minBlocksPerMultiprocessor = 4 arches as local_join_kernel_wmma
+#if (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || (__CUDA_ARCH__) == 1000
+__launch_bounds__(BLOCK_SIZE, 4)
+#else
+__launch_bounds__(BLOCK_SIZE)
+#endif
+#endif
+  local_join_kernel_bbq_wmma_asym(const Index_t* graph_new,
+                                  const Index_t* rev_graph_new,
+                                  const int2* sizes_new,
+                                  const Index_t* graph_old,
+                                  const Index_t* rev_graph_old,
+                                  const int2* sizes_old,
+                                  const int width,
+                                  const quantizer_view<DataT, int64_t> dataset_document,
+                                  const quantizer_view<DataT, int64_t> dataset_query,
+                                  ID_t* graph,
+                                  DistData_t* dists,
+                                  int* locks,
+                                  cuvs::distance::DistanceType metric,
+                                  DistEpilogue_t dist_epilogue)
+{
+#if (__CUDA_ARCH__ >= 750)
+  static_assert(DocumentLayout == bbq_code_layout::packed_1b &&
+                QueryLayout == bbq_code_layout::packed_4b);
+  constexpr bool async_copy   = Alignment == 16 && __CUDA_ARCH__ >= 800;
+  constexpr int WARPS_PER_DIM = 4;
+  constexpr int WARP_TILE     = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
+  constexpr int TILE_BYTES    = 128;
+  constexpr int ROW_STRIDE    = TILE_BYTES + 16;
+  // Both products share one row padding region.
+  constexpr int STORE_STRIDE = MAX_NUM_BI_SAMPLES + SKEWED_MAX_NUM_BI_SAMPLES;
+  constexpr int num_warps    = BLOCK_SIZE / raft::warp_size();
+  static_assert(WARPS_PER_DIM * WARPS_PER_DIM == num_warps);
+  using warp_mma = i4_warp_mma_u8<WARP_TILE, ROW_STRIDE>;
+  using raw_t    = typename warp_mma::raw_t;
+  static_assert(TILE_BYTES % warp_mma::KSTEP_BYTES == 0);
+  static_assert(sizeof(raw_t) == sizeof(DistData_t));
+
+  __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
+  constexpr size_t VECTOR_BYTES = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
+  constexpr size_t DIST_BYTES   = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * STORE_STRIDE;
+  constexpr size_t FACTOR_BYTES = sizeof(bbq_dequant_factors) * MAX_NUM_BI_SAMPLES;
+  static_assert(DIST_BYTES % alignof(bbq_dequant_factors) == 0);
+  // New IDs have distinct document and query codes, so both representations need a tile.
+  // Distances and factors replace all three tiles after the feature loop.
+  __shared__ __align__(16) uint8_t s_arena[std::max(3 * VECTOR_BYTES, DIST_BYTES + FACTOR_BYTES)];
+  auto s_new         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
+  auto s_query_new   = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + VECTOR_BYTES);
+  auto s_old         = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena + 2 * VECTOR_BYTES);
+  auto* distances_nn = reinterpret_cast<DistData_t*>(s_arena);
+  auto* distances_no = distances_nn + MAX_NUM_BI_SAMPLES;
+  __shared__ int s_unique_counter[2];
+  auto* s_new_factors = reinterpret_cast<bbq_dequant_factors*>(s_arena + DIST_BYTES);
+
+  Index_t* new_neighbors = s_list;
+  Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
+  const size_t list_id   = blockIdx.x;
+  const int2 new_size2   = sizes_new[list_id];
+  const int2 old_size2   = sizes_old[list_id];
+  int new_size           = new_size2.x + new_size2.y;
+  int old_size           = old_size2.x + old_size2.y;
+  const int tx           = threadIdx.x;
+  if (!new_size) return;
+  stage_neighbor_lists(new_neighbors,
+                       old_neighbors,
+                       s_unique_counter,
+                       graph_new,
+                       rev_graph_new,
+                       graph_old,
+                       rev_graph_old,
+                       list_id,
+                       width,
+                       new_size2,
+                       old_size2,
+                       new_size,
+                       old_size);
+
+  const int warp_id    = tx / raft::warp_size();
+  const int row0       = warp_id / WARPS_PER_DIM * WARP_TILE;
+  const int col0       = warp_id % WARPS_PER_DIM * WARP_TILE;
+  const bool active_nn = row0 < new_size && col0 < new_size;
+  const bool active_no = row0 < new_size && col0 < old_size;
+  const int row_bytes  = static_cast<int>(
     cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document));
   const int query_row_bytes = static_cast<int>(
     cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_query));
-  const int promoted_row_bytes = static_cast<int>((dataset_query.dim() + 1) / 2);
-  const int n_tiles            = raft::ceildiv(promoted_row_bytes, BBQ_ROW_BYTES);
-
-  const int warp_id_y = warp_id / WARPS_PER_DIM;
-  const int warp_id_x = warp_id % WARPS_PER_DIM;
-
-  // One phase: accumulate s_row_vec (rows, `new` list) against col_buf over the whole K range,
-  // store the raw sums to s_distances, then convert them to final float distances in place.
-  // col_buf is s_row_vec itself when phase 1 is a self-join, otherwise s_col_vec.
-  // col_neighbors/col_size select which list the B operand stages.
-  // row_resident: the A operand is already staged from a previous phase, which is only true
-  // when the whole row fits one tile (n_tiles == 1) so nothing overwrote it.
-  auto run_phase = [&](const Index_t* col_neighbors, int col_size, bool row_resident) {
-    const bool alias_col = (DocumentLayout == QueryLayout) && (col_neighbors == new_neighbors);
-    const auto* col_buf  = alias_col ? s_row_vec : s_col_vec;
-    const int row0       = warp_id_y * WARP_TILE;
-    const int col0       = warp_id_x * WARP_TILE;
-    // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole block starts
-    // past either extent only produces cells the metric pass discards -- skip its MMA and its
-    // store. Staging is cooperative, so this must not skip either __syncthreads() in the step loop.
-    const bool warp_active = row0 < new_size && col0 < col_size;
-    warp_mma mma;
-
+  const int n_tiles = raft::ceildiv(query_row_bytes, TILE_BYTES);
+  {
+    warp_mma mma_nn;
+    warp_mma mma_no;
+    // Both products share the gathered new rows; their MMA loops retain separate warp guards.
     for (int step = 0; step < n_tiles; ++step) {
-      if (!row_resident) {
-        stage_promoted_tile<DocumentLayout, BBQ_ROW_BYTES>(
-          s_row_vec, dataset_document, new_neighbors, new_size, step, doc_row_bytes);
-      }
-      if (!alias_col) {
-        stage_promoted_tile<QueryLayout, BBQ_ROW_BYTES>(
-          s_col_vec, dataset_query, col_neighbors, col_size, step, query_row_bytes);
-      }
+      stage_tile_4b<Alignment, TILE_BYTES>(
+        s_query_new, dataset_query, new_neighbors, new_size, step, query_row_bytes);
+      stage_tile_4b<Alignment, TILE_BYTES>(
+        s_old, dataset_query, old_neighbors, old_size, step, query_row_bytes);
+      if constexpr (async_copy) { __pipeline_commit(); }
+      // Promote the SIMT-loaded document codes while the native 4b copies are in flight.
+      stage_tile_1b<TILE_BYTES>(s_new, dataset_document, new_neighbors, new_size, step, row_bytes);
+      if constexpr (async_copy) { __pipeline_wait_prior(0); }
       __syncthreads();
-      if (warp_active) { mma.template accumulate<BBQ_ROW_BYTES>(s_row_vec, col_buf, row0, col0); }
+      if (active_nn) { mma_nn.template accumulate<TILE_BYTES>(s_new, s_query_new, row0, col0); }
+      if (active_no) { mma_no.template accumulate<TILE_BYTES>(s_new, s_old, row0, col0); }
       __syncthreads();
     }
-
-    // Storing first ends the accumulators' live range before the metric code runs, instead of
-    // carrying both at once, and spreads the metric over every thread rather than the active warps.
-    using raw_t    = typename warp_mma::raw_t;
-    auto* raw_view = reinterpret_cast<raw_t*>(s_distances);
-    if (warp_active) { mma.template store<MMA_STORE_STRIDE>(raw_view, row0, col0); }
-    __syncthreads();
-
-    // col = i % MAX_NUM_BI_SAMPLES is invariant across a thread's own iterations
-    // (BLOCK_SIZE is a multiple of MAX_NUM_BI_SAMPLES), so this thread's column factors are
-    // fetched once and reused below. In a self-join they are the staged document factors.
-    const int my_col = tx % MAX_NUM_BI_SAMPLES;
-    bbq_dequant_factors my_col_factors{};
-    if (my_col < col_size) {
-      my_col_factors = alias_col ? s_document_factors[my_col]
-                                 : get_dequant_factors(dataset_query, col_neighbors[my_col]);
+    // End both accumulator lifetimes before dequantization and graph insertion.
+    if (active_nn) {
+      mma_nn.template store<STORE_STRIDE>(reinterpret_cast<raw_t*>(distances_nn), row0, col0);
     }
-
-    // Cell (row, col) is read (as raw_t, via raw_view) and written (as the final float) at the
-    // same address by the same thread
-    constexpr int total_cells = MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES;
-    for (int i = tx; i < total_cells; i += BLOCK_SIZE) {
-      const int row = i / MAX_NUM_BI_SAMPLES;
-      const int col = i % MAX_NUM_BI_SAMPLES;
-      if (row >= new_size || col >= col_size) continue;
-      const int distance0    = row * MMA_STORE_STRIDE + col;
-      const Index_t doc_id   = new_neighbors[row];
-      const Index_t query_id = col_neighbors[col];
-      const auto raw         = static_cast<uint32_t>(raw_view[distance0]);
-      s_distances[distance0] = bbq_calculate_metric(raw,
-                                                    s_document_factors[row],
-                                                    my_col_factors,
-                                                    dataset_document,
-                                                    dataset_query,
-                                                    metric,
-                                                    dist_epilogue,
-                                                    doc_id,
-                                                    query_id);
+    if (active_no) {
+      mma_no.template store<STORE_STRIDE>(reinterpret_cast<raw_t*>(distances_no), row0, col0);
     }
-    __syncthreads();
-  };
-
-  // Rows are always new_neighbors/document in both phases below, so this runs exactly once -- see
-  // the identical staging and rationale in local_join_kernel_bbq_simt.
+  }
   for (int i = tx; i < new_size; i += BLOCK_SIZE) {
-    s_document_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
+    s_new_factors[i] = get_dequant_factors(dataset_document, new_neighbors[i]);
   }
   __syncthreads();
 
-  // ---- Phase 1: new x new ----
-  run_phase(new_neighbors, new_size, false);
-
-  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
-    const int idx_in_list = step * num_warps + tx / raft::warp_size();
-    if (idx_in_list >= new_size) continue;
-    auto min_elem = get_min_item(s_list[idx_in_list],
-                                 idx_in_list,
-                                 new_neighbors,
-                                 s_distances,
-                                 true,
-                                 MMA_STORE_STRIDE,
-                                 new_size);
-    if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
+  const int col = tx % MAX_NUM_BI_SAMPLES;
+  bbq_dequant_factors new_col_factors{};
+  bbq_dequant_factors old_col_factors{};
+  if (col < new_size) { new_col_factors = get_dequant_factors(dataset_query, new_neighbors[col]); }
+  if (col < old_size) { old_col_factors = get_dequant_factors(dataset_query, old_neighbors[col]); }
+  auto* raw_nn = reinterpret_cast<raw_t*>(distances_nn);
+  auto* raw_no = reinterpret_cast<raw_t*>(distances_no);
+  for (int i = tx; i < MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES; i += BLOCK_SIZE) {
+    const int row = i / MAX_NUM_BI_SAMPLES;
+    if (row >= new_size || (col >= new_size && col >= old_size)) continue;
+    const int offset       = row * STORE_STRIDE + col;
+    const auto row_factors = s_new_factors[row];
+    const Index_t doc_id   = new_neighbors[row];
+    if (col < new_size) {
+      distances_nn[offset] = bbq_calculate_metric(static_cast<uint32_t>(raw_nn[offset]),
+                                                  row_factors,
+                                                  new_col_factors,
+                                                  dataset_document,
+                                                  dataset_query,
+                                                  metric,
+                                                  dist_epilogue,
+                                                  doc_id,
+                                                  new_neighbors[col]);
+    }
+    if (col < old_size) {
+      distances_no[offset] = bbq_calculate_metric(static_cast<uint32_t>(raw_no[offset]),
+                                                  row_factors,
+                                                  old_col_factors,
+                                                  dataset_document,
+                                                  dataset_query,
+                                                  metric,
+                                                  dist_epilogue,
+                                                  doc_id,
+                                                  old_neighbors[col]);
     }
   }
-
-  if (!old_size) return;
   __syncthreads();
-
-  // ---- Phase 2: new x old ----
-  run_phase(old_neighbors, old_size, n_tiles == 1);
-
-  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
-    const int idx_in_list = step * num_warps + tx / raft::warp_size();
-    if (idx_in_list >= new_size) continue;
-    auto min_elem = get_min_item(s_list[idx_in_list],
-                                 idx_in_list,
+  bbq_update_graph<STORE_STRIDE>(new_neighbors,
+                                 new_size,
                                  old_neighbors,
-                                 s_distances,
-                                 true,
-                                 MMA_STORE_STRIDE,
-                                 old_size);
-    if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
-    }
-  }
-
-  for (int step = 0; step < raft::ceildiv(old_size, num_warps); ++step) {
-    const int idx_in_list = step * num_warps + tx / raft::warp_size();
-    if (idx_in_list >= old_size) continue;
-    const int list_idx = idx_in_list + MAX_NUM_BI_SAMPLES;
-    auto min_elem      = get_min_item(
-      s_list[list_idx], idx_in_list, new_neighbors, s_distances, false, MMA_STORE_STRIDE, new_size);
-    if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[list_idx], graph, dists, locks);
-    }
-  }
-#endif  // (__CUDA_ARCH__ >= 750)
+                                 old_size,
+                                 distances_nn,
+                                 distances_no,
+                                 graph,
+                                 dists,
+                                 locks);
+#endif
 }
 
 // launch_bounds here denote BLOCK_SIZE = 512 and MIN_BLOCKS_PER_SM = 4
@@ -2363,7 +2443,7 @@ void GNND<Data_t, Index_t>::local_join(
 
   // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
   // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
-  // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
+  // promoting from two bitplanes at once, which the packed 4-bit staging doesn't support).
   const bool tc_pair   = has_4b && has_1b;
   const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
   RAFT_EXPECTS(self_join || tc_pair || simt_pair,
@@ -2379,7 +2459,7 @@ void GNND<Data_t, Index_t>::local_join(
                             : has_1b  ? dataset.get_quantizer(bbq_code_layout::packed_1b)
                                       : dataset.get_quantizer(bbq_code_layout::transposed_2b);
 
-  // stage_tile_simt / stage_promoted_tile cast code buffers to uint32_t*, so every plane stride
+  // The staging helpers cast code buffers to uint32_t*, so every plane stride
   // must be 4-byte aligned.
   {
     const auto len =
@@ -2394,10 +2474,16 @@ void GNND<Data_t, Index_t>::local_join(
     RAFT_EXPECTS(quantizer_document.dim() % 32 == 0,
                  "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
                  static_cast<long long>(quantizer_document.dim()));
+    for (const auto& quantizer : {quantizer_document, quantizer_query}) {
+      RAFT_EXPECTS(
+        reinterpret_cast<uintptr_t>(quantizer.codes.data_handle()) % alignof(uint32_t) == 0 &&
+          quantizer.codes.extent(1) % alignof(uint32_t) == 0,
+        "BBQ local join requires 4-byte aligned code buffers and row strides.");
+    }
   }
 
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
-  // the path -- packed_4b is the only layout the int4 tensor-core kernel is dispatched for.
+  // the path -- packed_4b is the only query layout dispatched to the WMMA kernel.
   auto launch = [&](auto document_layout, auto query_layout) {
     constexpr auto D       = decltype(document_layout)::value;
     constexpr auto Q       = decltype(query_layout)::value;
@@ -2422,8 +2508,39 @@ void GNND<Data_t, Index_t>::local_join(
     using kernel_data_t = std::remove_const_t<Data_t>;
     using kernel_id_t   = InternalID_t<Index_t>;
     if constexpr (Q == bbq_code_layout::packed_4b) {
-      launch_local_join(
-        local_join_kernel_bbq_wmma<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
+      auto launch_wmma = [&](auto alignment) {
+        constexpr int Alignment = decltype(alignment)::value;
+        if constexpr (D == bbq_code_layout::packed_4b) {
+          launch_local_join(local_join_kernel_bbq_wmma_sym<D,
+                                                           Q,
+                                                           kernel_data_t,
+                                                           Index_t,
+                                                           kernel_id_t,
+                                                           DistEpilogue_t,
+                                                           Alignment>);
+        } else {
+          launch_local_join(local_join_kernel_bbq_wmma_asym<D,
+                                                            Q,
+                                                            kernel_data_t,
+                                                            Index_t,
+                                                            kernel_id_t,
+                                                            DistEpilogue_t,
+                                                            Alignment>);
+        }
+      };
+      const bool aligned_16 =
+        reinterpret_cast<uintptr_t>(quantizer_query.codes.data_handle()) % alignof(uint4) == 0 &&
+        quantizer_query.codes.extent(1) % alignof(uint4) == 0;
+      if constexpr (D == bbq_code_layout::packed_4b) {
+        RAFT_EXPECTS(
+          aligned_16,
+          "BBQ packed_4b self join requires a 16-byte aligned code buffer and row stride.");
+        launch_wmma(std::integral_constant<int, 16>{});
+      } else if (aligned_16) {
+        launch_wmma(std::integral_constant<int, 16>{});
+      } else {
+        launch_wmma(std::integral_constant<int, 4>{});
+      }
     } else {
       launch_local_join(
         local_join_kernel_bbq_simt<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
@@ -2867,15 +2984,14 @@ void build(raft::resources const& res,
                "InnerProduct.");
   RAFT_EXPECTS(idx.metric() == front_quantizer.metric,
                "BBQ dataset metric does not match the NN-Descent metric.");
-  // packed_4b is the only layout dispatched to local_join_kernel_bbq_wmma, and the int4 MMA that
-  // kernel is built around only exists from sm_75 on.
+  // The packed_4b WMMA kernels require sm_75 or newer.
   if (dataset.has_layout(bbq_code_layout::packed_4b)) {
-    auto kernel       = local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
-                                                   bbq_code_layout::packed_4b,
-                                                   DataT,
-                                                   int,
-                                                   InternalID_t<int>,
-                                                   raft::identity_op>;
+    auto kernel       = local_join_kernel_bbq_wmma_sym<bbq_code_layout::packed_4b,
+                                                       bbq_code_layout::packed_4b,
+                                                       DataT,
+                                                       int,
+                                                       InternalID_t<int>,
+                                                       raft::identity_op>;
     auto runtime_arch = raft::util::arch::kernel_virtual_arch(reinterpret_cast<void*>(kernel));
     RAFT_EXPECTS(
       raft::util::arch::SM_range(raft::util::arch::SM_75(), raft::util::arch::SM_future())
