@@ -109,12 +109,14 @@ index = cagra.build(index_params, dataset)
 
 using namespace cuvs::neighbors;
 
-raft::device_matrix_view<float> dataset = load_dataset();
 raft::device_resources res;
+auto dataset = raft::make_device_matrix<float, int64_t>(res, 1000, 128);
+// Fill dataset with your vectors
+
+auto dataset_view = make_device_standard_dataset_view(dataset.view());
 
 cagra::index_params index_params;
-
-auto index = cagra::build(res, index_params, dataset);
+auto index = cagra::build(res, index_params, dataset_view);
 ```
 
 For more code examples of the C++ APIs, including drop-in Cmake project templates, please refer to the [C++ examples](https://github.com/NVIDIA/cuvs/tree/HEAD/examples) directory in the codebase.
@@ -128,8 +130,7 @@ cuvsResources_t res;
 cuvsCagraIndexParams_t index_params;
 cuvsCagraIndex_t index;
 
-DLManagedTensor *dataset;
-load_dataset(dataset);
+DLManagedTensor *dataset = load_dataset();
 
 cuvsResourcesCreate(&res);
 cuvsCagraIndexParamsCreate(&index_params);
@@ -193,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/NVIDIA/cuvs/tree/main/examples/rust).
+For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/NVIDIA/cuvs/tree/main/rust/cuvs/examples).
 
 ## Contributing
 
