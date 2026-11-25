@@ -6,6 +6,7 @@ These pages are generated from the Python and Cython sources under `python/cuvs/
 
 - [Kmeans](/api-reference/python-api-cluster-kmeans)
 - [Kmeans](/api-reference/python-api-cluster-mg-kmeans)
+- [Soar](/api-reference/python-api-cluster-soar)
 
 ## Common
 

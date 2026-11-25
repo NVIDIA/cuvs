@@ -7,3 +7,4 @@
 
 add_subdirectory(kmeans)
 add_subdirectory(mg)
+add_subdirectory(soar)
