@@ -69,11 +69,13 @@ if [ "${MIN_JDK}" = true ]; then
     --file-key java_min_jdk \
     --matrix "" | tee "${ENV_YAML_DIR}/env.yaml"
 else
+  source ci/use_conda_packages_from_prs.sh
   CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
   rapids-dependency-file-generator \
     --output conda \
     --file-key java \
     --prepend-channel "${CPP_CHANNEL}" \
+    "${RAFT_PR_PREPEND_CHANNEL_ARGS[@]}" \
     --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" | tee "${ENV_YAML_DIR}/env.yaml"
 fi
 

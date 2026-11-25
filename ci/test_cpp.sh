@@ -15,6 +15,8 @@ NUM_SHARDS=${2:-1}
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
+source ci/use_conda_packages_from_prs.sh
+
 CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
 
 rapids-logger "Generate C++ testing dependencies"
@@ -23,6 +25,7 @@ rapids-dependency-file-generator \
   --file-key test_cpp \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" \
   --prepend-channel "${CPP_CHANNEL}" \
+  "${RAFT_PR_PREPEND_CHANNEL_ARGS[@]}" \
   | tee env.yaml
 
 rapids-mamba-retry env create --yes -f env.yaml -n test

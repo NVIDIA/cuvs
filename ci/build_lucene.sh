@@ -14,6 +14,8 @@ fi
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
+source ci/use_conda_packages_from_prs.sh
+
 rapids-logger "Downloading artifacts from previous jobs"
 CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
 CUVS_JAVA_DIR=$(rapids-download-from-github "${CUVS_JAVA_ARTIFACT}")
@@ -26,6 +28,7 @@ rapids-dependency-file-generator \
   --output conda \
   --file-key java \
   --prepend-channel "${CPP_CHANNEL}" \
+  "${RAFT_PR_PREPEND_CHANNEL_ARGS[@]}" \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" | tee "${ENV_YAML_DIR}/env.yaml"
 
 rapids-mamba-retry env create --yes -f "${ENV_YAML_DIR}/env.yaml" -n java
