@@ -37,7 +37,6 @@ groups:
       intermediate_graph_degree: [64]
       graph_build_algo: ["NN_DESCENT"]
       num_dataset_splits: [2, 8, 32]
-      merge_type: ["PHYSICAL"]
       merge_algo: ["FASTENER"]
       fastener_levels: [2]
       fastener_root_fanout: [2]
@@ -55,7 +54,6 @@ groups:
       intermediate_graph_degree: [64]
       graph_build_algo: ["NN_DESCENT"]
       num_dataset_splits: [2, 8, 32]
-      merge_type: ["PHYSICAL"]
       merge_algo: ["FASTENER"]
       fastener_levels: [2]
       fastener_root_fanout: [4]
@@ -73,7 +71,6 @@ groups:
       intermediate_graph_degree: [64]
       graph_build_algo: ["NN_DESCENT"]
       num_dataset_splits: [2, 8, 32]
-      merge_type: ["PHYSICAL"]
       merge_algo: ["REBUILD"]
     search:
       itopk: [64]

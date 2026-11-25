@@ -135,7 +135,6 @@ auto to_graph_only_index(const raft::resources& res, HostIndexT& host_index)
 
 enum class AllocatorType { kHostPinned, kHostHugePage, kDevice };
 enum class CagraBuildAlgo { kAuto, kIvfPq, kNnDescent };
-enum class CagraMergeType { kPhysical };
 
 template <typename T, typename IdxT>
 class cuvs_cagra : public algo<T>, public algo_gpu {
@@ -169,7 +168,6 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     dataset_dependent_params cagra_params;
     std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt;
     size_t num_dataset_splits                              = 1;
-    CagraMergeType merge_type                              = CagraMergeType::kPhysical;
     cuvs::neighbors::cagra::merge_params merge_params;
   };
 
@@ -333,51 +331,42 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       auto& sub_dataset_buffer = (*sub_dataset_buffers_)[i];
 
       auto sub_index = index_type(handle_, params.metric);
-      if (index_params_.merge_type == CagraMergeType::kPhysical) {
-        // Fastener reuses the input graphs. Build every split so AUTO, FASTENER, and REBUILD all
-        // receive the same prepared indexes.
-        if (dataset_is_on_host) {
-          sub_index = cuvs::neighbors::cagra::build(
-            handle_, params, detail::make_padded_view<T>(handle_, sub_host, sub_dataset_buffer));
-        } else {
-          sub_index = cuvs::neighbors::cagra::build(
-            handle_, params, detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
-        }
+      // Fastener reuses the input graphs. Build every split so AUTO, FASTENER, and REBUILD all
+      // receive the same prepared indexes.
+      if (dataset_is_on_host) {
+        sub_index = cuvs::neighbors::cagra::build(
+          handle_, params, detail::make_padded_view<T>(handle_, sub_host, sub_dataset_buffer));
+      } else {
+        sub_index = cuvs::neighbors::cagra::build(
+          handle_, params, detail::make_padded_view<T>(handle_, sub_dev, sub_dataset_buffer));
       }
       sub_indices_.push_back(std::make_shared<index_type>(std::move(sub_index)));
     }
-    if (index_params_.merge_type == CagraMergeType::kPhysical) {
-      std::vector<index_type*> indices;
-      indices.reserve(sub_indices_.size());
-      for (auto& ptr : sub_indices_) {
-        indices.push_back(ptr.get());
-      }
-
-      cuvs::neighbors::filtering::none_sample_filter merge_row_filter;
-      int64_t merged_rows = 0;
-      for (auto* index : indices) {
-        merged_rows += static_cast<int64_t>(index->size());
-      }
-      auto const stride = static_cast<int64_t>(
-        cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(dim_)));
-      *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
-      auto merged_dataset_view = cuvs::neighbors::detail::make_dense_view<
-        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
-        dataset_->data_handle(), merged_rows, static_cast<uint32_t>(dim_), stride);
-      index_ =
-        std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
-                                                                   params,
-                                                                   indices,
-                                                                   merged_dataset_view,
-                                                                   index_params_.merge_params,
-                                                                   merge_row_filter));
-      // The merged index holds all the rows now; drop the splits rather than keep a second copy
-      // of the dataset on the device for the rest of the run.
-      sub_indices_.clear();
-      sub_dataset_buffers_->clear();
-      *input_dataset_v_    = dataset_view_device;
-      need_dataset_update_ = false;
+    std::vector<index_type*> indices;
+    indices.reserve(sub_indices_.size());
+    for (auto& ptr : sub_indices_) {
+      indices.push_back(ptr.get());
     }
+
+    cuvs::neighbors::filtering::none_sample_filter merge_row_filter;
+    int64_t merged_rows = 0;
+    for (auto* index : indices) {
+      merged_rows += static_cast<int64_t>(index->size());
+    }
+    auto const stride = static_cast<int64_t>(
+      cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(dim_)));
+    *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
+    auto merged_dataset_view = cuvs::neighbors::detail::make_dense_view<
+      cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+      dataset_->data_handle(), merged_rows, static_cast<uint32_t>(dim_), stride);
+    index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::merge(
+      handle_, params, indices, merged_dataset_view, index_params_.merge_params, merge_row_filter));
+    // The merged index holds all the rows now; drop the splits rather than keep a second copy
+    // of the dataset on the device for the rest of the run.
+    sub_indices_.clear();
+    sub_dataset_buffers_->clear();
+    *input_dataset_v_    = dataset_view_device;
+    need_dataset_update_ = false;
   }
   if (index_params_.compression.has_value()) {
     RAFT_EXPECTS(index_params_.num_dataset_splits <= 1,
