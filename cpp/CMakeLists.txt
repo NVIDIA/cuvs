@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
-cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.3 FATAL_ERROR)
 include(../cmake/rapids_config.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
@@ -1164,13 +1164,20 @@ if(NOT BUILD_CPU_ONLY)
   endblock()
 
   include(cmake/modules/generate_cutile_kernels.cmake)
-  # cuTile can export sm_107 (Rubin) kernels only starting with CUDA 13.4. CUVS_CUTILE_SM107_ENABLED
-  # hides the sm_107 code paths in the older versions.
+  # Tile IR supports sm_103 starting with version 13.1 and sm_107 starting with 13.4. Conservatively
+  # gate by the CUDA compiler version, as in the existing sm_107 support.
+  set(CUVS_CUTILE_SM103_ENABLED 0)
   set(CUVS_CUTILE_SM107_ENABLED 0)
-  set(CUVS_CUTILE_EXCLUDED_GPU_CODES "sm_107")
+  set(CUVS_CUTILE_EXCLUDED_GPU_CODES "")
+  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 13.1)
+    set(CUVS_CUTILE_SM103_ENABLED 1)
+  else()
+    list(APPEND CUVS_CUTILE_EXCLUDED_GPU_CODES "sm_103")
+  endif()
   if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 13.4)
     set(CUVS_CUTILE_SM107_ENABLED 1)
-    set(CUVS_CUTILE_EXCLUDED_GPU_CODES "")
+  else()
+    list(APPEND CUVS_CUTILE_EXCLUDED_GPU_CODES "sm_107")
   endif()
   cuvs_cutile_setup(CUVS_CUTILE_ENABLED cutile_python cutile_bin2c)
   if(CUVS_CUTILE_ENABLED)
@@ -1554,10 +1561,16 @@ if(NOT BUILD_CPU_ONLY)
     ${vamana_build_inst_files}
     src/neighbors/vamana_codebooks.cu
     ${vamana_serialize_inst_files}
+    src/neighbors/gpipnn_build.cu
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
     src/preprocessing/quantize/bbq.cu
+    src/preprocessing/quantize/rabitq.cu
+    src/preprocessing/quantize/detail/rabitq/rotator.cu
+    src/preprocessing/quantize/detail/rabitq/rescale_search.cu
+    src/preprocessing/quantize/detail/rabitq/quantize.cu
+    src/preprocessing/quantize/detail/rabitq/pipeline.cu
     src/preprocessing/spectral/spectral_embedding.cu
     src/preprocessing/pca/pca.cu
     ${select_k_inst_files}
@@ -1596,6 +1609,7 @@ if(NOT BUILD_CPU_ONLY)
   target_compile_definitions(
     cuvs_objs
     PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+            CUVS_CUTILE_SM103_ENABLED=${CUVS_CUTILE_SM103_ENABLED}
             CUVS_CUTILE_SM107_ENABLED=${CUVS_CUTILE_SM107_ENABLED}
             $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:CUVS_BUILD_CAGRA_HNSWLIB>
             $<$<BOOL:${BUILD_MG_ALGOS}>:CUVS_BUILD_MG_ALGOS>
