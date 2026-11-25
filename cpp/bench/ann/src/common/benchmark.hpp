@@ -32,6 +32,40 @@ namespace cuvs::bench {
 static inline std::unique_ptr<algo_base> current_algo{nullptr};
 static inline std::unique_ptr<algo_property> current_algo_props{nullptr};
 
+/**
+ * Per-iteration search latencies (seconds), pooled across all benchmark threads of one search
+ * case. One sample is one `search()` call, i.e. a batch of `n_queries` queries.
+ *
+ * Each thread appends its samples once its loop ends; whichever thread arrives last computes the
+ * percentiles, so no thread ever waits on another. Reset by the thread that loads the algo, while
+ * the others are blocked on the load barrier.
+ */
+struct latency_pool {
+  std::mutex mutex;
+  std::vector<double> samples;
+  int arrived = 0;
+
+  void reset()
+  {
+    std::lock_guard lk(mutex);
+    samples.clear();
+    arrived = 0;
+  }
+};
+
+inline auto search_latency_pool() -> latency_pool&
+{
+  static latency_pool pool;
+  return pool;
+}
+
+/** Nearest-rank percentile of a non-empty, sorted sample. */
+inline auto percentile_sorted(const std::vector<double>& sorted, double p) -> double
+{
+  auto rank = static_cast<std::size_t>(std::ceil(p * static_cast<double>(sorted.size())));
+  return sorted[std::clamp<std::size_t>(rank, 1, sorted.size()) - 1];
+}
+
 using kv_series = std::vector<std::tuple<std::string, std::vector<nlohmann::json>>>;
 
 inline auto apply_overrides(const std::vector<nlohmann::json>& configs,
@@ -224,6 +258,7 @@ void bench_search(::benchmark::State& state,
    */
   progress_barrier load_barrier{};
   if (load_barrier.arrive(1) == 0) {
+    search_latency_pool().reset();
     // algo is static to cache it between close search runs to save time on index loading
     static std::string index_file = "";
     if (index.file != index_file) {
@@ -307,22 +342,35 @@ void bench_search(::benchmark::State& state,
     }
     // Initialize with algo, so that the timer.lap() object can sync with algo::get_sync_stream()
     cuda_timer gpu_timer{a};
+    // An iteration's latency is only meaningful if each iteration syncs with the GPU (or the algo
+    // has no stream, i.e. it runs on CPU and returns when done).
+    const bool record_latency = !no_lap_sync || !gpu_timer.active();
+    std::vector<double> latencies;
+    if (record_latency) { latencies.reserve(1 << 16); }
     auto start = std::chrono::high_resolution_clock::now();
     {
       /* See the note above: GPU timing */
       [[maybe_unused]] auto gpu_all = gpu_timer.lap(no_lap_sync);
       for (auto _ : state) {
-        [[maybe_unused]] auto ntx_lap = nvtx.lap();
-        [[maybe_unused]] auto gpu_lap = gpu_timer.lap(!no_lap_sync);
-        try {
-          a->search(query_set + batch_offset * dataset->dim(),
-                    n_queries,
-                    k,
-                    neighbors_ptr + out_offset * k,
-                    distances_ptr + out_offset * k);
-        } catch (const std::exception& e) {
-          state.SkipWithError("Benchmark loop: " + std::string(e.what()));
-          break;
+        // steady_clock: monotonic, unlike high_resolution_clock on some platforms
+        auto iter_start = std::chrono::steady_clock::now();
+        {
+          [[maybe_unused]] auto ntx_lap = nvtx.lap();
+          [[maybe_unused]] auto gpu_lap = gpu_timer.lap(!no_lap_sync);
+          try {
+            a->search(query_set + batch_offset * dataset->dim(),
+                      n_queries,
+                      k,
+                      neighbors_ptr + out_offset * k,
+                      distances_ptr + out_offset * k);
+          } catch (const std::exception& e) {
+            state.SkipWithError("Benchmark loop: " + std::string(e.what()));
+            break;
+          }
+        }  // gpu_lap syncs here, unless no_lap_sync
+        if (record_latency) {
+          latencies.push_back(
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - iter_start).count());
         }
 
         // advance to the next batch
@@ -339,6 +387,26 @@ void bench_search(::benchmark::State& state,
 
     if (gpu_timer.active()) {
       state.counters.insert({"GPU", {gpu_timer.total_time(), benchmark::Counter::kAvgIterations}});
+    }
+
+    // Drop this thread's first iteration: it runs on a fresh copy of the algo and may pay one-off
+    // costs (workspace allocation, lazy kernel loading) that would otherwise dominate the tail.
+    if (!latencies.empty()) { latencies.erase(latencies.begin()); }
+
+    // Pool this thread's samples; the last thread to arrive reports the percentiles. gbench sums
+    // per-thread counters, so exactly one thread must insert them.
+    auto& pool = search_latency_pool();
+    std::lock_guard lk(pool.mutex);
+    pool.samples.insert(pool.samples.end(), latencies.begin(), latencies.end());
+    if (++pool.arrived == state.threads() && !pool.samples.empty()) {
+      auto& s = pool.samples;
+      std::sort(s.begin(), s.end());
+      state.counters.insert({{"Latency_p50", percentile_sorted(s, 0.50)},
+                             {"Latency_p95", percentile_sorted(s, 0.95)},
+                             {"Latency_p99", percentile_sorted(s, 0.99)},
+                             {"Latency_max", s.back()}});
+      // All threads have arrived; release the samples rather than hold them until exit.
+      std::vector<double>().swap(s);
     }
   }
 
@@ -461,7 +529,9 @@ inline void printf_usage()
     "  --no-lap-sync disable CUDA event synchronization between benchmark iterations. If a GPU"
     " algorithm has no sync with CPU, this can make the GPU processing significantly lag behind the"
     " CPU scheduling. Then this also hides the scheduling latencies and thus improves the measured"
-    " throughput (QPS). Note there's a sync at the end of the benchmark loop in any case.\n");
+    " throughput (QPS). Note there's a sync at the end of the benchmark loop in any case. For GPU"
+    " algorithms, this also disables the per-iteration latency percentiles"
+    " (Latency_p50/p95/p99/max).\n");
 }
 
 template <typename T>
