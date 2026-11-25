@@ -1,0 +1,47 @@
+[
+  {
+    "instantiation_name": "f32_i64_u32_i64_false",
+    "template_arguments": "<float, int64_t, uint32_t, int64_t, false>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, float const*, int64_t const*, float**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "f32_i64_u32_i64_true",
+    "template_arguments": "<float, int64_t, uint32_t, int64_t, true>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, float const*, int64_t const*, float**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "f16_i64_u32_i64_false",
+    "template_arguments": "<__half, int64_t, uint32_t, int64_t, false>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, __half const*, int64_t const*, __half**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "f16_i64_u32_i64_true",
+    "template_arguments": "<__half, int64_t, uint32_t, int64_t, true>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, __half const*, int64_t const*, __half**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "i8_i64_u32_i64_false",
+    "template_arguments": "<int8_t, int64_t, uint32_t, int64_t, false>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, int8_t const*, int64_t const*, int8_t**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "i8_i64_u32_i64_true",
+    "template_arguments": "<int8_t, int64_t, uint32_t, int64_t, true>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, int8_t const*, int64_t const*, int8_t**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "u8_i64_u32_i64_false",
+    "template_arguments": "<uint8_t, int64_t, uint32_t, int64_t, false>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, uint8_t const*, int64_t const*, uint8_t**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "u8_i64_u32_i64_true",
+    "template_arguments": "<uint8_t, int64_t, uint32_t, int64_t, true>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, uint8_t const*, int64_t const*, uint8_t**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  },
+  {
+    "instantiation_name": "f32_i64_u32_u32_true",
+    "template_arguments": "<float, int64_t, uint32_t, uint32_t, true>",
+    "parameter_types": "dim3, dim3, cudaStream_t, uint32_t const*, float const*, uint32_t const*, float**, int64_t**, uint32_t*, int64_t, uint32_t, uint32_t, int64_t"
+  }
+]
