@@ -14,6 +14,7 @@
 #include "../../core/mnmg_comms.cuh"
 #include "../../core/omp_wrapper.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
+#include "kmeans_ann_assignment_core.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -26,6 +27,7 @@
 #include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/pinned_mdspan.hpp>
 #include <raft/core/resource/comms.hpp>
+#include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/multi_gpu.hpp>
 #include <raft/core/resource/nccl_comm.hpp>
@@ -148,6 +150,18 @@ void mnmg_fit(
   auto n_features = centroids.extent(1);
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
   auto metric     = params.metric;
+  // Optional CAGRA-based nearest-centroid assignment (float + L2 only). All ranks take the same
+  // decision from the same params.
+  const bool use_ann = cuvs::cluster::kmeans::detail::use_ann_assignment<DataT>(
+    params, static_cast<int64_t>(n_clusters), static_cast<int64_t>(n_features));
+
+  // Ranks are threads of one process in the SNMG path and share the CUDA driver. Creating a cuBLAS
+  // handle takes a process-wide driver lock. The exact assignment is what creates it, so with ANN
+  // assignment the first creation would fall in the final exact cost pass, right before a
+  // collective: a rank that is already blocked on that collective (the host waits on its result)
+  // can hold the lock the lagging rank needs, and neither can proceed. Create it before any
+  // collective is issued instead.
+  if (use_ann) { (void)raft::resource::get_cublas_handle(dev_res); }
 
   RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
                  metric == cuvs::distance::DistanceType::L2SqrtExpanded,
@@ -264,6 +278,12 @@ void mnmg_fit(
       },
       raft::make_const_mdspan(d_weight_scale.view()));
   }
+
+  // The graph is built once per iteration on the root rank and broadcast, so every rank searches
+  // an identical index over the (replicated) centroids.
+  cuvs::distance::detail::top_1_nn_cagra_index ann_index;
+  const auto assignment_backend = use_ann ? cuvs::distance::detail::Top1nnBackend::Cagra
+                                          : cuvs::distance::detail::Top1nnBackend::Auto;
 
   auto n_init = params.n_init;
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Array && n_init != 1) {
@@ -494,6 +514,19 @@ void mnmg_fit(
       raft::matrix::fill(dev_res, weight_per_cluster.view(), DataT{0});
       raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
 
+      // The centroids change every iteration, so the index is rebuilt every iteration. Every rank
+      // takes part (even one without data): the graph is built on the root and broadcast.
+      if (use_ann) {
+        cuvs::cluster::kmeans::detail::build_ann_index<DataT>(dev_res,
+                                                              iter_params,
+                                                              comms,
+                                                              rank,
+                                                              ann_index,
+                                                              rank_centroids.data_handle(),
+                                                              static_cast<int64_t>(n_clusters),
+                                                              static_cast<int64_t>(n_features));
+      }
+
       data_batches.start();
       if (weight_batches.has_value()) { weight_batches->start(); }
       for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
@@ -574,7 +607,9 @@ void mnmg_fit(
           weight_per_cluster.view(),
           raft::make_device_scalar_view(clustering_cost.data_handle()),
           batch_workspace,
-          batch_cost.view());
+          batch_cost.view(),
+          assignment_backend,
+          use_ann ? &ann_index : nullptr);
 
         const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
@@ -582,6 +617,8 @@ void mnmg_fit(
       }
       if constexpr (data_on_device) { norms_cached = true; }
 
+      // The CAGRA search work is enqueued before this allreduce. No barrier waits for the other
+      // ranks to finish their search first.
       comms.group_start();
       comms.allreduce(
         centroid_sums.data_handle(), centroid_sums.data_handle(), n_clusters * n_features);
@@ -710,6 +747,8 @@ void mnmg_fit(
         if (weight_batch.has_value()) { weight_batches->release(*weight_batch); }
       }
     }
+    // The exact cost pass is the first brute-force pass of an ANN fit. Its work is enqueued before
+    // this allreduce. No barrier waits for the other ranks to finish it first.
     comms.allreduce(clustering_cost.data_handle(), clustering_cost.data_handle(), 1);
     raft::copy(&local_inertia, clustering_cost.data_handle(), 1, stream);
     raft::resource::sync_stream(dev_res);

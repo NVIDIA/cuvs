@@ -286,6 +286,9 @@ struct KmeansMGNcclInputs {
   // When true, partitions are allocated on the host and the host vector-of-mdspan `fit`
   // overload is invoked from inside the OMP region.
   bool host_data = false;
+  // CAGRA ANN nearest-centroid assignment in the MG fit (float only). The single-GPU reference
+  // always uses exact brute force.
+  bool use_ann = false;
 };
 
 template <typename T>
@@ -359,13 +362,14 @@ class KmeansMGNcclTest : public ::testing::TestWithParam<KmeansMGNcclInputs<T>> 
     }
 
     cuvs::cluster::kmeans::params kp;
-    kp.n_clusters            = n_clusters;
-    kp.tol                   = testparams_.tol;
-    kp.max_iter              = testparams_.max_iter;
-    kp.n_init                = testparams_.n_init;
-    kp.rng_state.seed        = 42;
-    kp.init                  = testparams_.init;
-    kp.device_buffer_samples = testparams_.device_buffer_samples;
+    kp.n_clusters             = n_clusters;
+    kp.tol                    = testparams_.tol;
+    kp.max_iter               = testparams_.max_iter;
+    kp.n_init                 = testparams_.n_init;
+    kp.rng_state.seed         = 42;
+    kp.init                   = testparams_.init;
+    kp.device_buffer_samples  = testparams_.device_buffer_samples;
+    kp.use_ann_for_assignment = testparams_.use_ann;
 
     std::vector<T> h_mg_centroids;
     T mg_inertia      = T{0};
@@ -586,6 +590,64 @@ const std::vector<KmeansMGNcclInputs<float>> mg_nccl_inputsf = {
    2,
    cuvs::cluster::kmeans::params::KMeansPlusPlus,
    20,
+   true},
+  // CAGRA ANN assignment (graph built on rank 0 and broadcast): aligned and unaligned n_col,
+  // weights, several partitions per rank, small batches, host partitions, and fewer rows than
+  // partitions (empty ranks and partitions must still take part in the broadcast).
+  // NOTE: weighted cases can intermittently hang, with or without ANN. The weighted setup in
+  // mnmg_fit allreduces the total weight, then does a blocking copy into pageable host memory
+  // while a peer rank may still be in cudaMalloc/cudaHostAlloc. Ranks are threads of one process
+  // sharing the CUDA driver lock, so the waiting rank can block the peer that never reaches the
+  // allreduce. Existing weighted cases hang the same way on upstream main. A uniform-weight ANN
+  // case (1000x10, k=20) hung in about 1 of 3 runs and was left out; the mild_nonuniform case
+  // below passed every run.
+  {1000,
+   32,
+   5,
+   0.0001f,
+   kmeans_weight_mode::none,
+   1000,
+   1,
+   2,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   false,
+   true},
+  {10000,
+   16,
+   10,
+   0.0001f,
+   kmeans_weight_mode::mild_nonuniform,
+   500,
+   1,
+   3,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   false,
+   true},
+  {1000,
+   16,
+   5,
+   0.0001f,
+   kmeans_weight_mode::none,
+   512,
+   1,
+   2,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   true,
+   true},
+  {10,
+   4,
+   3,
+   0.001f,
+   kmeans_weight_mode::none,
+   10,
+   1,
+   4,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   false,
    true},
 };
 

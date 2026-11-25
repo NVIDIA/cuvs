@@ -32,12 +32,14 @@ inline ncclDataType_t nccl_dtype()
     return ncclDouble;
   } else if constexpr (std::is_same_v<U, int> || std::is_same_v<U, std::int32_t>) {
     return ncclInt32;
+  } else if constexpr (std::is_same_v<U, std::uint32_t>) {
+    return ncclUint32;
   } else if constexpr (std::is_same_v<U, std::int64_t>) {
     return ncclInt64;
   } else {
     static_assert(unsupported_nccl_dtype_v<U>,
                   "Unsupported NCCL data type for MNMG collectives. Supported "
-                  "types are float, double, int/std::int32_t, and std::int64_t.");
+                  "types are float, double, int/std::int32_t, std::uint32_t, and std::int64_t.");
     return ncclFloat;
   }
 }

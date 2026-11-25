@@ -56,8 +56,6 @@ void initKMeansPlusPlus_distributed(
     if (isRoot) { RAFT_LOG_DEBUG(fmt, ##__VA_ARGS__); }      \
   } while (0)
 
-#define CUVS_KMEANS_COMM_ROOT 0
-
 using cuvs::core::detail::mnmg_comms;
 
 template <typename IndexT>
