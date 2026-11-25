@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <optional>
 #include <dlpack/dlpack.h>
 
 #include <raft/core/error.hpp>
@@ -16,6 +17,7 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 
 #include "../core/exceptions.hpp"
+#include "../cluster/assignment_convert.hpp"
 #include "../core/interop.hpp"
 
 namespace cuvs::neighbors::ivf_pq {
@@ -236,7 +238,8 @@ void _transform(cuvsResources_t res,
                                   cuvsIvfPqIndex index,
              DLManagedTensor* input_dataset,
              DLManagedTensor* output_labels,
-             DLManagedTensor* output_dataset)
+             DLManagedTensor* output_dataset,
+             const std::optional<cuvs::cluster::assignment_params>& assignment)
 {
   auto index_ptr    = reinterpret_cast<cuvs::neighbors::ivf_pq::index<IdxT>*>(index.addr);
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
@@ -249,7 +252,8 @@ void _transform(cuvsResources_t res,
   auto labels_mds = cuvs::core::from_dlpack<labels_mdspan_type>(output_labels);
   auto output_mds = cuvs::core::from_dlpack<output_mdspan_type>(output_dataset);
 
-  cuvs::neighbors::ivf_pq::transform(*res_ptr, *index_ptr, input_mds, labels_mds, output_mds);
+  cuvs::neighbors::ivf_pq::transform(
+    *res_ptr, *index_ptr, input_mds, labels_mds, output_mds, assignment);
 }
 
 }  // namespace
@@ -592,42 +596,90 @@ extern "C" cuvsError_t cuvsIvfPqIndexGetListIndices(cuvsIvfPqIndex_t index,
     [=] { _get_list_indices<int64_t>(*index, label, out_labels); });
 }
 
+static void transform_impl(cuvsResources_t res,
+                           cuvsIvfPqIndex_t index,
+                           DLManagedTensor* input_dataset,
+                           DLManagedTensor* output_labels,
+                           DLManagedTensor* output_dataset,
+                           const std::optional<cuvs::cluster::assignment_params>& assignment)
+{
+  // Verify all tensors are on device
+  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(input_dataset->dl_tensor),
+               "input_dataset should have device compatible memory");
+  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(output_labels->dl_tensor),
+               "output_labels should have device compatible memory");
+  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(output_dataset->dl_tensor),
+               "output_dataset should have device compatible memory");
+
+  // Verify dtypes of inputs
+  auto& output_labels_dl = output_labels->dl_tensor;
+  RAFT_EXPECTS(output_labels_dl.dtype.code == kDLUInt && output_labels_dl.dtype.bits == 32,
+               "output_labels must have a uint32 dtype ");
+  auto& output_dataset_dl = output_dataset->dl_tensor;
+  RAFT_EXPECTS(output_dataset_dl.dtype.code == kDLUInt && output_dataset_dl.dtype.bits == 8,
+               "output_dataset must have a uint8 dtype");
+
+  auto& dataset = input_dataset->dl_tensor;
+  if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
+    _transform<float, int64_t>(res, *index, input_dataset, output_labels, output_dataset, assignment);
+  } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
+    _transform<half, int64_t>(res, *index, input_dataset, output_labels, output_dataset, assignment);
+  } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
+    _transform<int8_t, int64_t>(
+      res, *index, input_dataset, output_labels, output_dataset, assignment);
+  } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
+    _transform<uint8_t, int64_t>(
+      res, *index, input_dataset, output_labels, output_dataset, assignment);
+  } else {
+    RAFT_FAIL("Unsupported input_dataset DLtensor dtype: %d and bits: %d",
+              dataset.dtype.code,
+              dataset.dtype.bits);
+  }
+}
+
 extern "C" cuvsError_t cuvsIvfPqTransform(cuvsResources_t res,
                                           cuvsIvfPqIndex_t index,
                                           DLManagedTensor* input_dataset,
                                           DLManagedTensor* output_labels,
-                                          DLManagedTensor* output_dataset) {
+                                          DLManagedTensor* output_dataset)
+{
   return cuvs::core::translate_exceptions(
-    [=] {
-      // Verify all tensors are on device
-      RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(input_dataset->dl_tensor),
-                   "input_dataset should have device compatible memory");
-      RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(output_labels->dl_tensor),
-                   "output_labels should have device compatible memory");
-      RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(output_dataset->dl_tensor),
-                   "output_dataset should have device compatible memory");
+    [=] { transform_impl(res, index, input_dataset, output_labels, output_dataset, std::nullopt); });
+}
 
-      // Verify dtypes of inputs
-      auto& output_labels_dl = output_labels->dl_tensor;
-      RAFT_EXPECTS(output_labels_dl.dtype.code == kDLUInt && output_labels_dl.dtype.bits == 32,
-                   "output_labels must have a uint32 dtype ");
-      auto& output_dataset_dl = output_dataset->dl_tensor;
-      RAFT_EXPECTS(output_dataset_dl.dtype.code == kDLUInt && output_dataset_dl.dtype.bits == 8,
-                   "output_dataset must have a uint8 dtype");
+extern "C" cuvsError_t cuvsIvfPqTransformWithAssignment(cuvsResources_t res,
+                                                        cuvsIvfPqIndex_t index,
+                                                        DLManagedTensor* input_dataset,
+                                                        DLManagedTensor* output_labels,
+                                                        DLManagedTensor* output_dataset,
+                                                        cuvsAssignmentParams_t assignment)
+{
+  return cuvs::core::translate_exceptions([=] {
+    transform_impl(res,
+                   index,
+                   input_dataset,
+                   output_labels,
+                   output_dataset,
+                   cuvs::core::convert_assignment_params(assignment));
+  });
+}
 
-      auto & dataset = input_dataset->dl_tensor;
-      if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
-        _transform<float, int64_t>(res, *index, input_dataset, output_labels, output_dataset);
-      } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
-        _transform<half, int64_t>(res, *index, input_dataset, output_labels, output_dataset);
-      } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
-        _transform<int8_t, int64_t>(res, *index, input_dataset, output_labels, output_dataset);
-      } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
-        _transform<uint8_t, int64_t>(res, *index, input_dataset, output_labels, output_dataset);
-      } else {
-        RAFT_FAIL("Unsupported input_dataset DLtensor dtype: %d and bits: %d",
-                  dataset.dtype.code,
-                  dataset.dtype.bits);
-      }
-    });
+extern "C" cuvsError_t cuvsIvfPqBuildAssignmentIndex(cuvsResources_t res,
+                                                     cuvsIvfPqIndex_t index,
+                                                     cuvsAssignmentParams_t params,
+                                                     cuvsAssignmentIndex_t assignment_index)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto res_ptr   = reinterpret_cast<raft::resources*>(res);
+    auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_pq::index<int64_t>*>(index->addr);
+    switch (params->kind) {
+      case CUVS_ASSIGNMENT_IVF:
+        cuvs::core::store_assignment_index(
+          *assignment_index,
+          cuvs::neighbors::ivf_pq::build_ivf_assignment_index(
+            *res_ptr, *index_ptr, cuvs::core::convert_ivf_params(params->ivf)));
+        break;
+      default: RAFT_FAIL("Unsupported assignment kind: %d", static_cast<int>(params->kind));
+    }
+  });
 }
