@@ -70,7 +70,7 @@ int main()
 
   // Create input arrays.
   int64_t n_samples = 10000;
-  int64_t n_dim     = 90;
+  int64_t n_dim     = 128;  // Float rows meet the padded view's 16-byte alignment requirement.
   int64_t n_queries = 10;
   auto dataset      = raft::make_device_matrix<float, int64_t>(dev_resources, n_samples, n_dim);
   auto queries      = raft::make_device_matrix<float, int64_t>(dev_resources, n_queries, n_dim);
