@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "ivf_assign.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -786,6 +787,71 @@ void predict(const raft::resources& handle,
                  labels + offset,
                  mem_res,
                  core_scratch);
+  }
+}
+
+/**
+ * @brief Predict labels with the IVF-based (approximate) nearest-centroid assignment.
+ *
+ * Same contract as `predict`, but the centroids are the ones `idx` was built from and the search
+ * is `ivf_assign::assign`. The assigner scores in float, so float data is assigned in place
+ * and other types are first mapped to float, in chunks bounded by the free workspace.
+ *
+ * @param[in] idx IVF index built from the centroids
+ * @param[in] search_params IVF search parameters (n_probes, ...)
+ * @param[in] dataset Pointer to the data [n_rows, dim]; dim must equal idx.dim
+ * @param[out] labels Output predictions [n_rows]
+ * @param[in] mapping_op Mapping operation from T to float (not used when T is float)
+ */
+template <typename T, typename IdxT, typename MappingOpT>
+void predict(const raft::resources& handle,
+             const ivf_assign::index& idx,
+             const ivf_assign::search_params& search_params,
+             const T* dataset,
+             IdxT n_rows,
+             IdxT dim,
+             uint32_t* labels,
+             MappingOpT mapping_op,
+             std::optional<rmm::device_async_resource_ref> mr = std::nullopt)
+{
+  auto stream = raft::resource::get_cuda_stream(handle);
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
+    "predict_ivf(%zu, %u)", static_cast<size_t>(n_rows), idx.n_centroids);
+  RAFT_EXPECTS(static_cast<int64_t>(dim) == static_cast<int64_t>(idx.dim),
+               "Number of features in dataset and IVF index are different");
+  if (n_rows == 0) { return; }
+
+  if constexpr (std::is_same_v<T, float>) {
+    ivf_assign::assign(
+      handle,
+      search_params,
+      idx,
+      raft::make_device_matrix_view<const float, int64_t, raft::row_major>(dataset, n_rows, dim),
+      raft::make_device_vector_view<uint32_t, int64_t>(labels, n_rows));
+  } else {
+    auto mem_res = mr.value_or(raft::resource::get_workspace_resource_ref(handle));
+    // The mapped chunk takes at most a quarter of the free workspace; 4K..1M rows.
+    const int64_t row_bytes = static_cast<int64_t>(dim) * sizeof(float);
+    const int64_t by_mem =
+      static_cast<int64_t>(raft::resource::get_workspace_free_bytes(handle) / 4) / row_bytes;
+    const int64_t chunk =
+      std::min<int64_t>(static_cast<int64_t>(n_rows),
+                        std::max<int64_t>(int64_t{1} << 12, std::min<int64_t>(by_mem, 1 << 20)));
+    rmm::device_uvector<float> mapped(static_cast<size_t>(chunk) * dim, stream, mem_res);
+    for (int64_t offset = 0; offset < static_cast<int64_t>(n_rows); offset += chunk) {
+      const int64_t rows = std::min<int64_t>(chunk, static_cast<int64_t>(n_rows) - offset);
+      raft::linalg::map(
+        handle,
+        raft::make_device_vector_view<const T, int64_t>(dataset + offset * dim, rows * dim),
+        raft::make_device_vector_view<float, int64_t>(mapped.data(), rows * dim),
+        mapping_op);
+      ivf_assign::assign(handle,
+                         search_params,
+                         idx,
+                         raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
+                           mapped.data(), rows, dim),
+                         raft::make_device_vector_view<uint32_t, int64_t>(labels + offset, rows));
+    }
   }
 }
 

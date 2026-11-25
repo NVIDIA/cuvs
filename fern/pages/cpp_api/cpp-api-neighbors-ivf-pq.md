@@ -1782,6 +1782,146 @@ raft::device_matrix_view<uint8_t, int64_t> output_dataset);
 
 `void`
 
+**Additional overload:** `neighbors::ivf_pq::transform`
+
+Transform a dataset by applying pq-encoding to each vector, with a chosen assignment of the vectors to their cluster
+
+```cpp
+void transform(raft::resources const& handle,
+const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+raft::device_vector_view<uint32_t, int64_t> output_labels,
+raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+const std::optional<cuvs::cluster::assignment_params>& assignment);
+```
+
+Same as the overload without `assignment`, except that the cluster of each vector (its label) is found with the given assignment backend. An empty `assignment` is the exhaustive assignment, i.e. the same as the overload without it. With `ivf_assignment_params` the labels are approximate (see there) and, unless `ivf_assignment_params::index` is set, an assignment index is built from the cluster centers once per call. To transform many batches, build the index once with `cuvs::cluster::build_ivf_assignment_index` (from the index's cluster centers, with the index's coarse metric: L2Expanded for InnerProduct, else the index metric) and pass it in the params.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` | in | `raft::resources const&` |  |
+| `index` | in | [`const cuvs::neighbors::ivf_pq::index<int64_t>&`](/api-reference/cpp-api-neighbors-ivf-pq#neighbors-ivf-pq-index) | ivf-pq constructed index |
+| `dataset` | in | `raft::device_matrix_view<const float, int64_t, raft::row_major>` | a device matrix view to a row-major matrix [n_rows, index.dim()] |
+| `output_labels` | out | `raft::device_vector_view<uint32_t, int64_t>` | a device vector view [n_rows] that will get populated with the cluster ids (labels) for each vector in the input dataset |
+| `output_dataset` | out | `raft::device_matrix_view<uint8_t, int64_t>` | a device matrix view [n_rows, ceildiv(index.pq_dim() * index.pq_bits(), 8)]] that will get populated with the pq-encoded dataset |
+| `assignment` | in | [`const std::optional<cuvs::cluster::assignment_params>&`](/api-reference/cpp-api-cluster-assignment#assignment-params) | how to find the cluster of each vector |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `neighbors::ivf_pq::transform`
+
+Same as the overload above, for other data types.
+
+```cpp
+void transform(raft::resources const& handle,
+const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
+raft::device_vector_view<uint32_t, int64_t> output_labels,
+raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+const std::optional<cuvs::cluster::assignment_params>& assignment);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `index` |  | [`const cuvs::neighbors::ivf_pq::index<int64_t>&`](/api-reference/cpp-api-neighbors-ivf-pq#neighbors-ivf-pq-index) |  |
+| `dataset` |  | `raft::device_matrix_view<const half, int64_t, raft::row_major>` |  |
+| `output_labels` |  | `raft::device_vector_view<uint32_t, int64_t>` |  |
+| `output_dataset` |  | `raft::device_matrix_view<uint8_t, int64_t>` |  |
+| `assignment` |  | [`const std::optional<cuvs::cluster::assignment_params>&`](/api-reference/cpp-api-cluster-assignment#assignment-params) |  |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `neighbors::ivf_pq::transform`
+
+Same as the overload above, for other data types.
+
+```cpp
+void transform(raft::resources const& handle,
+const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset,
+raft::device_vector_view<uint32_t, int64_t> output_labels,
+raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+const std::optional<cuvs::cluster::assignment_params>& assignment);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `index` |  | [`const cuvs::neighbors::ivf_pq::index<int64_t>&`](/api-reference/cpp-api-neighbors-ivf-pq#neighbors-ivf-pq-index) |  |
+| `dataset` |  | `raft::device_matrix_view<const int8_t, int64_t, raft::row_major>` |  |
+| `output_labels` |  | `raft::device_vector_view<uint32_t, int64_t>` |  |
+| `output_dataset` |  | `raft::device_matrix_view<uint8_t, int64_t>` |  |
+| `assignment` |  | [`const std::optional<cuvs::cluster::assignment_params>&`](/api-reference/cpp-api-cluster-assignment#assignment-params) |  |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `neighbors::ivf_pq::transform`
+
+Same as the overload above, for other data types.
+
+```cpp
+void transform(raft::resources const& handle,
+const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset,
+raft::device_vector_view<uint32_t, int64_t> output_labels,
+raft::device_matrix_view<uint8_t, int64_t> output_dataset,
+const std::optional<cuvs::cluster::assignment_params>& assignment);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `index` |  | [`const cuvs::neighbors::ivf_pq::index<int64_t>&`](/api-reference/cpp-api-neighbors-ivf-pq#neighbors-ivf-pq-index) |  |
+| `dataset` |  | `raft::device_matrix_view<const uint8_t, int64_t, raft::row_major>` |  |
+| `output_labels` |  | `raft::device_vector_view<uint32_t, int64_t>` |  |
+| `output_dataset` |  | `raft::device_matrix_view<uint8_t, int64_t>` |  |
+| `assignment` |  | [`const std::optional<cuvs::cluster::assignment_params>&`](/api-reference/cpp-api-cluster-assignment#assignment-params) |  |
+
+**Returns**
+
+`void`
+
+<a id="neighbors-ivf-pq-build-ivf-assignment-index"></a>
+### neighbors::ivf_pq::build_ivf_assignment_index
+
+Build an IVF assignment index from the cluster centers of an IVF-PQ index.
+
+```cpp
+auto build_ivf_assignment_index(raft::resources const& handle,
+const cuvs::neighbors::ivf_pq::index<int64_t>& index,
+const cuvs::cluster::ivf_assignment_params& params)
+-> cuvs::cluster::ivf_assignment_index;
+```
+
+The result is what `transform` builds internally when no index is given, so passing it through `ivf_assignment_params::index` gives the same labels while building the index only once. It uses the coarse metric of the index (L2Expanded for an InnerProduct index, else the index metric), which a hand-built index must match.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` | in | `raft::resources const&` |  |
+| `index` | in | [`const cuvs::neighbors::ivf_pq::index<int64_t>&`](/api-reference/cpp-api-neighbors-ivf-pq#neighbors-ivf-pq-index) | ivf-pq constructed index |
+| `params` | in | [`const cuvs::cluster::ivf_assignment_params&`](/api-reference/cpp-api-cluster-assignment#cluster-ivf-assignment-params) | `n_lists` and `kmeans_n_iters` are used; the rest is ignored |
+
+**Returns**
+
+[`cuvs::cluster::ivf_assignment_index`](/api-reference/cpp-api-cluster-assignment#cluster-ivf-assignment-index)
+
 ## IVF-PQ index serialize
 
 <a id="neighbors-ivf-pq-serialize"></a>

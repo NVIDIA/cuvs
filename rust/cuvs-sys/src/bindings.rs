@@ -380,6 +380,92 @@ pub enum cuvsDistanceType {
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsAssignmentKind {
+    CUVS_ASSIGNMENT_IVF = 0,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsIvfAssignmentParams {
+    pub n_lists: u32,
+    pub kmeans_n_iters: u32,
+    pub n_probes: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsIvfAssignmentParams"]
+        [::std::mem::size_of::<cuvsIvfAssignmentParams>() - 12usize];
+    ["Alignment of cuvsIvfAssignmentParams"]
+        [::std::mem::align_of::<cuvsIvfAssignmentParams>() - 4usize];
+    ["Offset of field: cuvsIvfAssignmentParams::n_lists"]
+        [::std::mem::offset_of!(cuvsIvfAssignmentParams, n_lists) - 0usize];
+    ["Offset of field: cuvsIvfAssignmentParams::kmeans_n_iters"]
+        [::std::mem::offset_of!(cuvsIvfAssignmentParams, kmeans_n_iters) - 4usize];
+    ["Offset of field: cuvsIvfAssignmentParams::n_probes"]
+        [::std::mem::offset_of!(cuvsIvfAssignmentParams, n_probes) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsAssignmentIndex {
+    pub addr: usize,
+    pub kind: cuvsAssignmentKind,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsAssignmentIndex"][::std::mem::size_of::<cuvsAssignmentIndex>() - 16usize];
+    ["Alignment of cuvsAssignmentIndex"][::std::mem::align_of::<cuvsAssignmentIndex>() - 8usize];
+    ["Offset of field: cuvsAssignmentIndex::addr"]
+        [::std::mem::offset_of!(cuvsAssignmentIndex, addr) - 0usize];
+    ["Offset of field: cuvsAssignmentIndex::kind"]
+        [::std::mem::offset_of!(cuvsAssignmentIndex, kind) - 8usize];
+};
+pub type cuvsAssignmentIndex_t = *mut cuvsAssignmentIndex;
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsAssignmentIndexCreate(index: *mut cuvsAssignmentIndex_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsAssignmentIndexDestroy(index: cuvsAssignmentIndex_t) -> cuvsError_t;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsAssignmentParams {
+    pub kind: cuvsAssignmentKind,
+    pub ivf: cuvsIvfAssignmentParams,
+    pub index: cuvsAssignmentIndex_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsAssignmentParams"][::std::mem::size_of::<cuvsAssignmentParams>() - 24usize];
+    ["Alignment of cuvsAssignmentParams"][::std::mem::align_of::<cuvsAssignmentParams>() - 8usize];
+    ["Offset of field: cuvsAssignmentParams::kind"]
+        [::std::mem::offset_of!(cuvsAssignmentParams, kind) - 0usize];
+    ["Offset of field: cuvsAssignmentParams::ivf"]
+        [::std::mem::offset_of!(cuvsAssignmentParams, ivf) - 4usize];
+    ["Offset of field: cuvsAssignmentParams::index"]
+        [::std::mem::offset_of!(cuvsAssignmentParams, index) - 16usize];
+};
+pub type cuvsAssignmentParams_t = *mut cuvsAssignmentParams;
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsAssignmentParamsCreate(params: *mut cuvsAssignmentParams_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsAssignmentParamsDestroy(params: cuvsAssignmentParams_t) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsAssignmentIndexBuild(
+        res: cuvsResources_t,
+        params: cuvsAssignmentParams_t,
+        centroids: *mut DLManagedTensor,
+        metric: cuvsDistanceType,
+        index: cuvsAssignmentIndex_t,
+    ) -> cuvsError_t;
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum cuvsKMeansInitMethod {
     KMeansPlusPlus = 0,
     Random = 1,
@@ -772,6 +858,26 @@ unsafe extern "C" {
         input_dataset: *mut DLManagedTensor,
         output_labels: *mut DLManagedTensor,
         output_dataset: *mut DLManagedTensor,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfPqTransformWithAssignment(
+        res: cuvsResources_t,
+        index: cuvsIvfPqIndex_t,
+        input_dataset: *mut DLManagedTensor,
+        output_labels: *mut DLManagedTensor,
+        output_dataset: *mut DLManagedTensor,
+        assignment: cuvsAssignmentParams_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsIvfPqBuildAssignmentIndex(
+        res: cuvsResources_t,
+        index: cuvsIvfPqIndex_t,
+        params: cuvsAssignmentParams_t,
+        assignment_index: cuvsAssignmentIndex_t,
     ) -> cuvsError_t;
 }
 #[repr(u32)]

@@ -5,16 +5,21 @@
 
 #pragma once
 
+#include "../../cluster/detail/ivf_assignment_impl.hpp"
 #include "../../core/nvtx.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"
 #include "ivf_pq_build.cuh"
 #include "ivf_pq_process_and_fill_codes.cuh"
 
+#include <cuvs/cluster/assignment.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/resources.hpp>
+
+#include <optional>
+#include <variant>
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
@@ -42,10 +47,20 @@ __launch_bounds__(BlockSize) static __global__ void transform_codes_kernel(
     output_dataset.data_handle(), row_ix, row_ix, pq_dim, output_dataset.extent(1), encoder);
 }
 
+/**
+ * The IVF assignment a transform runs with: the index and the search parameters. When
+ * `index` is null the labels come from the exhaustive assignment against the cluster centers.
+ */
+struct ivf_assignment_plan {
+  const cuvs::cluster::kmeans::detail::ivf_assign::index* index = nullptr;
+  cuvs::cluster::kmeans::detail::ivf_assign::search_params search_params{};
+};
+
 template <typename T, typename IdxT>
 void transform_batch(raft::resources const& res,
                      const index<IdxT>& index,
                      raft::device_matrix_view<const float, IdxT, raft::row_major> cluster_centers,
+                     const ivf_assignment_plan& ivf_plan,
                      raft::device_matrix_view<const T, IdxT, raft::row_major> dataset,
                      raft::device_vector_view<uint32_t, IdxT> output_labels,
                      raft::device_matrix_view<uint8_t, IdxT, raft::row_major> output_dataset)
@@ -54,11 +69,20 @@ void transform_batch(raft::resources const& res,
   rmm::device_async_resource_ref mr = raft::resource::get_workspace_resource_ref(res);
 
   // Compute the labels for each vector
-  cuvs::cluster::kmeans::balanced_params kmeans_params;
-  kmeans_params.metric = coarse_clustering_metric(index.metric());
+  if (ivf_plan.index != nullptr) {
+    cuvs::cluster::kmeans_balanced::predict(res,
+                                            *ivf_plan.index,
+                                            ivf_plan.search_params,
+                                            dataset,
+                                            output_labels,
+                                            utils::mapping<float>{});
+  } else {
+    cuvs::cluster::kmeans::balanced_params kmeans_params;
+    kmeans_params.metric = coarse_clustering_metric(index.metric());
 
-  cuvs::cluster::kmeans_balanced::predict(
-    res, kmeans_params, dataset, cluster_centers, output_labels, utils::mapping<float>{});
+    cuvs::cluster::kmeans_balanced::predict(
+      res, kmeans_params, dataset, cluster_centers, output_labels, utils::mapping<float>{});
+  }
 
   // Compute the residuals for each vector in the dataset
   auto dataset_residuals =
@@ -103,7 +127,8 @@ void transform(raft::resources const& res,
                const index<IdxT>& index,
                raft::device_matrix_view<const T, IdxT, raft::row_major> dataset,
                raft::device_vector_view<uint32_t, IdxT> output_labels,
-               raft::device_matrix_view<uint8_t, IdxT, raft::row_major> output_dataset)
+               raft::device_matrix_view<uint8_t, IdxT, raft::row_major> output_dataset,
+               const std::optional<cuvs::cluster::assignment_params>& assignment = std::nullopt)
 {
   IdxT n_rows = dataset.extent(0);
   RAFT_EXPECTS(output_labels.extent(0) == n_rows, "incorrect number of rows in output_labels");
@@ -122,9 +147,38 @@ void transform(raft::resources const& res,
   // the kmeans_balanced::predict. Thus, we need the restructuring raft::copy.
   const auto n_clusters = index.n_lists();
 
-  auto cluster_centers =
-    raft::make_device_mdarray<float>(res, mr, raft::make_extents<IdxT>(n_clusters, index.dim()));
-  extract_centers(res, index, cluster_centers.view());
+  // The IVF assignment, if asked for. A prebuilt index of the caller is used as is; otherwise
+  // one is built from the cluster centers once here, not once per batch.
+  const auto coarse_metric = coarse_clustering_metric(index.metric());
+  const auto* ivf_params   = assignment.has_value()
+                               ? std::get_if<cuvs::cluster::ivf_assignment_params>(&*assignment)
+                               : nullptr;
+  ivf_assignment_plan ivf_plan;
+  if (ivf_params != nullptr) {
+    ivf_plan.search_params.n_probes = ivf_params->n_probes;
+    ivf_plan.index                  = cuvs::cluster::detail::prebuilt_ivf_index(
+      *ivf_params, n_clusters, index.dim(), coarse_metric);
+  }
+  const bool need_centers = ivf_plan.index == nullptr;
+
+  auto cluster_centers = raft::make_device_mdarray<float>(
+    res, mr, raft::make_extents<IdxT>(need_centers ? n_clusters : 0, index.dim()));
+  std::optional<cuvs::cluster::kmeans::detail::ivf_assign::index> built_index;
+  if (need_centers) {
+    extract_centers(res, index, cluster_centers.view());
+    if (ivf_params != nullptr) {
+      cuvs::cluster::kmeans::detail::ivf_assign::index_params index_params;
+      index_params.n_lists        = ivf_params->n_lists;
+      index_params.kmeans_n_iters = ivf_params->kmeans_n_iters;
+      index_params.metric         = coarse_metric;
+      built_index.emplace(cuvs::cluster::kmeans::detail::ivf_assign::build(
+        res,
+        index_params,
+        raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
+          cluster_centers.data_handle(), n_clusters, index.dim())));
+      ivf_plan.index = &*built_index;
+    }
+  }
 
   // Determine if a stream pool exist and make sure there is at least one stream in it so we
   // could use the stream for kernel/copy overlapping by enabling prefetch.
@@ -163,6 +217,7 @@ void transform(raft::resources const& res,
     transform_batch(res,
                     index,
                     raft::make_const_mdspan(cluster_centers.view()),
+                    ivf_plan,
                     batch_dataset,
                     batch_labels,
                     batch_output_dataset);

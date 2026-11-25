@@ -88,6 +88,7 @@ endif()
 add_library(
   cuvs_c SHARED
   src/core/c_api.cpp
+  src/cluster/assignment.cpp
   src/cluster/kmeans.cpp
   $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/mg_kmeans.cpp>
   src/neighbors/brute_force.cpp

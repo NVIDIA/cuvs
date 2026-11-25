@@ -270,6 +270,8 @@ navigation:
       - section: "C API Documentation"
         path: "./pages/c_api/index.md"
         contents:
+          - page: "Cluster Assignment"
+            path: "./pages/c_api/c-api-cluster-assignment.md"
           - page: "Cluster Kmeans"
             path: "./pages/c_api/c-api-cluster-kmeans.md"
           - page: "Cluster Multi GPU Kmeans"
@@ -331,6 +333,8 @@ navigation:
         contents:
           - page: "Cluster Agglomerative"
             path: "./pages/cpp_api/cpp-api-cluster-agglomerative.md"
+          - page: "Cluster Assignment"
+            path: "./pages/cpp_api/cpp-api-cluster-assignment.md"
           - page: "Cluster Gmm"
             path: "./pages/cpp_api/cpp-api-cluster-gmm.md"
           - page: "Cluster Kmeans"

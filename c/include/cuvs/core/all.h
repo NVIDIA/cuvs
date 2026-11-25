@@ -13,6 +13,7 @@
 #include <cuvs/core/c_api.h>
 #include <cuvs/core/dataset.h>
 
+#include <cuvs/cluster/assignment.h>
 #include <cuvs/cluster/kmeans.h>
 
 #include <cuvs/distance/distance.h>

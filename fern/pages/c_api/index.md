@@ -4,6 +4,7 @@ These pages are generated from the documented public headers in the cuVS source 
 
 ## Cluster
 
+- [Assignment](/api-reference/c-api-cluster-assignment)
 - [K-Means](/api-reference/c-api-cluster-kmeans)
 - [Multi-GPU K-Means](/api-reference/c-api-cluster-mg-kmeans)
 

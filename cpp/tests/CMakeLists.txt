@@ -138,6 +138,7 @@ ConfigureTest(
        cluster/kmeans_find_k.cu
        cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
+       cluster/ivf_assign.cu
        cluster/kmeans_batch_loader.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
@@ -202,6 +203,13 @@ ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_PQ_TEST
   PATH neighbors/ann_ivf_pq/test_float_int64_t.cu neighbors/ann_ivf_pq/test_int8_t_int64_t.cu
        neighbors/ann_ivf_pq/test_uint8_t_int64_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_IVF_PQ_TRANSFORM_TEST
+  PATH neighbors/ivf_pq_transform.cu
   GPUS 1
   PERCENT 100
 )

@@ -1441,6 +1441,8 @@ if(NOT BUILD_CPU_ONLY)
   add_library(
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
+    src/cluster/detail/ivf_assign.cu
+    src/cluster/ivf_assignment.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
     src/cluster/kmeans_cluster_cost.cu
@@ -1521,6 +1523,7 @@ if(NOT BUILD_CPU_ONLY)
     ${ivf_flat_serialize_inst_files}
     src/neighbors/ivf_pq_index.cu
     src/neighbors/ivf_pq/ivf_pq_build_common.cu
+    src/neighbors/ivf_pq/ivf_pq_assignment_index.cu
     src/neighbors/ivf_pq/ivf_pq_serialize.cu
     src/neighbors/ivf_pq/ivf_pq_deserialize.cu
     ${ivf_pq_build_extend_inst_files}
