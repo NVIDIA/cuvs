@@ -1,0 +1,42 @@
+[
+  {
+    "instantiation_name": "f32_i32_indices",
+    "template_arguments": "<float, int, int*>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int>, raft::device_vector_view<const float, int>, int*, int, raft::device_matrix_view<float, int>, raft::device_vector_view<float, int>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f32_i32_key_values",
+    "template_arguments": "<float, int, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::indices(nullptr))>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int>, raft::device_vector_view<const float, int>, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::indices(nullptr)), int, raft::device_matrix_view<float, int>, raft::device_vector_view<float, int>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f32_i64_indices",
+    "template_arguments": "<float, int64_t, int64_t*>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int64_t>, raft::device_vector_view<const float, int64_t>, int64_t*, int64_t, raft::device_matrix_view<float, int64_t>, raft::device_vector_view<float, int64_t>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f32_i64_key_values",
+    "template_arguments": "<float, int64_t, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int64_t, float>*>::indices(nullptr))>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int64_t>, raft::device_vector_view<const float, int64_t>, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int64_t, float>*>::indices(nullptr)), int64_t, raft::device_matrix_view<float, int64_t>, raft::device_vector_view<float, int64_t>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f64_i32_indices",
+    "template_arguments": "<double, int, int*>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const double, int>, raft::device_vector_view<const double, int>, int*, int, raft::device_matrix_view<double, int>, raft::device_vector_view<double, int>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f64_i32_key_values",
+    "template_arguments": "<double, int, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::indices(nullptr))>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const double, int>, raft::device_vector_view<const double, int>, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::indices(nullptr)), int, raft::device_matrix_view<double, int>, raft::device_vector_view<double, int>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f64_i64_indices",
+    "template_arguments": "<double, int64_t, int64_t*>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const double, int64_t>, raft::device_vector_view<const double, int64_t>, int64_t*, int64_t, raft::device_matrix_view<double, int64_t>, raft::device_vector_view<double, int64_t>, rmm::device_uvector<char>&, bool"
+  },
+  {
+    "instantiation_name": "f64_i64_key_values",
+    "template_arguments": "<double, int64_t, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int64_t, double>*>::indices(nullptr))>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<const double, int64_t>, raft::device_vector_view<const double, int64_t>, decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int64_t, double>*>::indices(nullptr)), int64_t, raft::device_matrix_view<double, int64_t>, raft::device_vector_view<double, int64_t>, rmm::device_uvector<char>&, bool"
+  }
+]
