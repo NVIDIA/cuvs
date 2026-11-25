@@ -407,8 +407,7 @@ CUVS_EXPORT cuvsError_t cuvsIvfPqIndexGetListIndices(cuvsIvfPqIndex_t index,
  *        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
  *
  * @code {.c}
- * #include <cuvs/cluster/assignment.h>
-#include <cuvs/core/c_api.h>
+ * #include <cuvs/core/c_api.h>
  * #include <cuvs/neighbors/ivf_pq.h>
  *
  * // Create cuvsResources_t
@@ -503,8 +502,7 @@ CUVS_EXPORT cuvsError_t cuvsIvfPqBuildPrecomputed(cuvsResources_t res,
  *        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
  *
  * @code {.c}
- * #include <cuvs/cluster/assignment.h>
-#include <cuvs/core/c_api.h>
+ * #include <cuvs/core/c_api.h>
  * #include <cuvs/neighbors/ivf_pq.h>
  *
  * // Create cuvsResources_t
