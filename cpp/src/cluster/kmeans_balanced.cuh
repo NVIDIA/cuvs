@@ -64,14 +64,19 @@ namespace cuvs::cluster::kmeans_balanced {
  *                        datatype. If DataT == MathT, this must be the identity.
  * @param[out] inertia    (optional) Sum of squared distances of samples to their
  *                        closest cluster center.
+ * @param[out] parent_centroids Optional original coarse centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster ID for each fine centroid [K].
  */
 template <typename DataT, typename MathT, typename IndexT, typename MappingOpT = raft::identity_op>
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::balanced_params const& params,
-         raft::device_matrix_view<const DataT, IndexT> X,
-         raft::device_matrix_view<MathT, IndexT> centroids,
-         MappingOpT mapping_op                                = raft::identity_op(),
-         std::optional<raft::host_scalar_view<MathT>> inertia = std::nullopt)
+void fit(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const DataT, IndexT> X,
+  raft::device_matrix_view<MathT, IndexT> centroids,
+  MappingOpT mapping_op                                                   = raft::identity_op(),
+  std::optional<raft::host_scalar_view<MathT>> inertia                    = std::nullopt,
+  std::optional<raft::device_matrix_view<MathT, IndexT>> parent_centroids = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, IndexT>> centroid_to_parent = std::nullopt)
 {
   cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
   auto centers_dim =
@@ -84,6 +89,17 @@ void fit(const raft::resources& handle,
                "The number of centroids must be strictly positive and cannot exceed the number of "
                "points in the training dataset.");
 
+  if (parent_centroids.has_value()) {
+    auto n_mesoclusters = cuvs::cluster::kmeans::detail::num_mesoclusters(centroids.extent(0));
+    RAFT_EXPECTS(
+      parent_centroids->extent(0) == n_mesoclusters && parent_centroids->extent(1) == centers_dim,
+      "parent_centroids must have shape [round(sqrt(n_clusters)), centroid_features]");
+  }
+  if (centroid_to_parent.has_value()) {
+    RAFT_EXPECTS(centroid_to_parent->extent(0) == centroids.extent(0),
+                 "centroid_to_parent must have one entry per fine centroid");
+  }
+
   MathT* inertia_ptr = inertia.has_value() ? inertia.value().data_handle() : nullptr;
 
   cuvs::cluster::kmeans::detail::build_hierarchical(handle,
@@ -94,7 +110,9 @@ void fit(const raft::resources& handle,
                                                     centroids.data_handle(),
                                                     centroids.extent(0),
                                                     mapping_op,
-                                                    inertia_ptr);
+                                                    inertia_ptr,
+                                                    parent_centroids,
+                                                    centroid_to_parent);
 }
 
 /**
