@@ -200,6 +200,36 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
     assertEquals(7, cagraParams.getNumWriterThreads());
   }
 
+  @Test
+  public void testHnswHeuristicHonorsVariableGraphDegreeFractionOverride() {
+    assumeTrue("cuVS not supported", isSupported());
+
+    double fraction = 0.60;
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withVariableGraphDegreeFraction(fraction)
+            .build();
+
+    CagraIndexParams cagraParams = CagraIndexParamsFactory.create(params, 10_000, 128);
+
+    assertEquals(fraction, cagraParams.getVariableGraphDegreeFraction(), 0.0);
+  }
+
+  @Test
+  public void testHnswCustomHonorsVariableGraphDegreeFractionOverride() {
+    double fraction = 0.60;
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withVariableGraphDegreeFraction(fraction)
+            .build();
+
+    CagraIndexParams cagraParams = CagraIndexParamsFactory.create(params, 10_000, 128);
+
+    assertEquals(fraction, cagraParams.getVariableGraphDegreeFraction(), 0.0);
+  }
+
   /**
    * The heuristic type must reach cuVS rather than being pinned to the default: under
    * SIMILAR_SEARCH_PERFORMANCE cuVS derives {@code graph_degree = maxConn} instead of
