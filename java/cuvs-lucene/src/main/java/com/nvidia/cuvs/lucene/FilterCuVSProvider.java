@@ -88,14 +88,40 @@ class FilterCuVSProvider implements CuVSProvider {
     return delegate.newHnswIndexBuilder(cuVSResources);
   }
 
+  @Override
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes, long mergedDatasetHandleAddress, CagraIndexParams mergeParams)
+      throws Throwable {
+    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, mergeParams);
+  }
+
   /**
-   * Delegates rather than inheriting the default, which refuses what it cannot honour. The two
-   * narrower overloads route here, so this is the only one that has to be forwarded.
+   * Delegates rather than inheriting the default, which refuses what it cannot honour.
    */
   @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] arg0, CagraIndexParams arg1, BitSet arg2)
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      BitSet filter,
+      CagraIndexParams mergeParams)
       throws Throwable {
-    return delegate.mergeCagraIndexes(arg0, arg1, arg2);
+    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, filter, mergeParams);
+  }
+
+  @Override
+  public long[] cagraMergedDatasetOffsets(CagraIndex[] indexes, BitSet filter) throws Throwable {
+    return delegate.cagraMergedDatasetOffsets(indexes, filter);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateCagraDatasets(CagraIndex[] indexes) throws Throwable {
+    return delegate.concatenateCagraDatasets(indexes);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateAndFilterCagraDatasets(
+      CagraIndex[] indexes, BitSet filter) throws Throwable {
+    return delegate.concatenateAndFilterCagraDatasets(indexes, filter);
   }
 
   @Override

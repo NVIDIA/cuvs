@@ -317,48 +317,200 @@ public interface CagraIndex extends AutoCloseable {
   /**
    * Merges multiple CAGRA indexes into a single index using default merge parameters.
    *
+   * <p>The caller is responsible for concatenating every input index's dataset (in {@code
+   * indexes} order) into a single caller-owned padded dataset before calling this. This mirrors
+   * the caller-owned-buffer contract used by {@link #updateDataset(PaddedDataset)}. Keep {@code
+   * mergedDataset} alive for as long as the returned index remains in use.
+   *
    * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset holding the concatenation of every input
+   *                      index's rows, in {@code indexes} order
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
-  static CagraIndex merge(CagraIndex[] indexes) throws Throwable {
-    return merge(indexes, null, null);
+  static CagraIndex merge(CagraIndex[] indexes, PaddedDataset mergedDataset) throws Throwable {
+    return merge(indexes, mergedDataset, null, null);
   }
 
   /**
    * Merges multiple CAGRA indexes into a single index with the specified merge parameters.
    *
    * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset holding the concatenation of every input
+   *                      index's rows, in {@code indexes} order
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
-  static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams) throws Throwable {
-    return merge(indexes, mergeParams, null);
+  static CagraIndex merge(
+      CagraIndex[] indexes, PaddedDataset mergedDataset, CagraIndexParams mergeParams)
+      throws Throwable {
+    return merge(indexes, mergedDataset, null, mergeParams);
   }
 
   /**
-   * Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
-   * {@code rowFilter}.
-   *
-   * <p>The merge concatenates the input datasets in the order the indexes are given, so bit
-   * {@code i} of the filter refers to row {@code i} of that concatenation: bits {@code 0} to
-   * {@code indexes[0].size() - 1} address the first index, the bits that follow address the second,
-   * and so on. A <b>set</b> bit keeps the row; a clear bit drops it. The rows that survive keep
-   * their relative order and are packed together, so the merged index has one row per set bit.
+   * Merges multiple CAGRA indexes into a single index with the specified merge parameters, from a
+   * {@code mergedDataset} that was already filtered by {@code filter} (e.g. via
+   * {@link #concatenateAndFilterDatasets(CagraIndex[], BitSet)}).
    *
    * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset holding the concatenation of every input
+   *                      index's surviving rows, in {@code indexes} order
+   * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
+   *               {@code indexes} order) survive into {@code mergedDataset}; a set bit keeps the
+   *               row. Must be the same filter used to build {@code mergedDataset}. Pass null for
+   *               an unfiltered merge
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
-   * @param rowFilter The rows to keep, or null to keep all of them. A BitSet shorter than the total
-   *     row count is valid: the rows beyond its logical length are treated as clear (dropped). A bit
-   *     set at a position at or beyond the total row count throws {@link IllegalArgumentException}.
    * @return A new merged CAGRA index
-   * @throws IllegalArgumentException if {@code rowFilter} has a bit set beyond the last row, or if
-   *     it is non-null but keeps no rows at all
    * @throws Throwable if an error occurs during the merge operation
    */
-  static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter)
+  static CagraIndex merge(
+      CagraIndex[] indexes,
+      PaddedDataset mergedDataset,
+      BitSet filter,
+      CagraIndexParams mergeParams)
       throws Throwable {
+    validateIndexes(indexes);
+    Objects.requireNonNull(mergedDataset);
+    if (!mergedDataset.isPresent()) {
+      throw new IllegalArgumentException("mergedDataset is uninitialized");
+    }
+    return CuVSProvider.provider()
+        .mergeCagraIndexes(indexes, mergedDataset.nativeHandleAddress(), filter, mergeParams);
+  }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index using default merge parameters, from a
+   * caller-owned padded dataset view over a buffer that is already padded to CAGRA's required
+   * row stride.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset view holding the concatenation of every
+   *                      input index's rows, in {@code indexes} order
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  static CagraIndex merge(CagraIndex[] indexes, PaddedDatasetView mergedDataset) throws Throwable {
+    return merge(indexes, mergedDataset, null, null);
+  }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index with the specified merge parameters, from a
+   * caller-owned padded dataset view over a buffer that is already padded to CAGRA's required
+   * row stride.
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset view holding the concatenation of every
+   *                      input index's rows, in {@code indexes} order
+   * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  static CagraIndex merge(
+      CagraIndex[] indexes, PaddedDatasetView mergedDataset, CagraIndexParams mergeParams)
+      throws Throwable {
+    return merge(indexes, mergedDataset, null, mergeParams);
+  }
+
+  /**
+   * Merges multiple CAGRA indexes into a single index with the specified merge parameters, from a
+   * caller-owned padded dataset view that was already filtered by {@code filter} (e.g. via
+   * {@link #concatenateAndFilterDatasets(CagraIndex[], BitSet)}).
+   *
+   * @param indexes Array of CAGRA indexes to merge
+   * @param mergedDataset Caller-owned padded dataset view holding the concatenation of every
+   *                      input index's surviving rows, in {@code indexes} order
+   * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
+   *               {@code indexes} order) survive into {@code mergedDataset}; a set bit keeps the
+   *               row. Must be the same filter used to build {@code mergedDataset}. Pass null for
+   *               an unfiltered merge
+   * @param mergeParams Parameters to control the merge operation, or null to use defaults
+   * @return A new merged CAGRA index
+   * @throws Throwable if an error occurs during the merge operation
+   */
+  static CagraIndex merge(
+      CagraIndex[] indexes,
+      PaddedDatasetView mergedDataset,
+      BitSet filter,
+      CagraIndexParams mergeParams)
+      throws Throwable {
+    validateIndexes(indexes);
+    Objects.requireNonNull(mergedDataset);
+    if (!mergedDataset.isPresent()) {
+      throw new IllegalArgumentException("mergedDataset is uninitialized");
+    }
+    return CuVSProvider.provider()
+        .mergeCagraIndexes(indexes, mergedDataset.nativeHandleAddress(), filter, mergeParams);
+  }
+
+  /**
+   * Computes per-index write offsets for a bitset-filtered merged dataset buffer.
+   *
+   * <p>This is only needed when building a filtered {@code mergedDataset} by hand via
+   * {@link #concatenateAndFilterDatasets(CagraIndex[], BitSet)}: the number of surviving rows per
+   * index cannot be derived any other way. The returned offsets are for use with
+   * {@link #concatenateAndFilterDatasets} only; the {@link #merge} API no longer requires them.
+   *
+   * @param indexes Array of CAGRA indexes that will be merged
+   * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
+   *               {@code indexes} order) survive; a set bit keeps the row
+   * @return Array of {@code indexes.length + 1} entries; entry {@code i} is the row at which
+   *         {@code indexes[i]}'s surviving rows start in the merged buffer, and the last entry is
+   *         the merged buffer's total row count
+   * @throws Throwable if an error occurs
+   */
+  static long[] mergedDatasetOffsets(CagraIndex[] indexes, BitSet filter) throws Throwable {
+    validateIndexes(indexes);
+    Objects.requireNonNull(filter);
+    return CuVSProvider.provider().cagraMergedDatasetOffsets(indexes, filter);
+  }
+
+  /**
+   * Concatenates every input index's dataset (unfiltered, in {@code indexes} order) into a
+   * freshly allocated, owning padded dataset, for use as {@code mergedDataset} in
+   * {@link #merge(CagraIndex[], PaddedDataset)}.
+   *
+   * <p>This is an optional convenience for building the unfiltered {@code mergedDataset}; callers
+   * that already have their own concatenated buffer are not required to use it. Keep the returned
+   * dataset alive for as long as any index built from it remains in use.
+   *
+   * @param indexes Array of CAGRA indexes to concatenate, in the order they will be passed to
+   *                {@link #merge(CagraIndex[], PaddedDataset)}
+   * @return A newly allocated owning padded dataset containing every index's rows, concatenated
+   *         in {@code indexes} order
+   * @throws Throwable if an error occurs
+   */
+  static PaddedDataset concatenateDatasets(CagraIndex[] indexes) throws Throwable {
+    validateIndexes(indexes);
+    return CuVSProvider.provider().concatenateCagraDatasets(indexes);
+  }
+
+  /**
+   * Concatenates every input index's dataset (in {@code indexes} order), retaining only the rows
+   * selected by {@code filter}, into a freshly allocated, owning padded dataset, for use as
+   * {@code mergedDataset} in
+   * {@link #merge(CagraIndex[], PaddedDataset, BitSet, CagraIndexParams)}.
+   *
+   * <p>This is an optional convenience for building the filtered {@code mergedDataset}; callers
+   * that already have their own filtered, concatenated buffer are not required to use it. Keep
+   * the returned dataset alive for as long as any index built from it remains in use.
+   *
+   * @param indexes Array of CAGRA indexes to concatenate, in the order they will be passed to
+   *                {@link #merge(CagraIndex[], PaddedDataset, BitSet, CagraIndexParams)}
+   * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
+   *               {@code indexes} order) survive into the output; a set bit keeps the row
+   * @return A newly allocated owning padded dataset containing every index's surviving rows,
+   *         concatenated in {@code indexes} order
+   * @throws Throwable if an error occurs
+   */
+  static PaddedDataset concatenateAndFilterDatasets(CagraIndex[] indexes, BitSet filter)
+      throws Throwable {
+    validateIndexes(indexes);
+    Objects.requireNonNull(filter);
+    return CuVSProvider.provider().concatenateAndFilterCagraDatasets(indexes, filter);
+  }
+
+  private static void validateIndexes(CagraIndex[] indexes) {
     if (indexes == null || indexes.length == 0) {
       throw new IllegalArgumentException("At least one index must be provided for merging");
     }
@@ -369,8 +521,6 @@ public interface CagraIndex extends AutoCloseable {
         throw new IllegalArgumentException("All indexes must use the same CuVSResources instance");
       }
     }
-
-    return CuVSProvider.provider().mergeCagraIndexes(indexes, mergeParams, rowFilter);
   }
 
   /**

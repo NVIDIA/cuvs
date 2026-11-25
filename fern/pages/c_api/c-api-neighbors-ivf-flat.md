@@ -315,7 +315,7 @@ cuvsFilter filter);
 | `queries` | in | `DLManagedTensor*` | DLManagedTensor* queries dataset to search |
 | `neighbors` | out | `DLManagedTensor*` | DLManagedTensor* output `k` neighbors for queries |
 | `distances` | out | `DLManagedTensor*` | DLManagedTensor* output `k` distances for queries |
-| `filter` | in | [`cuvsFilter`](/api-reference/c-api-neighbors-common#cuvsfilter) | cuvsFilter input filter that can be used to filter queries and neighbors based on the given bitset. |
+| `filter` | in | [`cuvsFilter`](/api-reference/c-api-core-filter#cuvsfilter) | cuvsFilter input filter that can be used to filter queries and neighbors based on the given bitset. |
 
 **Returns**
 
