@@ -12,7 +12,7 @@ public abstract class CuVSServiceProvider
 
 Service-provider class for `CuVSProvider`.
 
-## Public Members
+## Public and Protected Members
 
 ### get
 

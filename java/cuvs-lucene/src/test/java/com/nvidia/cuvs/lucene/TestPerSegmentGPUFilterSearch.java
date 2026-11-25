@@ -77,7 +77,7 @@ public class TestPerSegmentGPUFilterSearch extends LuceneTestCase {
           }
           for (float[] q : queries) {
             TopKnnCollector collector = new TopKnnCollector(topK, Integer.MAX_VALUE);
-            leaf.searchNearestVectors(VECTOR_FIELD, q, collector, acceptDocs);
+            TestLuceneCompat.searchNearestVectors(leaf, VECTOR_FIELD, q, collector, acceptDocs);
             for (ScoreDoc hit : collector.topDocs().scoreDocs) {
               assertTrue(
                   "per-segment search returned doc " + hit.doc + " outside filter category " + c,
