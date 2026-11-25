@@ -28,9 +28,27 @@ on:
         type: string
         default: nightly
 
+# Maven release concurrency
+#
+# We have to be careful when deploying Maven artifacts. `cancel-in-progress` is a
+# common configuration that limits CI to one build at a time. New commits being
+# pushed will cancel an in-progress run. We do want `cancel-in-progress`
+# behavior for most runs/steps, but not for the maven deploy step. The
+# interruption of `cancel-in-progress` during publishing could lead to a
+# corrupt or incorrect release that we cannot undo.
+#
+# Branch and nightly runs keep workflow-level cancellation. Each tag run
+# gets its own workflow group so a competing run can't cancel the whole
+# run. If we allowed workflow-level cancellation for tags, it could stop
+# an active publisher even with cancellation disabled in the job's group.
+#
+# Job-level concurrency applies only to jobs in the same group. Selected
+# build and gather jobs can cancel matching jobs for the same tag. The shared
+# publisher groups jobs by repository and artifact and disables cancellation
+# by competing publisher jobs. The publisher's polling timeout still applies.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}${{ github.ref_type == 'tag' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 permissions: {}
 
@@ -52,6 +70,10 @@ jobs:
   build-details:
     uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@release/26.12
   cpp-build:
+    # See Maven release concurrency above. Java depends on this native build.
+    concurrency:
+      group: ${{ github.workflow }}-prep-cpp-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
+      cancel-in-progress: ${{ github.ref_type == 'tag' }}
     needs: [build-details]
     permissions:
       actions: read
@@ -94,8 +116,6 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -113,8 +133,6 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -124,6 +142,10 @@ jobs:
       script: "ci/build_go.sh"
       matrix_type: nightly
   java-build:
+    # See Maven release concurrency above.
+    concurrency:
+      group: ${{ github.workflow }}-prep-java-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
+      cancel-in-progress: ${{ github.ref_type == 'tag' }}
     needs: cpp-build
     permissions:
       actions: read
@@ -132,8 +154,7 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    # Keep CUDA builds separate; the release gather job retains their native classifiers.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -146,6 +167,10 @@ jobs:
       file_to_upload: "java/cuvs-java/target/"
       matrix_type: nightly
   lucene-build:
+    # See Maven release concurrency above.
+    concurrency:
+      group: ${{ github.workflow }}-prep-lucene-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
+      cancel-in-progress: ${{ github.ref_type == 'tag' }}
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
     needs: java-build
     permissions:
@@ -155,8 +180,7 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    # Build against the matching cuvs-java artifact from this workflow run.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -166,8 +190,81 @@ jobs:
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
-      file_to_upload: "java/cuvs-lucene/*/target/"
+      file_to_upload: |
+        java/cuvs-lucene/target/
+        java/cuvs-lucene/*/target/
       matrix_type: nightly
+  java-maven-gather:
+    # See Maven release concurrency above. Each module has its own group.
+    concurrency:
+      group: ${{ github.workflow }}-prep-java-maven-gather-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}-${{ matrix.module }}
+      cancel-in-progress: ${{ github.ref_type == 'tag' }}
+    if: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+    needs: [java-build, lucene-build]
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [cuvs-java, cuvs-lucene]
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - name: Download module builds from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ${{ matrix.module }}-cuda*
+          path: ${{ runner.temp }}/java-builds
+      - name: Assemble Maven repository
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          python3 java/ci/assemble_maven_repo.py \
+            --module "${MODULE}" --tag "${GITHUB_REF_NAME}" \
+            --artifacts-dir "${RUNNER_TEMP}/java-builds" \
+            --output-dir "${RUNNER_TEMP}/maven-repo"
+      - name: Upload assembled Maven repository
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.module }}_maven_repo
+          path: ${{ runner.temp }}/maven-repo
+          if-no-files-found: error
+  java-publish:
+    # See Maven release concurrency above for the publisher's policy.
+    needs: java-maven-gather
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/maven-publish.yaml@release/26.12
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      MAVEN_DEPLOY_TOKEN: ${{ secrets.MAVEN_DEPLOY_TOKEN }}
+    with:
+      artifact-name: cuvs-java_maven_repo
+      source-git-sha: ${{ inputs.sha || github.sha }}
+  lucene-publish:
+    # See Maven release concurrency above for the publisher's policy.
+    # The Lucene release depends on the matching published Java coordinate.
+    if: ${{ !cancelled() && needs.java-publish.outputs.deployment-state == 'PUBLISHED' }}
+    needs: [java-maven-gather, java-publish]
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/maven-publish.yaml@release/26.12
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      MAVEN_DEPLOY_TOKEN: ${{ secrets.MAVEN_DEPLOY_TOKEN }}
+    with:
+      artifact-name: cuvs-lucene_maven_repo
+      primary-artifact-id: cuvs-lucene
+      source-git-sha: ${{ inputs.sha || github.sha }}
   python-build:
     needs: [build-details, cpp-build]
     permissions:
