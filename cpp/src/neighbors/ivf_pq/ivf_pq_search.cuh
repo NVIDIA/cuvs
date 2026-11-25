@@ -43,11 +43,53 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cuda_fp16.h>
 
+#include <limits>
 #include <optional>
+#include <type_traits>
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
 using namespace cuvs::spatial::knn::detail;  // NOLINT
+
+/**
+ * Give the empty clusters and the NaN and +inf query-cluster scores the largest selectable score.
+ *
+ * Empty clusters thus are probed only if fewer than n_probes clusters are non-empty.
+ * select_k never selects a NaN, +inf or (for integers) the largest score. If a query has fewer
+ * than n_probes selectable scores, select_k pads its result with cluster 0, which the search then
+ * probes repeatedly and thereby overruns the workspace sized for n_probes distinct clusters.
+ */
+template <typename DistT>
+void mask_qc_distances(raft::resources const& handle,
+                       DistT* qc_distances,         // [n_queries, n_lists]
+                       const uint32_t* list_sizes,  // [n_lists]
+                       uint32_t n_queries,
+                       uint32_t n_lists)
+{
+  DistT max_score;
+  if constexpr (std::is_same_v<DistT, half>) {
+    max_score = CUDART_MAX_NORMAL_FP16;
+  } else if constexpr (std::is_integral_v<DistT>) {
+    max_score = std::numeric_limits<DistT>::max() - 1;
+  } else {
+    max_score = std::numeric_limits<DistT>::max();
+  }
+  auto qc_distances_view =
+    raft::make_device_vector_view<DistT, size_t>(qc_distances, size_t(n_queries) * size_t(n_lists));
+  raft::linalg::map_offset(
+    handle,
+    qc_distances_view,
+    [max_score, list_sizes, n_lists] __device__(size_t ix, DistT d) {
+      if (list_sizes[ix % n_lists] == 0) { return max_score; }
+      if constexpr (std::is_integral_v<DistT>) {
+        return d < max_score ? d : max_score;
+      } else {
+        auto x = static_cast<float>(d);
+        return isnan(x) || x > static_cast<float>(max_score) ? max_score : d;
+      }
+    },
+    raft::make_const_mdspan(qc_distances_view));
+}
 
 /**
  * Select the clusters to probe and, as a side-effect, translate the queries type `T -> float`
@@ -68,6 +110,7 @@ void select_clusters(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      const T* queries,              // [n_queries, dim]
                      const float* cluster_centers,  // [n_lists, dim_ext]
+                     const uint32_t* list_sizes,    // [n_lists]
                      rmm::device_async_resource_ref mr)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
@@ -154,6 +197,7 @@ void select_clusters(raft::resources const& handle,
                      qc_distances.data(),
                      n_lists,
                      stream.get());
+  mask_qc_distances(handle, qc_distances.data(), list_sizes, n_queries, n_lists);
 
   // Select neighbor clusters for each query.
   rmm::device_uvector<float> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
@@ -178,6 +222,7 @@ void select_clusters(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      const T* queries,               // [n_queries, dim]
                      const int8_t* cluster_centers,  // [n_lists, dim_ext]
+                     const uint32_t* list_sizes,     // [n_lists]
                      rmm::device_async_resource_ref mr)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
@@ -240,6 +285,7 @@ void select_clusters(raft::resources const& handle,
                      qc_distances.data(),
                      n_lists,
                      stream.get());
+  mask_qc_distances(handle, qc_distances.data(), list_sizes, n_queries, n_lists);
 
   // Select neighbor clusters for each query.
   rmm::device_uvector<dist_type> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
@@ -266,6 +312,7 @@ void select_clusters(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      const T* queries,             // [n_queries, dim]
                      const half* cluster_centers,  // [n_lists, dim_ext]
+                     const uint32_t* list_sizes,   // [n_lists]
                      rmm::device_async_resource_ref mr)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
@@ -325,6 +372,7 @@ void select_clusters(raft::resources const& handle,
                      qc_distances.data(),
                      n_lists,
                      stream.get());
+  mask_qc_distances(handle, qc_distances.data(), list_sizes, n_queries, n_lists);
 
   // Select neighbor clusters for each query.
   rmm::device_uvector<dist_type> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
@@ -988,6 +1036,7 @@ inline void search(raft::resources const& handle,
                                index.metric(),
                                queries + static_cast<size_t>(dim) * offset_q,
                                get_centers<value_type, IdxT>(handle, index).data_handle(),
+                               index.list_sizes().data_handle(),
                                mr);
       },
       gemm_queries);

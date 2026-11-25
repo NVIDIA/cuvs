@@ -412,11 +412,6 @@ void calc_centers_and_sizes(const raft::resources& handle,
   auto centersView      = raft::make_device_matrix_view<MathT>(centers, n_clusters, centers_dim);
   auto clusterSizesView = raft::make_device_vector_view<const CounterT>(cluster_sizes, n_clusters);
 
-  if (!reset_counters) {
-    raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
-      handle, raft::make_const_mdspan(centersView), clusterSizesView, centersView, raft::mul_op{});
-  }
-
   rmm::device_uvector<char> workspace(0, stream, mr);
 
   // If we reset the counters, we can compute directly the new sizes in cluster_sizes.
@@ -426,6 +421,36 @@ void calc_centers_and_sizes(const raft::resources& handle,
   if (!reset_counters) {
     temp_cluster_sizes.resize(n_clusters, stream);
     temp_sizes = temp_cluster_sizes.data();
+  }
+
+  // Compute weight of each cluster
+  cuvs::cluster::kmeans::detail::countLabels(
+    handle, labels, temp_sizes, n_rows, n_clusters, workspace);
+
+  // Clusters without any rows keep their center. A zero center would attract the rows near the
+  // origin.
+  if (reset_counters) {
+    raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+      handle,
+      raft::make_const_mdspan(centersView),
+      clusterSizesView,
+      centersView,
+      [] __device__(MathT center, CounterT size) { return size == 0 ? center : MathT{0}; });
+  } else {
+    raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+      handle,
+      raft::make_const_mdspan(centersView),
+      clusterSizesView,
+      raft::make_device_vector_view<const CounterT>(temp_sizes, n_clusters),
+      centersView,
+      [] __device__(MathT center, CounterT size, CounterT added) {
+        return size + added == 0 ? center : center * size;
+      });
+    raft::linalg::add(
+      handle,
+      raft::make_device_vector_view<const CounterT, IdxT>(cluster_sizes, n_clusters),
+      raft::make_device_vector_view<const CounterT, IdxT>(temp_sizes, n_clusters),
+      raft::make_device_vector_view<CounterT, IdxT>(cluster_sizes, n_clusters));
   }
 
   // Handle packed binary data with on-the-fly bit expansion
@@ -441,56 +466,28 @@ void calc_centers_and_sizes(const raft::resources& handle,
                                        n_clusters,
                                        centers,
                                        stream.get(),
-                                       reset_counters);
+                                       false);
     } else {
       RAFT_FAIL("Packed binary mode is only supported for uint8_t data type");
     }
   }
   // Apply mapping only when the data and math types are different.
   else if constexpr (std::is_same_v<T, MathT>) {
-    raft::linalg::reduce_rows_by_key(dataset,
-                                     dim,
-                                     labels,
-                                     nullptr,
-                                     n_rows,
-                                     dim,
-                                     n_clusters,
-                                     centers,
-                                     stream.get(),
-                                     reset_counters);
+    raft::linalg::reduce_rows_by_key(
+      dataset, dim, labels, nullptr, n_rows, dim, n_clusters, centers, stream.get(), false);
   } else {
     // todo(lsugy): use iterator from KV output of fusedL2NN
     thrust::transform_iterator<MappingOpT, const T*> mapping_itr(dataset, mapping_op);
-    raft::linalg::reduce_rows_by_key(mapping_itr,
-                                     dim,
-                                     labels,
-                                     nullptr,
-                                     n_rows,
-                                     dim,
-                                     n_clusters,
-                                     centers,
-                                     stream.get(),
-                                     reset_counters);
+    raft::linalg::reduce_rows_by_key(
+      mapping_itr, dim, labels, nullptr, n_rows, dim, n_clusters, centers, stream.get(), false);
   }
 
-  // Compute weight of each cluster
-  cuvs::cluster::kmeans::detail::countLabels(
-    handle, labels, temp_sizes, n_rows, n_clusters, workspace);
-
-  // Add previous sizes if necessary
-  if (!reset_counters) {
-    raft::linalg::add(
-      handle,
-      raft::make_device_vector_view<const CounterT, IdxT>(cluster_sizes, n_clusters),
-      raft::make_device_vector_view<const CounterT, IdxT>(temp_sizes, n_clusters),
-      raft::make_device_vector_view<CounterT, IdxT>(cluster_sizes, n_clusters));
-  }
-
-  raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
-                                                             raft::make_const_mdspan(centersView),
-                                                             clusterSizesView,
-                                                             centersView,
-                                                             raft::div_checkzero_op{});
+  raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+    handle,
+    raft::make_const_mdspan(centersView),
+    clusterSizesView,
+    centersView,
+    [] __device__(MathT center, CounterT size) { return size == 0 ? center : center / size; });
 }
 
 /** Computes the L2 norm of the dataset, converting to MathT if necessary */
@@ -1259,7 +1256,12 @@ void build_clusters(const raft::resources& handle,
     labels_view,
     raft::compose_op(raft::cast_op<LabelT>(), raft::mod_const_op<IdxT>(n_clusters)));
 
-  // update centers to match the initialized labels.
+  // update centers to match the initialized labels; clusters without rows (n_rows < n_clusters)
+  // keep their center.
+  raft::matrix::fill(handle,
+                     raft::make_device_matrix_view<MathT, IdxT>(
+                       cluster_centers, n_clusters, centers_dim<T>(dim, params.is_packed_binary)),
+                     MathT{0});
   calc_centers_and_sizes(handle,
                          cluster_centers,
                          cluster_sizes,
