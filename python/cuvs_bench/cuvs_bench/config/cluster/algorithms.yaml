@@ -1,0 +1,6 @@
+cuvs_kmeans:
+  executable: CUVS_KMEANS_CLUSTER_BENCH
+  requires_gpu: true
+cuvs_kmeans_balanced:
+  executable: CUVS_KMEANS_CLUSTER_BENCH
+  requires_gpu: true

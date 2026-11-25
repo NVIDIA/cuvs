@@ -33,6 +33,7 @@ requirements:
     - cuda-version =${{ cuda_version }}
     - libcuvs =${{ version }}
     - libcuvs-bench-ann =${{ version }}
+    - libcuvs-bench-cluster =${{ version }}
     - python =${{ py_abi_min }}
     - python-abi3 ${{ py_abi_min }}.*
     - pip
@@ -46,6 +47,7 @@ requirements:
     - cuvs =${{ version }}
     - h5py ${{ h5py_version }}
     - libcuvs-bench-ann =${{ version }}
+    - libcuvs-bench-cluster =${{ version }}
     - matplotlib-base>=3.9
     - opensearch-py>=2.4.0
     - pandas
