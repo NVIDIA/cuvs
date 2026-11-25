@@ -30,6 +30,8 @@
 #include <rmm/device_uvector.hpp>
 
 #include <cub/device/device_histogram.cuh>
+#include <cub/device/device_radix_sort.cuh>
+#include <cub/device/device_scan.cuh>
 #include <thrust/sort.h>
 
 #include <cuda_runtime.h>

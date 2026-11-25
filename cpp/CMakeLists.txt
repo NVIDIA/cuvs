@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
-cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.3 FATAL_ERROR)
 include(../cmake/rapids_config.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
@@ -1560,10 +1560,16 @@ if(NOT BUILD_CPU_ONLY)
     ${vamana_build_inst_files}
     src/neighbors/vamana_codebooks.cu
     ${vamana_serialize_inst_files}
+    src/neighbors/gpipnn_build.cu
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
     src/preprocessing/quantize/bbq.cu
+    src/preprocessing/quantize/rabitq.cu
+    src/preprocessing/quantize/detail/rabitq/rotator.cu
+    src/preprocessing/quantize/detail/rabitq/rescale_search.cu
+    src/preprocessing/quantize/detail/rabitq/quantize.cu
+    src/preprocessing/quantize/detail/rabitq/pipeline.cu
     src/preprocessing/spectral/spectral_embedding.cu
     src/preprocessing/pca/pca.cu
     ${select_k_inst_files}
