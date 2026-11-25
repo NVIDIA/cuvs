@@ -959,12 +959,6 @@ const _: () = {
     ["Offset of field: cuvsFilter::addr"][::std::mem::offset_of!(cuvsFilter, addr) - 0usize];
     ["Offset of field: cuvsFilter::type_"][::std::mem::offset_of!(cuvsFilter, type_) - 8usize];
 };
-#[repr(u32)]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum cuvsMergeStrategy {
-    MERGE_STRATEGY_PHYSICAL = 0,
-    MERGE_STRATEGY_LOGICAL = 1,
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsBruteForceIndex {

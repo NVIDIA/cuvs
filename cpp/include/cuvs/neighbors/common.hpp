@@ -145,19 +145,6 @@ struct index_params {
 
 struct search_params {};
 
-/**
- * @brief Strategy for merging indices.
- *
- * This enum is declared separately to avoid namespace pollution when including common.hpp.
- * It provides a generic merge strategy that can be used across different index types.
- */
-enum class MergeStrategy {
-  /** Merge indices physically by combining their data structures */
-  MERGE_STRATEGY_PHYSICAL = 0,
-  /** Merge indices logically by creating a composite wrapper */
-  MERGE_STRATEGY_LOGICAL = 1
-};
-
 /** @} */  // end group neighbors_index
 
 /**

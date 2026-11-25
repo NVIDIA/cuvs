@@ -1279,9 +1279,8 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
     }
   }
 
-  // Commented out test for Logical merge strategy as it is not yet implemented in C yet
   @Test
-  public void testMergeStrategies() throws Throwable {
+  public void testPhysicalMerge() throws Throwable {
     float[][] vector1 = {
       {0.0f, 0.0f},
       {1.0f, 1.0f}
@@ -1375,7 +1374,7 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
                 expectedResults,
                 physicalResults.getResults());
 
-            // --- Serialization/deserialization check for both merged indexes ---
+            // Serialization/deserialization check for the merged index.
             String physicalIndexFileName = UUID.randomUUID() + ".cag";
             var physicalIndexFile = Path.of(physicalIndexFileName);
 

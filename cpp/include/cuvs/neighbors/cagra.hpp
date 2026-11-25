@@ -3524,7 +3524,7 @@ struct merge_params {
  * The caller owns `merged_dataset` and must keep it alive for the lifetime of the returned index,
  * which holds only a view of it.
  *
- * @note This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`).
+ * @note This API physically merges the input indices.
  * All input indices must use the same dataset layout (device padded or device standard), and must
  * share one row stride.
  *

@@ -149,27 +149,6 @@ struct index_params {
 | `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Distance type. |
 | `metric_arg` | `float` | The argument used by some distance metrics. |
 
-<a id="neighbors-mergestrategy"></a>
-### neighbors::MergeStrategy
-
-Strategy for merging indices.
-
-This enum is declared separately to avoid namespace pollution when including common.hpp. It provides a generic merge strategy that can be used across different index types.
-
-```cpp
-enum class MergeStrategy {
-  MERGE_STRATEGY_PHYSICAL = 0,
-  MERGE_STRATEGY_LOGICAL = 1
-};
-```
-
-**Values**
-
-| Name | Value |
-| --- | --- |
-| `MERGE_STRATEGY_PHYSICAL` | `0` |
-| `MERGE_STRATEGY_LOGICAL` | `1` |
-
 ## Filtering for ANN Types
 
 <a id="neighbors-filtering-filtertype"></a>

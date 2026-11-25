@@ -426,16 +426,6 @@ void parse_build_param(const nlohmann::json& conf,
   if (conf.contains("num_dataset_splits")) {
     param.num_dataset_splits = conf.at("num_dataset_splits");
   }
-  if (conf.contains("merge_type")) {
-    std::string mt = conf.at("merge_type");
-    if (mt == "PHYSICAL") {
-      param.merge_type = cuvs::bench::CagraMergeType::kPhysical;
-    } else if (mt == "LOGICAL") {
-      param.merge_type = cuvs::bench::CagraMergeType::kLogical;
-    } else {
-      throw std::runtime_error("invalid value for merge_type");
-    }
-  }
   if (conf.contains("merge_algo")) {
     std::string algo = conf.at("merge_algo");
     if (algo == "AUTO") {

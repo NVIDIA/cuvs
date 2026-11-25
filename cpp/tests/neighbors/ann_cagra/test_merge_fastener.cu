@@ -1094,8 +1094,7 @@ std::vector<AnnCagraInputs> generate_fastener_merge_recall_inputs()
     {true},
     {false},
     {0.95},
-    {std::optional<float>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
+    {std::optional<float>{std::nullopt}});
   for (auto& input : inputs) {
     // Default Fastener controls; only the algorithm is forced so AUTO cannot fall back to rebuild.
     merge_params fastener;
