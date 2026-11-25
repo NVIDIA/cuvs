@@ -40,6 +40,7 @@ BODY_TYPES = {
     "interface_body",
     "annotation_type_body",
 }
+COMMENT_TYPES = ("line_comment", "block_comment")
 
 
 @dataclass
@@ -83,17 +84,23 @@ class JavaSourceFile:
     """The top-level types, in source order."""
 
 
+def check_tree_sitter() -> None:
+    """Exits with instructions if tree-sitter is not installed."""
+    _parser()
+
+
 def parse_java_file(path: Path) -> JavaSourceFile:
-    return parse_java_source(path.read_bytes())
+    return parse_java_source(path.read_bytes(), str(path))
 
 
-def parse_java_source(source: bytes) -> JavaSourceFile:
+def parse_java_source(source: bytes, name: str = "<source>") -> JavaSourceFile:
+    """Parses ``source``, which error messages call ``name``."""
     tree = _parser().parse(source)
     root = tree.root_node
     if root.has_error:
         error = _first_error(root)
         raise ValueError(
-            f"line {error.start_point[0] + 1}: cannot parse the Java source"
+            f"{name}:{error.start_point[0] + 1}: cannot parse the Java source"
         )
     package = ""
     types = []
@@ -114,8 +121,8 @@ def _parser():
         raise SystemExit(
             "Generating the Java API pages needs the tree_sitter and "
             "tree-sitter-java packages, which the cuVS conda environment "
-            "now includes. Recreate it, for example: conda env create "
-            "--yes --name cuvs --file "
+            "now includes. Update it, for example: conda env update "
+            "--name cuvs --file "
             "conda/environments/all_cuda-<version>_arch-$(uname -m).yaml"
         ) from error
     return tree_sitter.Parser(
@@ -189,11 +196,15 @@ def _modifiers(node) -> frozenset[str]:
 def _doc_comment(node):
     """Returns the Javadoc comment that documents ``node``, if any.
 
-    Line comments and the comma between enum constants may come in between.
+    Other comments and the comma between enum constants may come in between.
     """
     previous = node.prev_sibling
     while previous is not None and (
-        previous.type == "line_comment" or previous.type == ","
+        previous.type in ("line_comment", ",")
+        or (
+            previous.type == "block_comment"
+            and not previous.text.startswith(b"/**")
+        )
     ):
         previous = previous.prev_sibling
     if (
@@ -248,7 +259,7 @@ def _comments_within(node, end: int) -> list:
         child = stack.pop()
         if child.start_byte >= end:
             continue
-        if child.type in ("line_comment", "block_comment"):
+        if child.type in COMMENT_TYPES:
             comments.append(child)
         else:
             stack.extend(child.children)
@@ -304,6 +315,7 @@ def _parameter_types(node) -> tuple[str, ...]:
                 child
                 for child in parameter.named_children
                 if child.type not in ("modifiers", "variable_declarator")
+                and child.type not in COMMENT_TYPES
             )
             types.append(_type_text(type_node) + "...")
     return tuple(types)
@@ -316,12 +328,12 @@ def _dimensions(parameter) -> int:
 
 
 def _type_text(node) -> str:
-    """Returns a type without annotations or whitespace."""
+    """Returns a type without annotations, comments or whitespace."""
     parts = []
     stack = [node]
     while stack:
         current = stack.pop()
-        if current.type in ("marker_annotation", "annotation"):
+        if current.type in ("marker_annotation", "annotation", *COMMENT_TYPES):
             continue
         if current.child_count == 0:
             parts.append(_text(current))

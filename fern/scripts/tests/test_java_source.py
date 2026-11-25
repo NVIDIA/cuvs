@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from java_source import parse_java_source  # noqa: E402
+from java_source import parse_java_file, parse_java_source  # noqa: E402
 
 SOURCE = b"""
 package com.example.api;
@@ -26,8 +26,9 @@ public abstract class Outer<T extends Comparable<T>> extends Base<T>
   private int hidden;
 
   /** A method. */
+  /* Not Javadoc. */
   @SuppressWarnings({"unchecked", "rawtypes"})
-  public <R> List<R> map(final List<? extends T> values, int[] counts, String... names)
+  public <R> List<R> map(final List</* any */ ? extends T> values, int[] counts, final /* c */ String... names)
       throws java.io.IOException {
     return null;
   }
@@ -147,7 +148,7 @@ def test_method(outer):
     assert method.kind == "method"
     assert method.signature == (
         '@SuppressWarnings({"unchecked", "rawtypes"}) public <R> List<R> '
-        "map(final List<? extends T> values, int[] counts, String... names) "
+        "map(final List< ? extends T> values, int[] counts, final String... names) "
         "throws java.io.IOException"
     )
     assert method.parameter_types == ("List<?extendsT>", "int[]", "String...")
@@ -218,6 +219,17 @@ def test_record(outer):
     assert constructor.comment == "/** Checks it. */"
 
 
+BROKEN = b"class A {\n  void f( {}\n}\n"
+
+
 def test_syntax_error():
-    with pytest.raises(ValueError, match="line 2"):
-        parse_java_source(b"class A {\n  void f( {}\n}\n")
+    with pytest.raises(ValueError, match="^<source>:2: cannot parse"):
+        parse_java_source(BROKEN)
+
+
+def test_syntax_error_names_the_file(tmp_path):
+    path = tmp_path / "A.java"
+    path.write_bytes(BROKEN)
+    with pytest.raises(ValueError) as error:
+        parse_java_file(path)
+    assert str(error.value) == f"{path}:2: cannot parse the Java source"

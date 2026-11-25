@@ -21,7 +21,7 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Iterable
 
-from java_source import JavaDeclaration, parse_java_file
+from java_source import JavaDeclaration, check_tree_sitter, parse_java_file
 
 
 REPO_DIR = Path(__file__).resolve().parents[2]
@@ -487,6 +487,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     VERBOSE = not parser.parse_args(argv).quiet
 
+    # A missing tree-sitter is the likely failure: report it before removing
+    # the old pages.
+    check_tree_sitter()
     remove_old_api_pages()
     native_index = DoxygenHeaderIndex.build(NATIVE_HEADER_DIRS)
     native_pages_by_api = {
