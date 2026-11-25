@@ -24,6 +24,7 @@ namespace {
 template <typename T>
 void* _build(cuvsResources_t res, cuvsVamanaIndexParams* params, DLManagedTensor* dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto dataset = dataset_tensor->dl_tensor;
@@ -58,6 +59,7 @@ void _serialize(cuvsResources_t res,
                 cuvsVamanaIndex_t index,
                 bool include_dataset)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::vamana::index<T, uint32_t>*>(index->addr);
 
@@ -78,6 +80,7 @@ extern "C" cuvsError_t cuvsVamanaIndexCreate(cuvsVamanaIndex_t* index)
 extern "C" cuvsError_t cuvsVamanaIndexDestroy(cuvsVamanaIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
 
     if (index.addr != 0) {

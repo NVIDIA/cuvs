@@ -39,7 +39,7 @@ TEST(CagraHnswC, BuildSearch)
   cuvsStreamGet(res, &stream);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -70,7 +70,7 @@ TEST(CagraHnswC, BuildSearch)
   // host-resident vectors without a detour through device-padded storage.
   ASSERT_EQ(cuvsCagraSerializeToHnswlib(res, "/tmp/cagra_hnswlib.index", index), CUVS_SUCCESS);
 
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries;
   queries_tensor.dl_tensor.device.device_type = kDLCPU;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -84,7 +84,7 @@ TEST(CagraHnswC, BuildSearch)
   // create neighbors DLTensor
   std::vector<uint64_t> neighbors(4);
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCPU;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -98,7 +98,7 @@ TEST(CagraHnswC, BuildSearch)
   // create distances DLTensor
   std::vector<float> distances(4);
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances.data();
   distances_tensor.dl_tensor.device.device_type = kDLCPU;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -145,7 +145,7 @@ TEST(HnswC, BuildWithoutAce)
   cuvsResources_t res;
   cuvsResourcesCreate(&res);
 
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -178,7 +178,7 @@ TEST(HnswAceC, BuildSearch)
   cuvsResourcesCreate(&res);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -214,7 +214,7 @@ TEST(HnswAceC, BuildSearch)
   ASSERT_EQ(build_status, CUVS_SUCCESS) << "cuvsHnswBuild failed";
 
   // create queries DLTensor
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries;
   queries_tensor.dl_tensor.device.device_type = kDLCPU;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -227,7 +227,7 @@ TEST(HnswAceC, BuildSearch)
 
   // create neighbors DLTensor
   std::vector<uint64_t> neighbors(4);
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCPU;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -240,7 +240,7 @@ TEST(HnswAceC, BuildSearch)
 
   // create distances DLTensor
   std::vector<float> distances(4);
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances.data();
   distances_tensor.dl_tensor.device.device_type = kDLCPU;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -279,7 +279,7 @@ TEST(HnswAceDiskC, BuildSerializeDeserializeSearch)
   cuvsResourcesCreate(&res);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -325,7 +325,7 @@ TEST(HnswAceDiskC, BuildSerializeDeserializeSearch)
   ASSERT_EQ(deserialize_status, CUVS_SUCCESS) << "cuvsHnswDeserialize failed";
 
   // create queries DLTensor
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries;
   queries_tensor.dl_tensor.device.device_type = kDLCPU;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -338,7 +338,7 @@ TEST(HnswAceDiskC, BuildSerializeDeserializeSearch)
 
   // create neighbors DLTensor
   std::vector<uint64_t> neighbors(4);
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCPU;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -351,7 +351,7 @@ TEST(HnswAceDiskC, BuildSerializeDeserializeSearch)
 
   // create distances DLTensor
   std::vector<float> distances(4);
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances.data();
   distances_tensor.dl_tensor.device.device_type = kDLCPU;
   distances_tensor.dl_tensor.ndim               = 2;

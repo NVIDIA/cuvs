@@ -127,7 +127,7 @@ TEST(CagraC, BuildSearch)
   cuvsStreamGet(res, &stream);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -177,7 +177,7 @@ TEST(CagraC, BuildSearch)
   rmm::device_uvector<float> queries_d(4 * 2, stream);
   raft::copy(queries_d.data(), (float*)queries, 4 * 2, stream);
 
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -191,7 +191,7 @@ TEST(CagraC, BuildSearch)
   // create neighbors DLTensor
   rmm::device_uvector<uint32_t> neighbors_d(4, stream);
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -205,7 +205,7 @@ TEST(CagraC, BuildSearch)
   // create distances DLTensor
   rmm::device_uvector<float> distances_d(4, stream);
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -684,7 +684,7 @@ TEST(CagraC, BuildExtendSearch)
   rmm::device_uvector<float> main_d(main_data_size * dimensions, stream);
   rmm::device_uvector<int32_t> main_labels_d(main_data_size, stream);
   raft::copy(main_d.data(), random_data_d.data(), main_data_size * dimensions, stream);
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = main_d.data();
   dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -736,7 +736,7 @@ TEST(CagraC, BuildExtendSearch)
              additional_d.data(),
              additional_data_size * dimensions,
              stream);
-  DLManagedTensor extended_dataset_tensor;
+  DLManagedTensor extended_dataset_tensor{};
   extended_dataset_tensor.dl_tensor.data               = extended_d.data();
   extended_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   extended_dataset_tensor.dl_tensor.ndim               = 2;
@@ -759,7 +759,7 @@ TEST(CagraC, BuildExtendSearch)
              random_data_d.data() + (main_data_size + additional_data_size) * dimensions,
              num_queries * dimensions,
              stream);
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -817,7 +817,7 @@ TEST(CagraC, BuildExtendSearch)
   // create neighbors DLTensor
   rmm::device_uvector<uint32_t> neighbors_d(4, stream);
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -833,7 +833,7 @@ TEST(CagraC, BuildExtendSearch)
 
   distances_d.resize(4, stream);
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -881,7 +881,7 @@ TEST(CagraC, BuildSearchFiltered)
   cuvsStreamGet(res, &stream);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -922,7 +922,7 @@ TEST(CagraC, BuildSearchFiltered)
   rmm::device_uvector<float> queries_d(4 * 2, stream);
   raft::copy(queries_d.data(), (float*)queries, 4 * 2, stream);
 
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -936,7 +936,7 @@ TEST(CagraC, BuildSearchFiltered)
   // create neighbors DLTensor
   rmm::device_uvector<uint32_t> neighbors_d(4, stream);
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -950,7 +950,7 @@ TEST(CagraC, BuildSearchFiltered)
   // create distances DLTensor
   rmm::device_uvector<float> distances_d(4, stream);
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -967,7 +967,7 @@ TEST(CagraC, BuildSearchFiltered)
 
   cuvsFilter filter;
 
-  DLManagedTensor filter_tensor;
+  DLManagedTensor filter_tensor{};
   filter_tensor.dl_tensor.data               = filter_d.data();
   filter_tensor.dl_tensor.device.device_type = kDLCUDA;
   filter_tensor.dl_tensor.ndim               = 1;
@@ -1028,7 +1028,7 @@ TEST(CagraC, BuildMergeSearch)
   raft::copy(additional_d.data(), additional_data_ptr, 6, stream);
   raft::copy(queries_d.data(), query_data_ptr, 2, stream);
 
-  DLManagedTensor main_dataset_tensor;
+  DLManagedTensor main_dataset_tensor{};
   int64_t main_shape[2]                            = {4, 2};
   main_dataset_tensor.dl_tensor.data               = main_d.data();
   main_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
@@ -1102,7 +1102,7 @@ TEST(CagraC, BuildMergeSearch)
   raft::copy(merged_d.data(), main_d.data(), main_d.size(), stream);
   raft::copy(merged_d.data() + main_d.size(), additional_d.data(), additional_d.size(), stream);
 
-  DLManagedTensor merged_dataset_tensor;
+  DLManagedTensor merged_dataset_tensor{};
   int64_t merged_shape[2]                            = {7, 2};
   merged_dataset_tensor.dl_tensor.data               = merged_d.data();
   merged_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
@@ -1124,7 +1124,7 @@ TEST(CagraC, BuildMergeSearch)
   ASSERT_EQ(cuvsCagraIndexGetDims(index_merged, &merged_dim), CUVS_SUCCESS);
   EXPECT_EQ(merged_dim, 2);
 
-  DLManagedTensor neighbors_tensor, distances_tensor;
+  DLManagedTensor neighbors_tensor{}, distances_tensor{};
   rmm::device_uvector<int64_t> neighbors_d(1, stream);
   rmm::device_uvector<float> distances_d(1, stream);
   int64_t neighbors_shape[2]             = {1, 1};
@@ -1190,7 +1190,7 @@ TEST(CagraC, BuildSearchACEMemory)
   cuvsStreamGet(res, &stream);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -1239,7 +1239,7 @@ TEST(CagraC, BuildSearchACEMemory)
   rmm::device_uvector<float> queries_d(4 * 2, stream);
   raft::copy(queries_d.data(), (float*)queries, 4 * 2, stream);
 
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -1253,7 +1253,7 @@ TEST(CagraC, BuildSearchACEMemory)
   // create neighbors DLTensor
   rmm::device_uvector<uint32_t> neighbors_d(4, stream);
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -1267,7 +1267,7 @@ TEST(CagraC, BuildSearchACEMemory)
   // create distances DLTensor
   rmm::device_uvector<float> distances_d(4, stream);
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -1311,7 +1311,7 @@ TEST(CagraC, BuildSearchACEDisk)
   cuvsResourcesCreate(&res);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor{};
   dataset_tensor.dl_tensor.data               = dataset;
   dataset_tensor.dl_tensor.device.device_type = kDLCPU;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -1353,7 +1353,7 @@ TEST(CagraC, BuildSearchACEDisk)
   ASSERT_NE(hnsw_index_ser->addr, 0);
   cuvsHnswIndexDestroy(hnsw_index_ser);
 
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries;
   queries_tensor.dl_tensor.device.device_type = kDLCPU;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -1367,7 +1367,7 @@ TEST(CagraC, BuildSearchACEDisk)
   // create neighbors DLTensor
   std::vector<uint64_t> neighbors(4);
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCPU;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -1381,7 +1381,7 @@ TEST(CagraC, BuildSearchACEDisk)
   // create distances DLTensor
   std::vector<float> distances(4);
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances.data();
   distances_tensor.dl_tensor.device.device_type = kDLCPU;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -1732,7 +1732,7 @@ TEST(CagraC, BuildSearchMultiPartition)
   cuvsDataset_t part_views[num_partitions]         = {};
   cuvsDataset_t part_padded_owners[num_partitions] = {};
   for (uint32_t p = 0; p < num_partitions; p++) {
-    DLManagedTensor part_tensor;
+    DLManagedTensor part_tensor{};
     part_tensor.dl_tensor.data               = &dataset[p * part_rows][0];
     part_tensor.dl_tensor.device.device_type = kDLCPU;
     part_tensor.dl_tensor.ndim               = 2;
@@ -1758,7 +1758,7 @@ TEST(CagraC, BuildSearchMultiPartition)
   // queries (device)
   rmm::device_uvector<float> queries_d(n_queries * dim, stream);
   raft::copy(queries_d.data(), (float*)queries, n_queries * dim, stream);
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -1771,7 +1771,7 @@ TEST(CagraC, BuildSearchMultiPartition)
 
   // partition_ids output (device, uint32)
   rmm::device_uvector<uint32_t> partition_ids_d(n_queries * k, stream);
-  DLManagedTensor partition_ids_tensor;
+  DLManagedTensor partition_ids_tensor{};
   partition_ids_tensor.dl_tensor.data               = partition_ids_d.data();
   partition_ids_tensor.dl_tensor.device.device_type = kDLCUDA;
   partition_ids_tensor.dl_tensor.ndim               = 2;
@@ -1784,7 +1784,7 @@ TEST(CagraC, BuildSearchMultiPartition)
 
   // neighbors output (device, uint32 local ordinal)
   rmm::device_uvector<uint32_t> neighbors_d(n_queries * k, stream);
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -1796,7 +1796,7 @@ TEST(CagraC, BuildSearchMultiPartition)
 
   // distances output (device, float)
   rmm::device_uvector<float> distances_d(n_queries * k, stream);
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -1859,7 +1859,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
   cuvsDataset_t part_views[num_partitions]         = {};
   cuvsDataset_t part_padded_owners[num_partitions] = {};
   for (uint32_t p = 0; p < num_partitions; p++) {
-    DLManagedTensor part_tensor;
+    DLManagedTensor part_tensor{};
     part_tensor.dl_tensor.data               = &dataset[p * part_rows][0];
     part_tensor.dl_tensor.device.device_type = kDLCPU;
     part_tensor.dl_tensor.ndim               = 2;
@@ -1885,7 +1885,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
   // queries (device)
   rmm::device_uvector<float> queries_d(n_queries * dim, stream);
   raft::copy(queries_d.data(), (float*)queries, n_queries * dim, stream);
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -1898,7 +1898,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
 
   // partition_ids output (device, uint32)
   rmm::device_uvector<uint32_t> partition_ids_d(n_queries * k, stream);
-  DLManagedTensor partition_ids_tensor;
+  DLManagedTensor partition_ids_tensor{};
   partition_ids_tensor.dl_tensor.data               = partition_ids_d.data();
   partition_ids_tensor.dl_tensor.device.device_type = kDLCUDA;
   partition_ids_tensor.dl_tensor.ndim               = 2;
@@ -1911,7 +1911,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
 
   // neighbors output (device, int64 local ordinal)
   rmm::device_uvector<int64_t> neighbors_d(n_queries * k, stream);
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -1923,7 +1923,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
 
   // distances output (device, float)
   rmm::device_uvector<float> distances_d(n_queries * k, stream);
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -1987,7 +1987,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   cuvsDataset_t part_views[num_partitions]         = {};
   cuvsDataset_t part_padded_owners[num_partitions] = {};
   for (uint32_t p = 0; p < num_partitions; p++) {
-    DLManagedTensor part_tensor;
+    DLManagedTensor part_tensor{};
     part_tensor.dl_tensor.data               = &dataset[p * part_rows][0];
     part_tensor.dl_tensor.device.device_type = kDLCPU;
     part_tensor.dl_tensor.ndim               = 2;
@@ -2012,7 +2012,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
 
   rmm::device_uvector<float> queries_d(n_queries * dim, stream);
   raft::copy(queries_d.data(), (float*)queries, n_queries * dim, stream);
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -2025,7 +2025,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
 
   rmm::device_uvector<uint32_t> partition_ids_d(n_queries * k, stream);
   int64_t out_shape[2] = {n_queries, k};
-  DLManagedTensor partition_ids_tensor;
+  DLManagedTensor partition_ids_tensor{};
   partition_ids_tensor.dl_tensor.data               = partition_ids_d.data();
   partition_ids_tensor.dl_tensor.device.device_type = kDLCUDA;
   partition_ids_tensor.dl_tensor.ndim               = 2;
@@ -2036,7 +2036,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   partition_ids_tensor.dl_tensor.strides            = nullptr;
 
   rmm::device_uvector<uint32_t> neighbors_d(n_queries * k, stream);
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -2047,7 +2047,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   neighbors_tensor.dl_tensor.strides            = nullptr;
 
   rmm::device_uvector<float> distances_d(n_queries * k, stream);
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -2068,7 +2068,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
   raft::copy(part1_bitset_d.data(), part1_bits, 1, stream);
 
   int64_t part_bitset_shape[1] = {1};
-  DLManagedTensor part0_bitset_tensor;
+  DLManagedTensor part0_bitset_tensor{};
   part0_bitset_tensor.dl_tensor.data               = part0_bitset_d.data();
   part0_bitset_tensor.dl_tensor.device.device_type = kDLCUDA;
   part0_bitset_tensor.dl_tensor.ndim               = 1;
@@ -2139,7 +2139,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
   cuvsDataset_t part_views[num_partitions]         = {};
   cuvsDataset_t part_padded_owners[num_partitions] = {};
   for (uint32_t p = 0; p < num_partitions; p++) {
-    DLManagedTensor part_tensor;
+    DLManagedTensor part_tensor{};
     part_tensor.dl_tensor.data               = &dataset[p * part_rows][0];
     part_tensor.dl_tensor.device.device_type = kDLCPU;
     part_tensor.dl_tensor.ndim               = 2;
@@ -2164,7 +2164,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
 
   rmm::device_uvector<float> queries_d(n_queries * dim, stream);
   raft::copy(queries_d.data(), (float*)queries, n_queries * dim, stream);
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor{};
   queries_tensor.dl_tensor.data               = queries_d.data();
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -2180,7 +2180,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
   rmm::device_uvector<float> distances_d(n_queries * k, stream);
   int64_t out_shape[2] = {n_queries, k};
 
-  DLManagedTensor partition_ids_tensor;
+  DLManagedTensor partition_ids_tensor{};
   partition_ids_tensor.dl_tensor.data               = partition_ids_d.data();
   partition_ids_tensor.dl_tensor.device.device_type = kDLCUDA;
   partition_ids_tensor.dl_tensor.ndim               = 2;
@@ -2190,7 +2190,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
   partition_ids_tensor.dl_tensor.shape              = out_shape;
   partition_ids_tensor.dl_tensor.strides            = nullptr;
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor{};
   neighbors_tensor.dl_tensor.data               = neighbors_d.data();
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -2200,7 +2200,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
   neighbors_tensor.dl_tensor.shape              = out_shape;
   neighbors_tensor.dl_tensor.strides            = nullptr;
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor{};
   distances_tensor.dl_tensor.data               = distances_d.data();
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;

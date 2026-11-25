@@ -133,6 +133,7 @@ void _build_host(cuvsResources_t res,
                  DLManagedTensor* core_distances_tensor,
                  float alpha)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto& cpp_res = *reinterpret_cast<raft::device_resources*>(res);
 
   auto& dlt = dataset_tensor->dl_tensor;
@@ -184,6 +185,7 @@ void _build_device(cuvsResources_t device_res,
                    DLManagedTensor* core_distances_tensor,
                    float alpha)
 {
+  RAFT_EXPECTS(device_res != 0, "res must not be NULL");
   auto& cpp_res = *reinterpret_cast<raft::device_resources*>(device_res);
 
   auto& dlt = dataset_tensor->dl_tensor;
@@ -254,6 +256,7 @@ extern "C" cuvsError_t cuvsAllNeighborsBuild(cuvsResources_t res,
                                              float alpha)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
     auto dataset = dataset_tensor->dl_tensor;
 
     ensure_indices_dtype(indices_tensor);

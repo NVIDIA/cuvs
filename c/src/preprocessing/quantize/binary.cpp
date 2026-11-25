@@ -21,6 +21,7 @@ void _transform(cuvsResources_t res,
                 DLManagedTensor* dataset_tensor,
                 DLManagedTensor* out_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto q = reinterpret_cast<cuvs::preprocessing::quantize::binary::quantizer<T>*>(quantizer->addr);
 
@@ -56,6 +57,7 @@ void* _train(cuvsResources_t res,
 {
   auto dataset = dataset_tensor->dl_tensor;
 
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto quantizer_params           = cuvs::preprocessing::quantize::binary::params();

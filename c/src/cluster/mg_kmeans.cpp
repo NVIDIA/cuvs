@@ -44,6 +44,7 @@ cuvs::cluster::kmeans::params convert_params(const ParamsT& params)
 void validate_host_tensor(DLManagedTensor* tensor, const char* name)
 {
   RAFT_EXPECTS(tensor != nullptr, "%s must not be NULL", name);
+  cuvs::core::validate_dlpack_tensor(tensor);
   auto dl_tensor = tensor->dl_tensor;
   RAFT_EXPECTS(dl_tensor.data != nullptr, "%s data must not be NULL", name);
   RAFT_EXPECTS(dl_tensor.shape != nullptr, "%s shape must not be NULL", name);

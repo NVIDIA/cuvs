@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -29,6 +29,7 @@ void _pairwise_distance(cuvsResources_t res,
                         cuvsDistanceType metric,
                         float metric_arg)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   using mdspan_type           = raft::device_matrix_view<T const, int64_t, LayoutT>;

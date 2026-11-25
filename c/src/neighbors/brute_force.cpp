@@ -32,6 +32,7 @@ void* _build(cuvsResources_t res,
              cuvsDistanceType metric,
              T metric_arg)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   using mdspan_type = raft::device_matrix_view<T const, int64_t, LayoutT>;
@@ -54,6 +55,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* distances_tensor,
              cuvsFilter prefilter)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::brute_force::index<T, DistT>*>(index.addr);
 
@@ -102,6 +104,7 @@ void _search(cuvsResources_t res,
 template <typename T, typename DistT = float>
 void _serialize(cuvsResources_t res, const char* filename, cuvsBruteForceIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::brute_force::index<T, DistT>*>(index.addr);
   cuvs::neighbors::brute_force::serialize(*res_ptr, std::string(filename), *index_ptr);
@@ -110,6 +113,7 @@ void _serialize(cuvsResources_t res, const char* filename, cuvsBruteForceIndex i
 template <typename T, typename DistT = float>
 void* _deserialize(cuvsResources_t res, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto index   = new cuvs::neighbors::brute_force::index<T, DistT>(*res_ptr);
   cuvs::neighbors::brute_force::deserialize(*res_ptr, std::string(filename), index);
@@ -125,6 +129,7 @@ extern "C" cuvsError_t cuvsBruteForceIndexCreate(cuvsBruteForceIndex_t* index)
 extern "C" cuvsError_t cuvsBruteForceIndexDestroy(cuvsBruteForceIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
 
     if ((index.dtype.code == kDLFloat) && index.dtype.bits == 32) {
