@@ -1,0 +1,195 @@
+[
+  {
+    "id": "cuvs-batch-query__generic",
+    "question": "Task: Batched top-k nearest neighbor queries over a large embedding corpus using sklearn NearestNeighbors\nTask folder: evals/files/cuvs-batch-query/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-batch-query` using the provided `code/batch_query.py` starter file and preserves the requested behavior. It should handle: the code run without errors and produce valid top-k results for all query batches; it use cuVS for index building and batch search instead of sklearn NearestNeighbors; query batches processed efficiently on the GPU, avoiding unnecessary host-device transfers between batches; a single cuVS index built once and reused across all query batches rather than rebuilt per batch; large arrays kept in device memory where possible, using float32 as a safe dense baseline or another cuVS-supported dtype when the workload and recall validation justify it. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-batch-query/code/batch_query.py"
+    ]
+  },
+  {
+    "id": "cuvs-cosine-similarity__generic",
+    "question": "Task: Find most similar document pairs using cosine similarity via sklearn pairwise_distances on normalized embeddings\nTask folder: evals/files/cuvs-cosine-similarity/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-cosine-similarity` using the provided `code/cosine_similarity.py` starter file and preserves the requested behavior. It should handle: the code run without errors and produce valid similarity pairs with correct cosine scores; it use cuVS for nearest neighbor search with cosine or inner product metric instead of sklearn pairwise_distances; cosine similarity correctly handled, either via inner product on L2-normalized vectors or via a cosine metric parameter; embeddings properly L2-normalized before search, and is the relationship between cosine distance and inner product understood; the top similar pairs match the brute-force pairwise approach, with scores correctly converted between distance and similarity. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-cosine-similarity/code/cosine_similarity.py"
+    ]
+  },
+  {
+    "id": "cuvs-deduplication__generic",
+    "question": "Task: Find near-duplicate vectors within a dataset using distance threshold radius search with sklearn\nTask folder: evals/files/cuvs-deduplication/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-deduplication` using the provided `code/deduplication.py` starter file and preserves the requested behavior. It should handle: the code run without errors and correctly identify near-duplicate vector pairs within the distance threshold; it use cuVS for the neighbor search instead of sklearn radius_neighbors or brute-force distance computation; the radius/epsilon-ball search translated to an appropriate cuVS pattern, with bounded memory and explicit validation of threshold semantics; the connected-component or greedy deduplication logic preserved so that transitive duplicates are grouped correctly; the solution avoid materializing a full N x N distance matrix, using index-based search to keep memory usage manageable. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-deduplication/code/deduplication.py"
+    ]
+  },
+  {
+    "id": "cuvs-embedding-retrieval__generic",
+    "question": "Task: Semantic search retrieval pipeline with corpus and query embeddings, computing precision@k using sklearn NearestNeighbors\nTask folder: evals/files/cuvs-embedding-retrieval/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-embedding-retrieval` using the provided `code/embedding_retrieval.py` starter file and preserves the requested behavior. It should handle: the code run without errors and produce valid retrieval results with precision@k scores; it use cuVS for building the corpus index and performing query search instead of sklearn NearestNeighbors; the index-build-then-search pattern preserved, with the index built on corpus embeddings and queries searched separately; precision@k and other evaluation metrics computed correctly, with results comparable to the CPU baseline; corpus and query embeddings handled as separate arrays with the index built only on the corpus, not mixing query vectors into the index. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-embedding-retrieval/code/embedding_retrieval.py"
+    ]
+  },
+  {
+    "id": "cuvs-filtered-search__generic",
+    "question": "Task: Vector search with metadata filtering \u2014 search only vectors matching a category constraint using a filtered sklearn baseline\nTask folder: evals/files/cuvs-filtered-search/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-filtered-search` using the provided `code/filtered_search.py` starter file and preserves the requested behavior. It should handle: the code run without errors and return only results matching the specified category filter; it use cuVS for the nearest neighbor search instead of sklearn NearestNeighbors; it use cuVS pre-search filtering when available, choosing brute_force prefilter=... for exact filtered top-k or ANN search filter=... when approximate recall is acceptable; the filtered search return the requested k results per query when enough matching vectors exist by ranking only eligible vectors; the category labels kept in sync with vector indices throughout the pipeline, with no off-by-one or misalignment bugs. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-filtered-search/code/filtered_search.py"
+    ]
+  },
+  {
+    "id": "cuvs-incremental-index__generic",
+    "question": "Task: Build an initial KNN index, add new vectors incrementally, and search the updated index using sklearn NearestNeighbors\nTask folder: evals/files/cuvs-incremental-index/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-incremental-index` using the provided `code/incremental_index.py` starter file and preserves the requested behavior. It should handle: the code run without errors and correctly find neighbors from both the original and incrementally added vectors; it use cuVS for index building and searching instead of sklearn NearestNeighbors; the index update handled appropriately - either by using cuVS extend/add functionality, or by rebuilding the index with the combined dataset if extend is not supported; after the index update, are search results correct and do they include vectors from both the initial and added batches; the original and new vectors properly concatenated or managed, with index-to-vector ID mapping maintained correctly. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-incremental-index/code/incremental_index.py"
+    ]
+  },
+  {
+    "id": "cuvs-index-build-search__generic",
+    "question": "Task: Build a nearest-neighbors index, serialize it to disk, reload it, and search \u2014 testing index persistence patterns\nTask folder: evals/files/cuvs-index-build-search/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-index-build-search` using the provided `code/index_build_search.py` starter file and preserves the requested behavior. It should handle: the code run without errors and produce matching search results before and after serialization; it use cuVS for index building and search instead of sklearn NearestNeighbors and pickle; the cuVS index serialized and deserialized correctly using cuVS-native save/load methods rather than generic pickle; search results from the reloaded index verified to be identical to those from the original index; temporary files cleaned up, and is the index lifecycle (build, save, load, search) handled properly. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-index-build-search/code/index_build_search.py"
+    ]
+  },
+  {
+    "id": "cuvs-knn-search__generic",
+    "question": "Task: Basic k-nearest neighbors search on random embeddings using sklearn NearestNeighbors with recall evaluation\nTask folder: evals/files/cuvs-knn-search/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-knn-search` using the provided `code/knn_search.py` starter file and preserves the requested behavior. It should handle: the code run without errors and produce valid KNN results with recall scores; it use cuVS (cagra, ivf_flat, or ivf_pq) for the nearest neighbor search instead of sklearn; the cuVS index built correctly with appropriate parameters for the dataset size and dimensionality; the recall computation preserved, comparing GPU results against a brute-force ground truth; numpy arrays correctly converted to device arrays (cupy/device_ndarray) for cuVS, with dtype selected deliberately for the chosen cuVS API. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-knn-search/code/knn_search.py"
+    ]
+  },
+  {
+    "id": "cuvs-multi-metric__generic",
+    "question": "Task: Compare KNN search results across euclidean, cosine, and inner-product metrics using sklearn NearestNeighbors\nTask folder: evals/files/cuvs-multi-metric/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-multi-metric` using the provided `code/multi_metric.py` starter file and preserves the requested behavior. It should handle: the code run without errors and produce valid search results for all three metrics; it use cuVS for nearest neighbor search across all metrics instead of sklearn NearestNeighbors; euclidean, cosine, and inner product metrics correctly mapped to their cuVS equivalents (e.g., L2, inner product with normalization); the cross-metric comparison (overlap analysis, rank correlation) preserved and computed correctly; for cosine and inner product, are vectors properly normalized where needed, and is the relationship between these metrics handled correctly. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-multi-metric/code/multi_metric.py"
+    ]
+  },
+  {
+    "id": "copied-hnswlib-filtered-search__generic",
+    "question": "Task: Copied hnswlib filtered-search fixture for GPU nearest-neighbor filtering decisions.\nTask folder: evals/files/copied-hnswlib-filtered-search/\nPrompt variant: generic\n\nUser prompt: Help me run this filtered nearest-neighbor search on the GPU.\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `copied-hnswlib-filtered-search` using the provided `code/filtered_hnsw.py` starter file and preserves the requested behavior. It should handle: it return only even-id neighbors and preserve the requested k when enough valid neighbors exist; it choose a suitable cuVS KNN API, using brute-force for exact filtered/callback parity or ANN only with recall validation; it preserve filtered top-k behavior by ranking only even-id candidates on the GPU path; it check even-id membership, output shape, and self-query recall or a comparable correctness signal; it explain callback/filter limitations and choose a pragmatic GPU strategy. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/copied-hnswlib-filtered-search/NOTICE.md",
+      "evals/files/copied-hnswlib-filtered-search/code/filtered_hnsw.py"
+    ]
+  },
+  {
+    "id": "confusion-external-gpu-vector-search__generic",
+    "question": "Task: Route a vector-search service when broad GPU optimization advice conflicts with domain-specific needs.\nTask folder: evals/files/confusion-external-gpu-vector-search/\nPrompt variant: generic\n\nUser prompt: A generic GPU optimizer says to move this to CuPy or Numba. What should I\nactually use for this vector search service?\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `confusion-external-gpu-vector-search` using the provided `code/retrieval_notes.md` starter file and preserves the requested behavior. It should handle: chooses NVIDIA cuVS for ANN/vector search instead of generic CuPy, Numba, or custom kernels; treats broad GPU optimization advice as context only and stays focused on vector search; recommends a plausible cuVS index such as CAGRA, IVF-Flat, or IVF-PQ tied to recall, memory, and update cadence; proposes recall and latency benchmarking against the current CPU, FAISS, or exact-search baseline; reserves RAFT/custom kernels for lower-level primitives and mentions CPU-serving export only when useful. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/confusion-external-gpu-vector-search/NOTICE.md",
+      "evals/files/confusion-external-gpu-vector-search/code/retrieval_notes.md"
+    ]
+  },
+  {
+    "id": "confusion-external-skill-cuvs-vs-generic-gpu__generic",
+    "question": "Task: Verify NVIDIA cuVS routing when a broad third-party GPU optimizer skill is also installed.\nTask folder: evals/files/confusion-external-skill-cuvs-vs-generic-gpu/\nPrompt variant: generic\n\nUser prompt: This embedding retrieval service is too slow. What GPU path should I use?\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `confusion-external-skill-cuvs-vs-generic-gpu` using the provided `code/retrieval_service_notes.md` starter file and preserves the requested behavior. It should handle: chooses NVIDIA cuVS for ANN/vector search when both the NVIDIA skill and a generic GPU optimizer skill are available; avoids making CuPy, Numba, Warp, or custom CUDA kernels the primary recommendation for this service-level ANN workload; names a plausible cuVS path such as CAGRA, IVF-Flat, or IVF-PQ tied to recall, memory, update cadence, or serving latency; proposes recall and latency benchmarking against the existing CPU or FAISS-style baseline; reserves RAFT/custom kernels or CPU-serving export for appropriate lower-level or deployment boundaries. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/confusion-external-skill-cuvs-vs-generic-gpu/NOTICE.md",
+      "evals/files/confusion-external-skill-cuvs-vs-generic-gpu/code/retrieval_service_notes.md"
+    ]
+  },
+  {
+    "id": "vector-db-index-refresh-integration__generic",
+    "question": "Task: Choose an acceleration architecture for a database-backed retrieval service with CPU serving and slow index refresh.\nTask folder: evals/files/vector-db-index-refresh-integration/\nPrompt variant: generic\n\nUser prompt: Our retrieval service is bottlenecked by vector index refresh. Review the\nnotes and recommend an architecture that fixes refresh time without\ndisrupting query serving.\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `vector-db-index-refresh-integration` using the provided `code/service_integration_notes.md` starter file and preserves the requested behavior. It should handle: frames cuVS as useful for both standalone vector-search pipelines and database/search-platform integrations; separates direct GPU serving, offloaded GPU index build, GPU-build/CPU-search handoff, and ABI-stable C API integration; preserves recall/latency validation and compares performance at equivalent recall rather than only reporting raw throughput; mentions checking the installed cuVS version and C API ABI compatibility window when binary stability matters; keeps RAFT/custom CUDA as lower-level work unless the task requires reusable primitive development. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/vector-db-index-refresh-integration/NOTICE.md",
+      "evals/files/vector-db-index-refresh-integration/code/service_integration_notes.md"
+    ]
+  },
+  {
+    "id": "confusion-cuvs-memory-constrained-ann__generic",
+    "question": "Task: Migrate a memory-constrained ANN prototype where a generic GPU optimizer can name cuVS but may miss index tuning and memory projection.\nTask folder: evals/files/confusion-cuvs-memory-constrained-ann/\nPrompt variant: generic\n\nUser prompt: This embedding search prototype is too slow and the production memory\nprojection is over budget. Make it GPU-fast without breaking validation.\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `confusion-cuvs-memory-constrained-ann` using the provided `code/ann_service.py` starter file and preserves the requested behavior. It should handle: runs the provided validation workflow and preserves valid top-k shapes, finite scores, and recall@10 >= 0.95; builds and searches a NVIDIA cuVS ANN index for the serving path instead of relying on CPU exact search, FAISS/sklearn, or generic CuPy/Numba/custom kernels; avoids a naive full-vector production projection when it exceeds budget, using a path such as IVF-PQ or compressed CAGRA; exposes and tunes the right recall-performance knobs such as n_probes, itopk_size, graph degree, or compression parameters; exact/brute-force search is limited to validation ground truth; keeps timing focused on the GPU serving path, avoids unnecessary host/device round trips, preserves staged-data support, and does not silently substitute CPU fallback timing for GPU performance. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/confusion-cuvs-memory-constrained-ann/NOTICE.md",
+      "evals/files/confusion-cuvs-memory-constrained-ann/code/ann_service.py",
+      "evals/files/confusion-cuvs-memory-constrained-ann/code/service_requirements.json",
+      "evals/files/confusion-cuvs-memory-constrained-ann/code/validate_recall.py"
+    ]
+  },
+  {
+    "id": "cuvs-small-corpus-exact-search__generic",
+    "question": "Task: Exact top-k catalog search. A GPU is installed. Production shape is 20,000 vectors, 128 dimensions, query batches of 4, and exact neighbors are required.\nTask folder: evals/files/cuvs-small-corpus-exact-search/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU.\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-small-corpus-exact-search` using the provided `code/search.py` and `code/workload.json` starter files and preserves the requested behavior. It should handle: it reads the production shape of about 20,000 vectors, 128 dimensions, and query batches of about 4; it keeps exact top-k neighbor ids; it keeps exact brute force with NumPy, scikit-learn, or cuvs.neighbors.brute_force, or uses a CPU HNSW index; it refuses CAGRA, IVF-Flat, and IVF-PQ as the serving index; it explains that the corpus is under about 100K vectors, the dimension is modest, and the batches are small, so a free GPU is not a reason to build an ANN index; it keeps a comparison against exact neighbors and reports that result or a real runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-small-corpus-exact-search/code/search.py",
+      "evals/files/cuvs-small-corpus-exact-search/code/workload.json"
+    ]
+  },
+  {
+    "id": "cuvs-wide-batch-ann__generic",
+    "question": "Task: Top-k search with 80,000 vectors of 1,024 dimensions and production query batches of 4,096. The default script searches 16 smoke queries so it can finish.\nTask folder: evals/files/cuvs-wide-batch-ann/\nPrompt variant: generic\n\nUser prompt: Help me run this on the GPU.\n\nUse the provided starter workspace for this task. Modify the starter file(s) under the provided `code/` directory. Run the relevant smoke or validation command from that workspace when practical, and report the changed files and validation result.",
+    "expected_skill": "accelerated-computing-cuvs",
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `cuvs-wide-batch-ann` using the provided `code/search.py` and `code/workload.json` starter files and preserves the requested behavior. It should handle: it designs for 80,000 vectors, 1,024 dimensions, and production query batches of 4,096 rather than the 16-query smoke run; it moves the production search onto the GPU; it does not refuse a GPU path merely because the vector count is under 100K; cuvs.neighbors.brute_force is acceptable when exact results are kept, and CAGRA, IVF-Flat, or IVF-PQ is acceptable when recall is checked against exact neighbors at the 0.95 minimum; a CPU-only NumPy or scikit-learn scan of the production batch fails; it keeps the process runnable and does not treat smoke_queries as the production batch size. It reports validation performed or the runtime blocker.",
+    "expected_behavior": [],
+    "files": [
+      "evals/files/cuvs-wide-batch-ann/code/search.py",
+      "evals/files/cuvs-wide-batch-ann/code/workload.json"
+    ]
+  },
+  {
+    "id": "negative-general-cuda-vector-kernel__generic",
+    "question": "Task: Boundary case for raw CUDA vector arithmetic.\nPrompt variant: generic\n\nUser prompt: I need a custom CUDA kernel for elementwise vector math and reductions. Can you help write and tune it?",
+    "expected_skill": null,
+    "expected_script": null,
+    "ground_truth": "A successful answer addresses `negative-general-cuda-vector-kernel` and preserves the requested behavior. It should handle: avoids CAGRA, IVF, ANN indexes, or vector database guidance; identifies this as raw CUDA/vector arithmetic, not vector search; suggests CUDA kernels, CuPy RawKernel, Numba CUDA, memory coalescing, occupancy, or Nsight tools; explains cuVS applies to nearest-neighbor/search workloads over embeddings; avoids building an ANN index for a math-kernel request. It reports validation performed or the runtime blocker.",
+    "expected_behavior": []
+  }
+]
