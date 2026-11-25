@@ -9,7 +9,7 @@ context:
   linux64: ${{ linux and x86_64 }}
   py_abi_min: ${{ env.get("RAPIDS_PY_VERSION") }}
   py_buildstring: ${{ py_abi_min | version_to_buildstring }}
-  py_runtime_latest: "3.14"
+  py_runtime_latest: "3.15"
 
 package:
   name: cuvs-bench-cpu
