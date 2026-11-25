@@ -27,11 +27,9 @@ namespace detail {
 
 namespace {
 
-/** Rows per cuTile launch when the candidates do not fit in L2.
- * cuTile requires each new batch to be 16-byte aligned.
- */
-constexpr int64_t kFused1nnCutileL2RowBatch = 32768;
-static_assert(kFused1nnCutileL2RowBatch % 16 == 0);
+/**
+ * Full waves of the 1-NN kernel per row batch. */
+constexpr int64_t kFused1nnCutileWavesPerBatch = 2;
 
 /**
  * Returns true when the problem dimensions exceed the per-arch high-dim crossover thresholds.
@@ -229,6 +227,43 @@ void launch_fused_1nn_tile_impl(raft::resources const& handle,
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
+/**
+ * Select row batch size for kFused1nnCutileWavesPerBatch number of full waves.
+ * Formula: 1 wave = num_SMs x CTAs_per_SM x tile_M
+ */
+template <typename DataT, typename AbiTag>
+int64_t fused_1nn_tile_l2_row_batch(raft::resources const& handle)
+{
+  Fused1nnTilePlanner<DataT, AbiTag> planner;
+  planner.add_entrypoint();
+  auto launcher = planner.try_get_launcher();
+  RAFT_EXPECTS(launcher != nullptr, "Requested cuTile fused 1-NN launcher is unavailable");
+  const auto kernel = launcher->get_kernel();
+  cudaFuncAttributes attr{};
+  RAFT_CUDA_TRY(cudaFuncGetAttributes(&attr, kernel));
+
+  const int cluster_size = std::max(1, attr.requiredClusterWidth) *
+                           std::max(1, attr.requiredClusterHeight) *
+                           std::max(1, attr.requiredClusterDepth);
+  int tiles_per_wave = 0;
+  if (cluster_size > 1) {
+    cudaLaunchConfig_t config{};
+    config.gridDim  = dim3(cluster_size);
+    config.blockDim = dim3(attr.maxThreadsPerBlock);
+    RAFT_CUDA_TRY(cudaOccupancyMaxActiveClusters(&tiles_per_wave, kernel, &config));
+  } else {
+    int ctas_per_sm = 0;
+    RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &ctas_per_sm, kernel, attr.maxThreadsPerBlock, 0));
+    tiles_per_wave =
+      ctas_per_sm * raft::resource::get_device_properties(handle).multiProcessorCount;
+  }
+  // tile_m is a multiple of 16 rows, which keeps every batch 16-byte aligned.
+  return std::min(
+    kFused1nnCutileWavesPerBatch * std::max(tiles_per_wave, 1) * planner.tile_config().tile_m,
+    fused_1nn_cutile_max_batch_m<DataT>);
+}
+
 template <typename DataT, typename IdxT>
 void validate_fused_1nn_tile_launch(IdxT* nearest_idx,
                                     fused_1nn_cutile_distance_t<DataT>* nearest_dist,
@@ -359,30 +394,32 @@ void launch_fused_1nn_tile(raft::resources const& handle,
     use_strict_abi &&
     should_use_high_dim_tile<DataT>(n, k, capabilities.cc_major, capabilities.cc_minor);
 
-  // Row batching for L2-optimization
   const auto candidate_bytes =
     static_cast<int64_t>(n) * static_cast<int64_t>(k) * static_cast<int64_t>(sizeof(DataT));
-  const int64_t row_batch =
-    candidate_bytes > raft::resource::get_device_properties(handle).l2CacheSize
-      ? kFused1nnCutileL2RowBatch
-      : fused_1nn_cutile_max_batch_m<DataT>;
-
+  const bool candidates_fit_l2 =
+    candidate_bytes <= raft::resource::get_device_properties(handle).l2CacheSize;
   const auto stream = raft::resource::get_cuda_stream(handle);
-  for (int64_t offset = 0; offset < static_cast<int64_t>(m);) {
-    const int64_t batch_m64 = std::min<int64_t>(row_batch, static_cast<int64_t>(m) - offset);
-    const int batch_m       = static_cast<int>(batch_m64);
-    // int64 indices go through an int32 index workspace and are widened per batch.
-    int* batch_idx = nullptr;
-    if (nearest_idx != nullptr) {
-      if constexpr (std::is_same_v<IdxT, int>) {
-        batch_idx = nearest_idx + offset;
-      } else {
-        batch_idx = static_cast<int*>(index_workspace);
-      }
-    }
 
-    auto launch = [&](auto abi) {
-      launch_fused_1nn_tile_impl<DataT, int, decltype(abi)>(
+  auto launch = [&](auto abi) {
+    using AbiTag = decltype(abi);
+    // Row batching for L2-optimization: rows launched together walk the candidates in step and
+    // share them in L2.
+    const int64_t row_batch = candidates_fit_l2
+                                ? fused_1nn_cutile_max_batch_m<DataT>
+                                : fused_1nn_tile_l2_row_batch<DataT, AbiTag>(handle);
+    for (int64_t offset = 0; offset < static_cast<int64_t>(m);) {
+      const int64_t batch_m64 = std::min<int64_t>(row_batch, static_cast<int64_t>(m) - offset);
+      const int batch_m       = static_cast<int>(batch_m64);
+      // int64 indices go through an int32 index workspace and are widened per batch.
+      int* batch_idx = nullptr;
+      if (nearest_idx != nullptr) {
+        if constexpr (std::is_same_v<IdxT, int>) {
+          batch_idx = nearest_idx + offset;
+        } else {
+          batch_idx = static_cast<int*>(index_workspace);
+        }
+      }
+      launch_fused_1nn_tile_impl<DataT, int, AbiTag>(
         handle,
         batch_idx,
         nearest_dist + offset,
@@ -395,22 +432,21 @@ void launch_fused_1nn_tile(raft::resources const& handle,
         static_cast<int>(k),
         metric,
         is_sqrt);
-    };
-    if (use_high_dim_abi) {
-      launch(cutile_abi_high_dim{});
-    } else if (use_strict_abi) {
-      launch(cutile_abi_strict{});
-    } else {
-      launch(cutile_abi_relaxed{});
-    }
-
-    if constexpr (!std::is_same_v<IdxT, int>) {
-      if (batch_idx != nullptr) {
-        raft::linalg::unaryOp(
-          nearest_idx + offset, batch_idx, batch_m, raft::cast_op<int64_t>{}, stream.get());
+      if constexpr (!std::is_same_v<IdxT, int>) {
+        if (batch_idx != nullptr) {
+          raft::linalg::unaryOp(
+            nearest_idx + offset, batch_idx, batch_m, raft::cast_op<int64_t>{}, stream.get());
+        }
       }
+      offset += batch_m64;
     }
-    offset += batch_m64;
+  };
+  if (use_high_dim_abi) {
+    launch(cutile_abi_high_dim{});
+  } else if (use_strict_abi) {
+    launch(cutile_abi_strict{});
+  } else {
+    launch(cutile_abi_relaxed{});
   }
 }
 
