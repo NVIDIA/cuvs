@@ -221,6 +221,8 @@ navigation:
                 path: "./pages/cuvs_bench/synthesize_dataset.md"
               - page: "Backends"
                 path: "./pages/cuvs_bench/pluggable_backend.md"
+              - page: "PostgreSQL Backend"
+                path: "./pages/cuvs_bench/postgres.md"
               - page: "cuVS Bench Parameter Tuning Guide"
                 hidden: true
                 path: "./pages/cuvs_bench/param_tuning.md"
