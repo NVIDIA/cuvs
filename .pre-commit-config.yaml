@@ -60,7 +60,10 @@ repos:
         name: fern-api-reference
         description: 'Regenerate the Fern API reference pages from the sources'
         entry: python3 fern/scripts/generate_api_reference.py --quiet
-        language: system
+        language: python
+        # Parses the Java sources (fern/scripts/java_source.py). Keep in sync
+        # with the docs group in dependencies.yaml.
+        additional_dependencies: [tree-sitter==0.27.0, tree-sitter-java==0.23.5]
         pass_filenames: false
         require_serial: true
         files: |
@@ -70,9 +73,11 @@ repos:
             ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
             ^java/cuvs-(java|lucene)/src/main/.*[.]java$|
             ^java/cuvs-lucene/lucene-[^/]+/src/since/.*[.]java$|
+            ^java/cuvs-lucene/compat/[^/]+/src/main/.*[.]java$|
+            ^java/cuvs-lucene/lucene-[^/]+/pom[.]xml$|
             ^rust/cuvs/src/.*[.]rs$|
             ^go/.*[.]go$|
-            ^fern/scripts/generate_api_reference[.]py$|
+            ^fern/scripts/(generate_api_reference|java_source)[.]py$|
             ^fern/pages/(c|cpp|python|java|lucene|rust|go)_api/.*[.]md$|
             ^fern/pages/api_reference[.]md$|
             ^fern/docs[.]yml$

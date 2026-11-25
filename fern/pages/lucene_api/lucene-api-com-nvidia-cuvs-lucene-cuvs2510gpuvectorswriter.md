@@ -17,7 +17,7 @@ extends upon KnnVectorsWriter and has implementation for critical methods like f
 ### CAGRA
 
 ```java
-CAGRA(true, false), /** Builds a Brute Force index. */ BRUTE_FORCE(false, true), /** Builds both - CAGRA and Brute Force indexes. */ CAGRA_AND_BRUTE_FORCE(true, true)
+CAGRA(true, false)
 ```
 
 Builds a CAGRA index.
@@ -27,7 +27,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 ### BRUTE_FORCE
 
 ```java
-BRUTE_FORCE(false, true), /** Builds both - CAGRA and Brute Force indexes. */ CAGRA_AND_BRUTE_FORCE(true, true)
+BRUTE_FORCE(false, true)
 ```
 
 Builds a Brute Force index.

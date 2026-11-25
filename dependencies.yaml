@@ -578,6 +578,10 @@ dependencies:
       - output_types: [conda]
         packages:
           - nodejs>=22
+          # fern/scripts/java_source.py; the fern-api-reference pre-commit hook pins these too.
+          - tree_sitter>=0.25
+          - tree-sitter-java>=0.23.5
+          - *pytest
   rust:
     common:
       - output_types: [conda]

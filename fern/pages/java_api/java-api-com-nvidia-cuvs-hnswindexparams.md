@@ -17,7 +17,7 @@ Supplemental parameters to build HNSW index.
 ### NONE
 
 ```java
-NONE(0), /** * Full hierarchy is built using the CPU */ CPU(1), /** * Full hierarchy is built using the GPU */ GPU(2)
+NONE(0)
 ```
 
 Flat hierarchy, search is base-layer only
@@ -27,7 +27,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:38`_
 ### CPU
 
 ```java
-CPU(1), /** * Full hierarchy is built using the GPU */ GPU(2)
+CPU(1)
 ```
 
 Full hierarchy is built using the CPU

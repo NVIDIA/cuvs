@@ -6,6 +6,8 @@ The C, C++, Python, Java, Rust, and Go API reference pages are generated from th
 
 The API generator reads source files directly, including Doxygen-style C/C++ comments and Sphinx-style roles in Python docstrings. It does not require the Doxygen or Sphinx executables or generated XML.
 
+It parses the Java sources with [tree-sitter](https://tree-sitter.github.io/) (`fern/scripts/java_source.py`), so it needs the `tree-sitter` and `tree-sitter-java` Python packages (`tree_sitter` and `tree-sitter-java` on conda-forge). The `docs` conda environment and the `fern-api-reference` pre-commit hook install them; its tests are in `fern/scripts/tests`.
+
 Fern requires Node.js 22 or newer. If the docs fail with an error such as `SyntaxError: Unexpected token '.'`, check `node --version` and activate a newer Node.js runtime.
 
 ## Preview locally

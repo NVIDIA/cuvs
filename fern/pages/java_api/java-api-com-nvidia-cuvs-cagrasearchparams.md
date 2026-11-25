@@ -18,7 +18,7 @@ parameters.
 ### SINGLE_CTA
 
 ```java
-SINGLE_CTA(0), /** * for small batch sizes */ MULTI_CTA(1), /** * MULTI_KERNEL */ MULTI_KERNEL(2), /** * AUTO */ AUTO(100)
+SINGLE_CTA(0)
 ```
 
 for large batch sizes
@@ -28,7 +28,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraSearchParams.java:35
 ### MULTI_CTA
 
 ```java
-MULTI_CTA(1), /** * MULTI_KERNEL */ MULTI_KERNEL(2), /** * AUTO */ AUTO(100)
+MULTI_CTA(1)
 ```
 
 for small batch sizes
@@ -38,7 +38,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraSearchParams.java:39
 ### MULTI_KERNEL
 
 ```java
-MULTI_KERNEL(2), /** * AUTO */ AUTO(100)
+MULTI_KERNEL(2)
 ```
 
 MULTI_KERNEL
@@ -58,7 +58,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraSearchParams.java:47
 ### HASH
 
 ```java
-HASH(0), /** * SMALL */ SMALL(1), /** * AUTO_HASH */ AUTO_HASH(100)
+HASH(0)
 ```
 
 HASH
@@ -68,7 +68,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraSearchParams.java:66
 ### SMALL
 
 ```java
-SMALL(1), /** * AUTO_HASH */ AUTO_HASH(100)
+SMALL(1)
 ```
 
 SMALL

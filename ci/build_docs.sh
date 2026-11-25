@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -25,6 +25,9 @@ conda activate docs
 set -eu
 
 rapids-print-env
+
+rapids-logger "Test the Fern API reference generator"
+python -m pytest fern/scripts/tests
 
 rapids-logger "Validate Fern docs"
 

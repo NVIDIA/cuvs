@@ -17,7 +17,7 @@ Supplemental parameters to build CAGRA Index.
 ### AUTO_SELECT
 
 ```java
-AUTO_SELECT(0), /** * Use IVF-PQ to build all-neighbors knn graph */ IVF_PQ(1), /** * Experimental, use NN-Descent to build all-neighbors knn graph */ NN_DESCENT(2), /** * Experimental, use ACE (Augmented Core Extraction) to build graph for large datasets. * 4 to be consistent with the other interfaces. */ ACE(4)
+AUTO_SELECT(0)
 ```
 
 Select build algorithm automatically
@@ -27,7 +27,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:37`
 ### IVF_PQ
 
 ```java
-IVF_PQ(1), /** * Experimental, use NN-Descent to build all-neighbors knn graph */ NN_DESCENT(2), /** * Experimental, use ACE (Augmented Core Extraction) to build graph for large datasets. * 4 to be consistent with the other interfaces. */ ACE(4)
+IVF_PQ(1)
 ```
 
 Use IVF-PQ to build all-neighbors knn graph
@@ -37,7 +37,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:41`
 ### NN_DESCENT
 
 ```java
-NN_DESCENT(2), /** * Experimental, use ACE (Augmented Core Extraction) to build graph for large datasets. * 4 to be consistent with the other interfaces. */ ACE(4)
+NN_DESCENT(2)
 ```
 
 Experimental, use NN-Descent to build all-neighbors knn graph
@@ -58,7 +58,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:50`
 ### SIMILAR_SEARCH_PERFORMANCE
 
 ```java
-SIMILAR_SEARCH_PERFORMANCE(0), /** * Create a graph that has the same binary size as an HNSW graph with the given parameters * (graph_degree = 2 * M) while trying to match the search performance as closely as possible. * * The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT produce * the same recalls and QPS for the same parameter ef. The graphs are different internally. For * the same ef, the from-CAGRA index likely has a slightly higher recall and slightly lower QPS. * However, the Recall-QPS curves should be similar (i.e. the points are just shifted along the * curve). */ SAME_GRAPH_FOOTPRINT(1)
+SIMILAR_SEARCH_PERFORMANCE(0)
 ```
 
 Create a graph that is very similar to an HNSW graph in terms of the number of nodes and
@@ -94,7 +94,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:98`
 ### L2Expanded
 
 ```java
-L2Expanded(0), /** * same as above, but inside the epilogue, perform square root operation */ L2SqrtExpanded(1), /** * cosine distance */ CosineExpanded(2), /** * L1 distance * */ L1(3), /** * evaluate as dist_ij += (x_ik - y-jk)^2 * */ L2Unexpanded(4), /** * same as above, but inside the epilogue, perform square root operation */ L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+L2Expanded(0)
 ```
 
 evaluate as dist_ij = sum(x_ik^2) + sum(y_ij)^2 - 2*sum(x_ik * y_jk)
@@ -104,7 +104,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:126
 ### L2SqrtExpanded
 
 ```java
-L2SqrtExpanded(1), /** * cosine distance */ CosineExpanded(2), /** * L1 distance * */ L1(3), /** * evaluate as dist_ij += (x_ik - y-jk)^2 * */ L2Unexpanded(4), /** * same as above, but inside the epilogue, perform square root operation */ L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+L2SqrtExpanded(1)
 ```
 
 same as above, but inside the epilogue, perform square root operation
@@ -114,7 +114,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:130
 ### CosineExpanded
 
 ```java
-CosineExpanded(2), /** * L1 distance * */ L1(3), /** * evaluate as dist_ij += (x_ik - y-jk)^2 * */ L2Unexpanded(4), /** * same as above, but inside the epilogue, perform square root operation */ L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+CosineExpanded(2)
 ```
 
 cosine distance
@@ -124,7 +124,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:134
 ### L1
 
 ```java
-L1(3), /** * evaluate as dist_ij += (x_ik - y-jk)^2 * */ L2Unexpanded(4), /** * same as above, but inside the epilogue, perform square root operation */ L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+L1(3)
 ```
 
 L1 distance *
@@ -134,7 +134,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:138
 ### L2Unexpanded
 
 ```java
-L2Unexpanded(4), /** * same as above, but inside the epilogue, perform square root operation */ L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+L2Unexpanded(4)
 ```
 
 evaluate as dist_ij += (x_ik - y-jk)^2 *
@@ -144,7 +144,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:142
 ### L2SqrtUnexpanded
 
 ```java
-L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+L2SqrtUnexpanded(5)
 ```
 
 same as above, but inside the epilogue, perform square root operation
@@ -154,7 +154,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:146
 ### InnerProduct
 
 ```java
-InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+InnerProduct(6)
 ```
 
 basic inner product
@@ -164,7 +164,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:150
 ### Linf
 
 ```java
-Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+Linf(7)
 ```
 
 Chebyshev (Linf) distance
@@ -174,7 +174,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:154
 ### Canberra
 
 ```java
-Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+Canberra(8)
 ```
 
 Canberra distance
@@ -184,7 +184,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:158
 ### LpUnexpanded
 
 ```java
-LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+LpUnexpanded(9)
 ```
 
 Generalized Minkowski distance
@@ -194,7 +194,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:162
 ### CorrelationExpanded
 
 ```java
-CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+CorrelationExpanded(10)
 ```
 
 Correlation distance
@@ -204,7 +204,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:166
 ### JaccardExpanded
 
 ```java
-JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+JaccardExpanded(11)
 ```
 
 Jaccard distance
@@ -214,7 +214,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:170
 ### HellingerExpanded
 
 ```java
-HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+HellingerExpanded(12)
 ```
 
 Hellinger distance
@@ -224,7 +224,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:174
 ### Haversine
 
 ```java
-Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+Haversine(13)
 ```
 
 Haversine distance
@@ -234,7 +234,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:178
 ### BrayCurtis
 
 ```java
-BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+BrayCurtis(14)
 ```
 
 Bray-Curtis distance
@@ -244,7 +244,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:182
 ### JensenShannon
 
 ```java
-JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+JensenShannon(15)
 ```
 
 Jensen-Shannon distance
@@ -254,7 +254,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:186
 ### HammingUnexpanded
 
 ```java
-HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+HammingUnexpanded(16)
 ```
 
 Hamming distance
@@ -264,7 +264,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:190
 ### KLDivergence
 
 ```java
-KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+KLDivergence(17)
 ```
 
 KLDivergence
@@ -274,7 +274,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:194
 ### RusselRaoExpanded
 
 ```java
-RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+RusselRaoExpanded(18)
 ```
 
 RusselRao
@@ -284,7 +284,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:198
 ### DiceExpanded
 
 ```java
-DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
+DiceExpanded(19)
 ```
 
 Dice-Sorensen distance
