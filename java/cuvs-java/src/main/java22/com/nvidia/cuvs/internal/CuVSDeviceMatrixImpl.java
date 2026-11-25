@@ -44,8 +44,9 @@ public class CuVSDeviceMatrixImpl extends CuVSMatrixBaseImpl implements CuVSDevi
           bufferedMatrixRowEnd = endRow;
         }
         var startRow = row - bufferedMatrixRowStart;
+        // populateBuffer packs rows (no row stride) into the host buffer.
         return new SliceRowView(
-            hostBuffer.asSlice(startRow * rowSize, rowBytes),
+            hostBuffer.asSlice(startRow * rowBytes, rowBytes),
             columns,
             valueLayout,
             dataType,
@@ -58,7 +59,7 @@ public class CuVSDeviceMatrixImpl extends CuVSMatrixBaseImpl implements CuVSDevi
     @Override
     public RowView getRow(long row) {
       try (var access = resources.access()) {
-        var memorySegment = Arena.ofAuto().allocate(size * valueByteSize);
+        var memorySegment = Arena.ofAuto().allocate(columns * valueByteSize);
         populateBuffer(access, row, row + 1, memorySegment);
         return new SliceRowView(memorySegment, columns, valueLayout, dataType, valueByteSize);
       }
@@ -134,10 +135,15 @@ public class CuVSDeviceMatrixImpl extends CuVSMatrixBaseImpl implements CuVSDevi
           prepareTensor(
               localArena, bufferAddress, new long[] {rowCount, columns}, code(), bits(), kDLCPU());
 
-      checkCuVSError(
-          cuvsMatrixCopy(resourceAccess.handle(), sliceManagedTensor, bufferTensor),
-          "cuvsMatrixCopy");
-      checkCuVSError(cuvsStreamSync(resourceAccess.handle()), "cuvsStreamSync");
+      try {
+        checkCuVSError(
+            cuvsMatrixCopy(resourceAccess.handle(), sliceManagedTensor, bufferTensor),
+            "cuvsMatrixCopy");
+        checkCuVSError(cuvsStreamSync(resourceAccess.handle()), "cuvsStreamSync");
+      } finally {
+        // cuvsMatrixSliceRows heap-allocates the slice's shape (and strides); release them.
+        releaseManagedTensor(sliceManagedTensor);
+      }
     }
   }
 
@@ -149,63 +155,44 @@ public class CuVSDeviceMatrixImpl extends CuVSMatrixBaseImpl implements CuVSDevi
   @Override
   public void toArray(int[][] array) {
     assert dataType == DataType.INT || dataType == DataType.UINT;
-    assert (array.length >= size) : "Input array is not large enough";
-    assert (array.length == 0 || array[0].length >= columns) : "Input array is not large enough";
-    try (var localArena = Arena.ofConfined()) {
-      var rowBytes = columns * valueLayout.byteSize();
-      var tmpRowSegment = localArena.allocate(rowBytes);
-      for (int r = 0; r < size; ++r) {
-        copyRow(array[r], localArena, r, tmpRowSegment);
-      }
-    }
+    copyRowsTo(array);
   }
 
   @Override
   public void toArray(float[][] array) {
     assert dataType == DataType.FLOAT;
-    assert (array.length >= size) : "Input array is not large enough";
-    assert (array.length == 0 || array[0].length >= columns) : "Input array is not large enough";
-    try (var localArena = Arena.ofConfined()) {
-      var rowBytes = columns * valueLayout.byteSize();
-      var tmpRowSegment = localArena.allocate(rowBytes);
-      for (int r = 0; r < size; ++r) {
-        copyRow(array[r], localArena, r, tmpRowSegment);
-      }
-    }
+    copyRowsTo(array);
   }
 
   @Override
   public void toArray(byte[][] array) {
     assert dataType == DataType.BYTE;
-    assert (array.length >= size) : "Input array is not large enough";
-    assert (array.length == 0 || array[0].length >= columns) : "Input array is not large enough";
-    try (var localArena = Arena.ofConfined()) {
-      var rowSegmentLayout = MemoryLayout.sequenceLayout(columns, valueLayout);
-      var tmpRowSegment = localArena.allocate(rowSegmentLayout);
-      for (int r = 0; r < size; ++r) {
-        copyRow(array[r], localArena, r, tmpRowSegment);
-      }
-    }
+    copyRowsTo(array);
   }
 
-  private void copyRow(Object array, Arena localArena, int r, MemorySegment tmpRowSegment) {
-    MemorySegment sliceManagedTensor = DLManagedTensor.allocate(localArena);
-    DLManagedTensor.dl_tensor(sliceManagedTensor, DLTensor.allocate(localArena));
-
-    checkCuVSError(
-        cuvsMatrixSliceRows(0, toTensor(localArena), r, r + 1, sliceManagedTensor),
-        "cuvsMatrixSliceRows");
-
-    MemorySegment bufferTensor =
-        prepareTensor(
-            localArena, tmpRowSegment, new long[] {1, columns}, code(), bits(), kDLCUDA());
-    try (var resourceAccess = resources.access()) {
-      checkCuVSError(
-          cuvsMatrixCopy(resourceAccess.handle(), sliceManagedTensor, bufferTensor),
-          "cuvsMatrixCopy");
-      checkCuVSError(cuvsStreamSync(resourceAccess.handle()), "cuvsStreamSync");
+  /**
+   * Copies every row into {@code array[row]}, staging as many rows at a time as fit in the pinned
+   * host buffer: one slice, one copy and one stream sync per chunk rather than per row.
+   */
+  private void copyRowsTo(Object[] array) {
+    assert (array.length >= size) : "Input array is not large enough";
+    long rowBytes = columns * valueByteSize;
+    try (var access = resources.access();
+        var localArena = Arena.ofConfined()) {
+      // A row too large for the pinned buffer goes through a pageable one, one row at a time.
+      boolean fitsPinned = rowBytes <= PinnedMemoryBuffer.CHUNK_BYTES;
+      var hostBuffer =
+          fitsPinned ? CuVSResourcesImpl.getHostBuffer(access) : localArena.allocate(rowBytes);
+      long chunkRows = fitsPinned ? PinnedMemoryBuffer.CHUNK_BYTES / rowBytes : 1;
+      for (long start = 0; start < size; start += chunkRows) {
+        long end = Math.min(start + chunkRows, size);
+        populateBuffer(access, start, end, hostBuffer);
+        for (long r = start; r < end; ++r) {
+          MemorySegment.copy(
+              hostBuffer, valueLayout, (r - start) * rowBytes, array[(int) r], 0, (int) columns);
+        }
+      }
     }
-    MemorySegment.copy(tmpRowSegment, valueLayout, 0L, array, 0, (int) columns);
   }
 
   @Override
@@ -274,8 +261,8 @@ public class CuVSDeviceMatrixImpl extends CuVSMatrixBaseImpl implements CuVSDevi
     }
 
     @Override
-    public void toDevice(CuVSDeviceMatrix deviceMatrix, CuVSResources cuVSResources) {
-      deviceMatrix.toDevice(deviceMatrix, cuVSResources);
+    public void toDevice(CuVSDeviceMatrix targetMatrix, CuVSResources cuVSResources) {
+      deviceMatrix.toDevice(targetMatrix, cuVSResources);
     }
 
     @Override
