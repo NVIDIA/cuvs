@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs.lucene`_
 public class AcceleratedHNSWUtils
 ```
 
-## Public Members
+## Public and Protected Members
 
 ### createSingleVectorHnswGraph
 
@@ -34,27 +34,6 @@ layer samples `max(2, floor(previousLayerSize / M))` nodes and is built with gra
 at most `M`. The value `M` is the ceiling of half the layer-0 graph degree.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:65`_
-
-### createMultiLayerHnswGraph
-
-```java
-static GPUBuiltHnswGraph createMultiLayerHnswGraph( int dimensions, CuVSMatrix adjacencyListMatrix, CuVSMatrix vectorDataset, int hnswLayers, CagraIndexParams params, QuantizationType quantization, int maxConn) throws Throwable
-```
-
-Creates a multi-layer HNSW graph from a native matrix without copying the complete dataset to
-the Java heap. The list view copies only rows selected for an upper layer.
-
-The upper layers are built with graph degree at most maxConn, the most neighbors HNSW holds
-per node above layer 0. Rows wider than that on an upper layer are read fine, but a CPU merge
-copies them into arrays of maxConn + 1 slots and fails with "No growth is allowed".
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `maxConn` | the HNSW maxConn the segment is written with |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:222`_
 
 ### writeGraph
 

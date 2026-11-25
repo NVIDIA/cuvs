@@ -95,6 +95,7 @@ ConfigureTest(
 )
 
 ConfigureTest(NAME PCA_C_TEST PATH preprocessing/pca_c.cu)
+ConfigureTest(NAME RABITQ_C_TEST PATH preprocessing/rabitq_c.cu)
 
 if(BUILD_CAGRA_HNSWLIB)
   ConfigureTest(NAME HNSW_C_TEST PATH neighbors/ann_hnsw_c.cu)
@@ -109,6 +110,7 @@ ConfigureTest(NAME cuvs_c_headers PATH core/headers.c)
 ConfigureTest(NAME cuvs_c_test PATH core/c_api.c)
 ConfigureTest(NAME cuvs_c_resource_pool_test PATH core/resource_pool.cpp)
 ConfigureTest(NAME cuvs_c_resource_stream_pool_test PATH core/resource_stream_pool.cpp)
+ConfigureTest(NAME cuvs_c_host_alloc_test PATH core/host_alloc.cpp)
 target_link_libraries(cuvs_c_test PRIVATE CUDA::cudart_static)
 target_link_libraries(cuvs_c_resource_pool_test PRIVATE CUDA::cudart_static)
 target_link_libraries(cuvs_c_resource_stream_pool_test PRIVATE CUDA::cudart_static)

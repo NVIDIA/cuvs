@@ -12,7 +12,7 @@ public interface CuVSProvider
 
 A provider of low-level cuvs resources and builders.
 
-## Public Members
+## Public and Protected Members
 
 ### tempDirectory
 
