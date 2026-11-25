@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::coalescedReductionThin",
+    "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, int64_t, int64_t, int64_t, raft::identity_op, raft::add_op, raft::identity_op>",
+    "parameter_types": "int64_t*, const int64_t*, int64_t, int64_t, int64_t, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::coalescedReductionThin",
+    "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, uint32_t, uint32_t, uint32_t, raft::identity_op, raft::add_op, raft::identity_op>",
+    "parameter_types": "uint32_t*, const uint32_t*, uint32_t, uint32_t, uint32_t, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "u32"
+  }
+]
