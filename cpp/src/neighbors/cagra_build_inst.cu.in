@@ -9,6 +9,7 @@
 #include <neighbors/cagra.cuh>
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -55,13 +56,25 @@ CUVS_INST_CAGRA_BUILD(inst_device_padded_view_t);
 CUVS_INST_CAGRA_BUILD(inst_device_standard_view_t);
 CUVS_INST_CAGRA_BUILD(inst_host_padded_view_t);
 CUVS_INST_CAGRA_BUILD(inst_host_standard_view_t);
-CUVS_INST_CAGRA_BUILD(inst_bbq_view_t);
 
 #if @emit_vpq_build@
 CUVS_INST_CAGRA_BUILD(inst_vpq_view_t);
 #endif
 
 #undef CUVS_INST_CAGRA_BUILD
+
+#define CUVS_INST_CAGRA_BUILD_WITH_QUERY(DatasetViewT)                                       \
+  auto build(raft::resources const& res,                                                     \
+             const cuvs::neighbors::cagra::index_params& params,                             \
+             DatasetViewT dataset,                                                           \
+             std::optional<DatasetViewT> dataset_query) -> cagra_index_t<DatasetViewT>       \
+  {                                                                                          \
+    return cuvs::neighbors::cagra::build<DatasetViewT>(res, params, dataset, dataset_query); \
+  }
+
+CUVS_INST_CAGRA_BUILD_WITH_QUERY(inst_bbq_view_t);
+
+#undef CUVS_INST_CAGRA_BUILD_WITH_QUERY
 
 #define CUVS_INST_CAGRA_UPDATE_DATASET(T, IdxT, SrcDatasetViewT, DstDatasetViewT)             \
   auto update_dataset(raft::resources const& res,                                             \

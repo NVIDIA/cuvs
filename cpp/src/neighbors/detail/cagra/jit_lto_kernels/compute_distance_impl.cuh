@@ -15,6 +15,7 @@
 #include "../device_memory_ops.hpp"
 
 #include <raft/util/integer_utils.hpp>
+#include <raft/util/warp_primitives.cuh>
 #include <type_traits>
 
 namespace cuvs::neighbors::cagra::detail {
@@ -84,6 +85,83 @@ _RAFT_DEVICE __noinline__ auto compute_distance_standard_impl(
                                  typename DescriptorT::QUERY_T>(distance, args, dataset_index);
 
   return distance;
+}
+
+template <typename DescriptorT>
+RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
+  const typename DescriptorT::DATA_T* __restrict__ dataset_ptr,
+  uint32_t dim,
+  uint32_t query_smem_ptr) -> typename DescriptorT::DISTANCE_T
+{
+  using DataT                     = typename DescriptorT::DATA_T;
+  using DistanceT                 = typename DescriptorT::DISTANCE_T;
+  using LoadT                     = typename DescriptorT::LOAD_T;
+  constexpr auto kTeamSize        = DescriptorT::kTeamSize;
+  constexpr auto kDatasetBlockDim = DescriptorT::kDatasetBlockDim;
+  constexpr auto vlen             = device::get_vlen<LoadT, DataT>();
+  constexpr auto reg_nelem =
+    raft::div_rounding_up_unsafe<uint32_t>(kDatasetBlockDim, kTeamSize * vlen);
+
+  constexpr uint32_t bytes_per_word        = sizeof(uint32_t);
+  constexpr uint32_t byte_offset_mask      = bytes_per_word - 1;
+  constexpr uint32_t identity_byte_order   = 0x3210u;
+  constexpr uint32_t repeat_selector_digit = 0x1111u;
+  static_assert(std::is_same_v<DataT, uint8_t> && vlen % bytes_per_word == 0);
+
+  uint32_t differing = 0;
+  uint32_t set_union = 0;
+  // Use the same vector loads and swizzled query layout as the standard distance fragment.
+  for (uint32_t elem_offset = (threadIdx.x % kTeamSize) * vlen; elem_offset < dim;
+       elem_offset += kDatasetBlockDim) {
+    LoadT data[reg_nelem];
+#pragma unroll
+    for (uint32_t e = 0; e < reg_nelem; e++) {
+      const uint32_t k = e * (kTeamSize * vlen) + elem_offset;
+      if (k >= dim) break;
+      device::ldg_cg(data[e], reinterpret_cast<const LoadT*>(dataset_ptr + k));
+    }
+#pragma unroll
+    for (uint32_t e = 0; e < reg_nelem; e++) {
+      const uint32_t k = e * (kTeamSize * vlen) + elem_offset;
+      if (k >= dim) break;
+#pragma unroll
+      for (uint32_t v = 0; v < vlen; v += bytes_per_word) {
+        if (k + v >= dim) break;
+        const auto query_offset = device::swizzling<kDatasetBlockDim, vlen * kTeamSize>(k + v);
+        uint32_t query_word;
+        device::lds(query_word, query_smem_ptr + (query_offset & ~byte_offset_mask));
+        // Undo swizzling within the word so query bytes match dataset bytes.
+        const auto byte_displacement = query_offset & byte_offset_mask;
+        const auto byte_order = identity_byte_order ^ (byte_displacement * repeat_selector_digit);
+        query_word            = __byte_perm(query_word, 0, byte_order);
+        auto data_word        = reinterpret_cast<const uint32_t*>(&data[e])[v / bytes_per_word];
+        differing += __popc(query_word ^ data_word);
+        set_union += __popc(query_word | data_word);
+      }
+    }
+  }
+
+  // Calls may be conditional on candidate validity. All lanes of this team participate,
+  // while other teams in the warp may be inactive.
+  const auto team_lane = (threadIdx.x % raft::WarpSize) / kTeamSize * kTeamSize;
+  const auto mask      = (0xffffffffu >> (raft::WarpSize - kTeamSize)) << team_lane;
+#pragma unroll
+  for (uint32_t offset = kTeamSize / 2; offset > 0; offset /= 2) {
+    differing += raft::shfl_xor(differing, offset, kTeamSize, mask);
+    set_union += raft::shfl_xor(set_union, offset, kTeamSize, mask);
+  }
+  return set_union > 0 ? DistanceT(differing) / DistanceT(set_union) : DistanceT(0);
+}
+
+template <typename DescriptorT>
+RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_impl(
+  const typename DescriptorT::args_t args, const typename DescriptorT::INDEX_T dataset_index) ->
+  typename DescriptorT::DISTANCE_T
+{
+  return compute_distance_jaccard_worker_impl<DescriptorT>(
+    DescriptorT::ptr(args) + (static_cast<std::uint64_t>(DescriptorT::ld(args)) * dataset_index),
+    args.dim,
+    args.smem_ws_ptr);
 }
 
 template <typename DescriptorT>

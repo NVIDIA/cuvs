@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -37,9 +37,6 @@ compute_distance(const typename dataset_descriptor_base_t<DataT, IndexT, Distanc
                  bool valid,
                  uint32_t team_size_bits);
 
-template <typename DataT, typename IndexT, typename DistanceT>
-extern __device__ DistanceT compute_distance_per_thread(
-  const typename dataset_descriptor_base_t<DataT, IndexT, DistanceT>::args_t, IndexT);
 }  // namespace cuvs::neighbors::cagra::detail
 
 namespace cuvs::neighbors::detail {

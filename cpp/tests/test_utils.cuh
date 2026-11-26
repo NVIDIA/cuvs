@@ -195,6 +195,29 @@ testing::AssertionResult hostVecMatch(const std::vector<T>& expected_h,
   return testing::AssertionSuccess();
 }
 
+/** Like devArrMatchHost, but passes when at least `min_fraction` of the elements match. */
+template <typename T, typename L>
+testing::AssertionResult devArrMatchHostFraction(const T* expected_h,
+                                                 const T* actual_d,
+                                                 size_t size,
+                                                 L eq_compare,
+                                                 float min_fraction,
+                                                 cudaStream_t stream)
+{
+  std::vector<T> actual_h(size);
+  raft::update_host(actual_h.data(), actual_d, size, stream);
+  RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+  size_t matches = 0;
+  for (size_t i = 0; i < size; ++i) {
+    if (eq_compare(expected_h[i], actual_h[i])) { ++matches; }
+  }
+  if (static_cast<float>(matches) >= min_fraction * static_cast<float>(size)) {
+    return testing::AssertionSuccess();
+  }
+  return testing::AssertionFailure()
+         << matches << " of " << size << " values match, fewer than " << min_fraction * 100 << "%";
+}
+
 /*
  * @brief Helper function to compare diagonal values of a 2D matrix
  * @tparam T the data type of the arrays

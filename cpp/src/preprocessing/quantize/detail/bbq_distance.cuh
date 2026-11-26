@@ -5,32 +5,92 @@
 
 #pragma once
 
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
-#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/error.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resources.hpp>
+#include <raft/util/cudart_utils.hpp>
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <type_traits>
+#include <vector>
 
 namespace cuvs::preprocessing::quantize::bbq::detail {
+
+/** The read-only view of a BBQ dataset, as the algorithms take it. */
+template <typename DataT>
+using bbq_dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>;
+/** The read-only encoded rows of a BBQ dataset, as the kernels read them. */
+using bbq_encoding_view_t = typename bbq_dataset_view_t<float>::data_view_type;
+
+/**
+ * The asymmetric (document, query) layout pairs the distance kernels compute: a packed_1b document
+ * against a packed_4b (tensor core), transposed_2b or transposed_4b query, and a transposed_2b
+ * document against a transposed_4b query (SIMT).
+ */
+constexpr auto is_asymmetric_layout_pair(bbq_code_layout document, bbq_code_layout query) noexcept
+  -> bool
+{
+  return (document == bbq_code_layout::packed_1b &&
+          (query == bbq_code_layout::packed_4b || query == bbq_code_layout::transposed_2b ||
+           query == bbq_code_layout::transposed_4b)) ||
+         (document == bbq_code_layout::transposed_2b && query == bbq_code_layout::transposed_4b);
+}
+
+/**
+ * Checks that @p document and @p query hold the same quantizer up to the layout: the same metric
+ * and a bitwise-identical centroid and centroid norm, so that one of them can stand for both
+ * sides of a distance.
+ */
+template <typename DataT>
+void check_same_quantizer(raft::resources const& res,
+                          const quantizer_view<const DataT>& document,
+                          const quantizer_view<const DataT>& query)
+{
+  RAFT_EXPECTS(document.metric == query.metric,
+               "BBQ: the document and query datasets were encoded for different metrics");
+  RAFT_EXPECTS(document.dim() == query.dim(),
+               "BBQ: the document and query centroids have different dimensions");
+}
+
+/**
+ * Checks that @p document and @p query are the two sides of an asymmetric distance: the same rows,
+ * encoded against the same centroid for the same metric, in a supported pair of layouts.
+ */
+template <typename DataT>
+void check_asymmetric_pair(raft::resources const& res,
+                           const bbq_dataset_view_t<DataT>& document,
+                           const bbq_dataset_view_t<DataT>& query)
+{
+  const auto document_quantizer = document.manifest_view();
+  const auto query_quantizer    = query.manifest_view();
+  RAFT_EXPECTS(is_asymmetric_layout_pair(document_quantizer.layout, query_quantizer.layout),
+               "BBQ: (document layout %d, query layout %d) is not a supported asymmetric pair",
+               static_cast<int>(document_quantizer.layout),
+               static_cast<int>(query_quantizer.layout));
+  RAFT_EXPECTS(document.n_rows() == query.n_rows(),
+               "BBQ: the document and query datasets do not encode the same rows");
+  check_same_quantizer<DataT>(res, document_quantizer, query_quantizer);
+}
 
 #ifdef __CUDACC__
 
 // --------------------------------------------------------------------------
 // Layout geometry
-// Encoded row length of a quantizer, and the bit planes its layout slices a row into.
+// Encoded row length of an encoding, and the bit planes its layout slices a row into.
 // --------------------------------------------------------------------------
 
-template <typename DataT, typename IdxT>
-_RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(
-  const quantizer_view<DataT, IdxT>& dataset)
+_RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(const bbq_encoding_view_t& encoding)
 {
-  return get_encoded_row_length(dataset.dim(), dataset.layout);
+  return static_cast<uint32_t>(encoding.codes.extent(1));
 }
 
 /**
@@ -246,7 +306,7 @@ __device__ __forceinline__ uint32_t code_inner_product(const uint8_t* row_docume
 // --------------------------------------------------------------------------
 
 // Per-row dequantization terms needed by bbq_calculate_metric.
-// row_norm is read directly from the quantizer view instead,
+// row_norm is read directly from the encoding view instead,
 // since register pressure in the BBQ local-join kernels is already tight.
 struct bbq_dequant_factors {
   float lower;
@@ -255,35 +315,34 @@ struct bbq_dequant_factors {
   float corrections;
 };
 
-template <typename DataT, typename IdxT>
 __device__ __forceinline__ bbq_dequant_factors
-get_dequant_factors(const quantizer_view<DataT, IdxT>& quantizer, int64_t row)
+get_dequant_factors(const bbq_encoding_view_t& encoding, int64_t row)
 {
-  return bbq_dequant_factors{quantizer.lower_intervals(row),
-                             quantizer.dequant_delta(row),
-                             quantizer.dequant_sum_delta(row),
-                             quantizer.additional_corrections(row)};
+  return bbq_dequant_factors{encoding.lower_intervals(row),
+                             encoding.dequant_delta(row),
+                             encoding.dequant_sum_delta(row),
+                             encoding.additional_corrections(row)};
 }
 
 // Converts one raw BBQ dot product into a final (post-epilogue) float distance, given both
 // operands' precomputed dequant factors. Evaluated exactly once per matrix cell
-// dim/centroid_norm_sq/row_norm both come directly from quantizer_document/quantizer_query rather
+// centroid_norm_sq/row_norm come directly from quantizer/encoding_view rather
 // than being passed separately, since every caller reads them the same id-indexed way -- row_norm
 // is only read for CosineExpanded (skipped entirely otherwise).
 template <typename DataT, typename Index_t, typename DistEpilogue_t>
-__device__ __forceinline__ float bbq_calculate_metric(
-  uint32_t raw,
-  const bbq_dequant_factors& doc_factors,
-  const bbq_dequant_factors& query_factors,
-  const quantizer_view<DataT, int64_t>& quantizer_document,
-  const quantizer_view<DataT, int64_t>& quantizer_query,
-  cuvs::distance::DistanceType metric,
-  DistEpilogue_t dist_epilogue,
-  Index_t document_id,
-  Index_t query_id)
+__device__ __forceinline__ float bbq_calculate_metric(uint32_t raw,
+                                                      const bbq_dequant_factors& doc_factors,
+                                                      const bbq_dequant_factors& query_factors,
+                                                      const bbq_encoding_view_t& encoding_document,
+                                                      const bbq_encoding_view_t& encoding_query,
+                                                      const quantizer_view<const DataT>& quantizer,
+                                                      cuvs::distance::DistanceType metric,
+                                                      DistEpilogue_t dist_epilogue,
+                                                      Index_t document_id,
+                                                      Index_t query_id)
 {
   constexpr bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
-  const float dim                     = static_cast<float>(quantizer_document.dim());
+  const float dim                     = static_cast<float>(quantizer.dim());
 
   const float centered = dim * doc_factors.lower * query_factors.lower +
                          query_factors.lower * doc_factors.sum_delta +
@@ -299,11 +358,11 @@ __device__ __forceinline__ float bbq_calculate_metric(
       d = sqrtf(d);
     }
   } else if (metric == cuvs::distance::DistanceType::InnerProduct) {
-    d = -(centered + corrections - quantizer_document.centroid_norm_sq);
+    d = -(centered + corrections - quantizer.centroid_norm_sq(0));
   } else {  // CosineExpanded
     const float norm_product =
-      quantizer_document.row_norm(document_id) * quantizer_query.row_norm(query_id);
-    const float dot = centered + corrections - quantizer_document.centroid_norm_sq;
+      encoding_document.row_norm(document_id) * encoding_query.row_norm(query_id);
+    const float dot = centered + corrections - quantizer.centroid_norm_sq(0);
     d               = norm_product > 0.0f ? 1.0f - dot / sqrtf(norm_product) : 0.0f;
   }
   return dist_epilogue(d, document_id, query_id);

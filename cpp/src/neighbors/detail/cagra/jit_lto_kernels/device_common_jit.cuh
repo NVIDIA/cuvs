@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -152,7 +152,6 @@ RAFT_DEVICE_INLINE_FUNCTION void compute_distance_to_child_nodes_jit(
   }
   __syncthreads();
 
-  // Same inline distance pattern as search_single_cta_jit.cuh / device helpers
   const auto team_size_bits = smem_desc->team_size_bitshift_from_smem();
   const auto num_k          = knn_k * search_width;
   const auto max_i          = raft::round_up_safe(num_k, device::warp_size >> team_size_bits);
@@ -165,16 +164,16 @@ RAFT_DEVICE_INLINE_FUNCTION void compute_distance_to_child_nodes_jit(
     const bool valid_i  = STATIC_RESULT_POSITION ? (j < num_k) : (j < max_result_position);
     const auto child_id = valid_i ? result_child_indices_ptr[j] : invalid_index;
 
-    const auto per_thread =
-      (child_id != invalid_index)
-        ? cuvs::neighbors::cagra::detail::compute_distance_per_thread<DataT, IndexT, DistanceT>(
-            args, child_id)
-        : (lead_lane ? raft::upper_bound<DistanceT>() : 0);
-    const DistanceT child_dist = device::team_sum(per_thread, team_size_bits);
+    const bool valid_child = child_id != invalid_index;
+    const auto child_dist =
+      cuvs::neighbors::cagra::detail::compute_distance<DataT, IndexT, DistanceT>(
+        args, child_id, valid_child, team_size_bits);
     __syncwarp();
 
     // Store the distance
-    if (valid_i && lead_lane) { result_child_distances_ptr[j] = child_dist; }
+    if (valid_i && lead_lane) {
+      result_child_distances_ptr[j] = valid_child ? child_dist : raft::upper_bound<DistanceT>();
+    }
   }
 }
 

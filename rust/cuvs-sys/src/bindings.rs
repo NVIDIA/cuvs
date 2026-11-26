@@ -376,6 +376,7 @@ pub enum cuvsDistanceType {
     RusselRaoExpanded = 18,
     DiceExpanded = 19,
     BitwiseHamming = 20,
+    BitwiseJaccard = 21,
     Precomputed = 100,
 }
 #[repr(u32)]

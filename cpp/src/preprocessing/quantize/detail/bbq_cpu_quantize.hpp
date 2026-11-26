@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
 
@@ -45,9 +46,9 @@ using cuvs::preprocessing::quantize::bbq::get_encoded_row_length;
 /**
  * Host-resident mirror of the arrays in a BBQ quantizer. The library quantizer is device-only,
  * so the CPU reference implementation and its on-disk cache need their own staging type; it is
- * uploaded by copy_bbq_owning_storage_host_to_device below.
+ * uploaded by copy_bbq_quantizer_host_to_device and copy_bbq_encoding_host_to_device below.
  */
-struct host_quantizer_storage {
+struct host_encoding {
   raft::host_matrix<uint8_t, int64_t> codes;
   raft::host_vector<float, int64_t> lower_intervals;
   raft::host_vector<float, int64_t> upper_intervals;
@@ -67,7 +68,7 @@ struct host_quantizer_storage {
  * (deriving them there would need a stream to allocate with), so they are computed here, where
  * the intervals are already host-resident.
  */
-inline void derive_dequant_factors(host_quantizer_storage& q)
+inline void derive_dequant_factors(host_encoding& q)
 {
   const float scale = 1.0f / static_cast<float>((uint32_t{1} << get_bit_width(q.layout)) - 1);
   for (int64_t i = 0; i < q.lower_intervals.extent(0); ++i) {
@@ -99,7 +100,7 @@ inline double loss(
   const double a        = interval[0];
   const double b        = interval[1];
   const double step     = (b - a) / (points - 1.0);
-  const double step_inv = 1.0 / step;
+  const double step_inv = a == b ? 0.0 : 1.0 / step;
   double xe             = 0.0;
   double e              = 0.0;
   for (double xi : vector) {
@@ -117,13 +118,15 @@ inline void optimize_intervals(float interval[2],
                                float lambda = kDefaultLambda,
                                int iters    = kDefaultIters)
 {
-  double initial_loss = loss(vector, interval, points, norm2, lambda);
-  const float scale   = (1.0f - lambda) / norm2;
+  const float scale = (1.0f - lambda) / norm2;
   if (!std::isfinite(scale)) { return; }
+  double initial_loss = loss(vector, interval, points, norm2, lambda);
   for (int i = 0; i < iters; ++i) {
-    const float a        = interval[0];
-    const float b        = interval[1];
+    const float a = interval[0];
+    const float b = interval[1];
+    if (a == b) { return; }
     const float step_inv = (points - 1.0f) / (b - a);
+    if (!std::isfinite(step_inv)) { return; }
     double daa = 0.0, dab = 0.0, dbb = 0.0, dax = 0.0, dbx = 0.0;
     for (float xi : vector) {
       const float k =
@@ -193,14 +196,15 @@ inline row_result scalar_quantize(std::vector<float>& vector,
     static_cast<float>(clamp(kMinimumMseGrid[bits - 1][1] * vec_std + vec_mean, min, max));
   optimize_intervals(interval, vector, norm2, points);
 
-  const float n_steps = static_cast<float>((1 << bits) - 1);
-  const float a       = interval[0];
-  const float b       = interval[1];
-  const float step    = (b - a) / n_steps;
-  int sum_query       = 0;
+  const float n_steps    = static_cast<float>((1 << bits) - 1);
+  const float a          = interval[0];
+  const float b          = interval[1];
+  const float step       = (b - a) / n_steps;
+  const bool eq_interval = !(step > 0.0f);
+  int sum_query          = 0;
   for (int h = 0; h < n; ++h) {
     const float xi       = static_cast<float>(clamp(vector[h], a, b));
-    const int assignment = static_cast<int>(round((xi - a) / step));
+    const int assignment = eq_interval ? 0 : static_cast<int>(round((xi - a) / step));
     sum_query += assignment;
     destination[h] = static_cast<uint8_t>(assignment);
   }
@@ -236,6 +240,8 @@ inline std::vector<uint8_t> pack_codes(const std::vector<uint8_t>& unpacked,
       for (size_t i = 0; i < pairs; ++i) {
         output[i] = static_cast<uint8_t>((input[2 * i] << 4) | (input[2 * i + 1] & 0x0f));
       }
+      // An odd dim leaves the low nibble of its last byte zero, like Lucene's padded dimensions.
+      if (dim % 2 != 0) { output[pairs] = static_cast<uint8_t>(input[dim - 1] << 4); }
       continue;
     }
     for (size_t d = 0; d < dim; ++d) {
@@ -258,11 +264,11 @@ inline std::vector<uint8_t> pack_codes(const std::vector<uint8_t>& unpacked,
   return packed;
 }
 
-inline host_quantizer_storage quantize(const float* data,
-                                       int64_t n_rows,
-                                       int64_t dim,
-                                       cuvs::distance::DistanceType metric,
-                                       bbq_code_layout layout = bbq_code_layout::packed_8b)
+inline host_encoding quantize(const float* data,
+                              int64_t n_rows,
+                              int64_t dim,
+                              cuvs::distance::DistanceType metric,
+                              bbq_code_layout layout = bbq_code_layout::packed_8b)
 {
   const auto bits      = static_cast<uint8_t>(get_bit_width(layout));
   const bool euclidean = metric == cuvs::distance::DistanceType::L2Expanded ||
@@ -310,37 +316,48 @@ inline host_quantizer_storage quantize(const float* data,
     n_rows, get_encoded_row_length(static_cast<uint32_t>(dim), layout));
   std::copy(packed.begin(), packed.end(), codes.data_handle());
 
-  host_quantizer_storage out{std::move(codes),
-                             std::move(lower_intervals),
-                             std::move(upper_intervals),
-                             std::move(additional_corrections),
-                             std::move(quantized_component_sums),
-                             std::move(centroid),
-                             raft::make_host_vector<float, int64_t>(n_rows),
-                             raft::make_host_vector<float, int64_t>(n_rows),
-                             std::move(row_norm),
-                             layout,
-                             metric,
-                             centroid_norm_sq};
+  host_encoding out{std::move(codes),
+                    std::move(lower_intervals),
+                    std::move(upper_intervals),
+                    std::move(additional_corrections),
+                    std::move(quantized_component_sums),
+                    std::move(centroid),
+                    raft::make_host_vector<float, int64_t>(n_rows),
+                    raft::make_host_vector<float, int64_t>(n_rows),
+                    std::move(row_norm),
+                    layout,
+                    metric,
+                    centroid_norm_sq};
   derive_dequant_factors(out);
   return out;
 }
 
 /** The CPU reference quantizer works in float, so it only ever feeds a float-valued dataset. */
-template <typename IdxT>
-auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
-                                            host_quantizer_storage const& host_storage) ->
-  typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type
+inline void copy_bbq_quantizer_host_to_device(
+  raft::resources const& res,
+  host_encoding const& host_storage,
+  cuvs::preprocessing::quantize::bbq::quantizer_view<float> device)
 {
-  using device_storage =
-    typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type;
+  RAFT_EXPECTS(device.centroid.extent(0) == host_storage.centroid.extent(0),
+               "the device BBQ quantizer does not match the dimension of the host one");
   auto stream = raft::resource::get_cuda_stream(res);
-  device_storage device{res,
-                        static_cast<IdxT>(host_storage.codes.extent(0)),
-                        static_cast<uint32_t>(host_storage.centroid.extent(0)),
-                        host_storage.layout,
-                        host_storage.metric};
+  raft::copy(device.centroid.data_handle(),
+             host_storage.centroid.data_handle(),
+             device.centroid.size(),
+             stream);
+  raft::copy(device.centroid_norm_sq.data_handle(), &host_storage.centroid_norm_sq, 1, stream);
+}
 
+/** Uploads the per-row arrays of @p host_storage that make up the encoded rows. */
+inline void copy_bbq_encoding_host_to_device(
+  raft::resources const& res,
+  host_encoding const& host_storage,
+  cuvs::device_bbq_dataset<float, int64_t>::data_view_type device)
+{
+  RAFT_EXPECTS(device.codes.extent(0) == host_storage.codes.extent(0) &&
+                 device.codes.extent(1) == host_storage.codes.extent(1),
+               "the device BBQ encoding does not match the shape of the host one");
+  auto stream = raft::resource::get_cuda_stream(res);
   raft::copy(
     device.codes.data_handle(), host_storage.codes.data_handle(), device.codes.size(), stream);
   raft::copy(device.lower_intervals.data_handle(),
@@ -359,10 +376,6 @@ auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
              host_storage.quantized_component_sums.data_handle(),
              device.quantized_component_sums.size(),
              stream);
-  raft::copy(device.centroid.data_handle(),
-             host_storage.centroid.data_handle(),
-             device.centroid.size(),
-             stream);
   raft::copy(device.dequant_delta.data_handle(),
              host_storage.dequant_delta.data_handle(),
              device.dequant_delta.size(),
@@ -375,22 +388,23 @@ auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
              host_storage.row_norm.data_handle(),
              device.row_norm.size(),
              stream);
-  device.centroid_norm_sq = host_storage.centroid_norm_sq;
-  return device;
 }
 
-template <typename IdxT>
-auto make_device_bbq_dataset(raft::resources const& res,
-                             std::vector<host_quantizer_storage> const& host)
-  -> cuvs::neighbors::device_bbq_dataset<float, IdxT>
+/** Creates a device BBQ dataset from a host encoding. */
+inline auto to_device_bbq_dataset(raft::resources const& res, host_encoding const& host_storage)
+  -> cuvs::device_bbq_dataset<float, int64_t>
 {
-  RAFT_EXPECTS(host.size() != 0, "host BBQ dataset has no storage");
-  cuvs::neighbors::device_bbq_dataset<float, IdxT> device{
-    copy_bbq_owning_storage_host_to_device<IdxT>(res, host[0])};
-  for (std::size_t i = 1; i < host.size(); ++i) {
-    device.add_quantizer(copy_bbq_owning_storage_host_to_device<IdxT>(res, host[i]));
-  }
-  return device;
+  cuvs::preprocessing::quantize::bbq::params params;
+  params.layout       = host_storage.layout;
+  params.metric       = host_storage.metric;
+  auto device_dataset = cuvs::preprocessing::quantize::bbq::make_device_bbq_dataset(
+    res,
+    params,
+    host_storage.codes.extent(0),
+    static_cast<uint32_t>(host_storage.centroid.extent(0)));
+  copy_bbq_encoding_host_to_device(res, host_storage, device_dataset.data_view());
+  copy_bbq_quantizer_host_to_device(res, host_storage, device_dataset.manifest_view());
+  return device_dataset;
 }
 
 struct bbq_layout_token {
@@ -422,10 +436,8 @@ inline auto parse_bbq_layout_token(std::string_view token) -> bbq_code_layout
 }
 
 /**
- * Reject layout pairs the local-join kernels cannot serve. Without this the library either
- * silently falls back to a symmetric join on the first quantizer (which looks like a working
- * asymmetric run), or reaches an unsupported-layout failure deep inside GNND::build. Must be kept
- * in sync with the dispatch in GNND<Data_t, Index_t>::local_join (nn_descent.cuh).
+ * Reject layout pairs NN-Descent cannot serve. Must be kept in sync
+ * with the dispatch in GNND<Data_t, Index_t>::local_join (nn_descent.cuh).
  */
 inline void validate_layout_pair(bbq_code_layout query_layout, bbq_code_layout doc_layout)
 {
@@ -470,7 +482,7 @@ inline auto cache_path(int64_t n_rows,
 
 /** Visits every raw buffer of @p q in a fixed order; this is the on-disk layout. */
 template <typename OpT>
-void for_each_buffer(host_quantizer_storage& q, OpT op)
+void for_each_buffer(host_encoding& q, OpT op)
 {
   op(q.codes.data_handle(), q.codes.size() * sizeof(uint8_t));
   op(q.lower_intervals.data_handle(), q.lower_intervals.size() * sizeof(float));
@@ -484,26 +496,24 @@ void for_each_buffer(host_quantizer_storage& q, OpT op)
 }
 
 /** Allocates the arrays of the given shape, leaving their contents undefined. */
-inline auto make_host_quantizer_storage(int64_t n_rows,
-                                        int64_t dim,
-                                        bbq_code_layout layout,
-                                        cuvs::distance::DistanceType metric)
-  -> host_quantizer_storage
+inline auto make_host_encoding(int64_t n_rows,
+                               int64_t dim,
+                               bbq_code_layout layout,
+                               cuvs::distance::DistanceType metric) -> host_encoding
 {
-  return host_quantizer_storage{
-    raft::make_host_matrix<uint8_t, int64_t>(
-      n_rows, get_encoded_row_length(static_cast<uint32_t>(dim), layout)),
-    raft::make_host_vector<float, int64_t>(n_rows),
-    raft::make_host_vector<float, int64_t>(n_rows),
-    raft::make_host_vector<float, int64_t>(n_rows),
-    raft::make_host_vector<int32_t, int64_t>(n_rows),
-    raft::make_host_vector<float, int64_t>(dim),
-    raft::make_host_vector<float, int64_t>(n_rows),
-    raft::make_host_vector<float, int64_t>(n_rows),
-    raft::make_host_vector<float, int64_t>(n_rows),
-    layout,
-    metric,
-    0.0f};
+  return host_encoding{raft::make_host_matrix<uint8_t, int64_t>(
+                         n_rows, get_encoded_row_length(static_cast<uint32_t>(dim), layout)),
+                       raft::make_host_vector<float, int64_t>(n_rows),
+                       raft::make_host_vector<float, int64_t>(n_rows),
+                       raft::make_host_vector<float, int64_t>(n_rows),
+                       raft::make_host_vector<int32_t, int64_t>(n_rows),
+                       raft::make_host_vector<float, int64_t>(dim),
+                       raft::make_host_vector<float, int64_t>(n_rows),
+                       raft::make_host_vector<float, int64_t>(n_rows),
+                       raft::make_host_vector<float, int64_t>(n_rows),
+                       layout,
+                       metric,
+                       0.0f};
 }
 
 /** Reads the codes back if the file is present and has exactly the expected length. */
@@ -511,11 +521,11 @@ inline auto cache_load(const std::string& path,
                        int64_t n_rows,
                        int64_t dim,
                        bbq_code_layout layout,
-                       cuvs::distance::DistanceType metric) -> std::optional<host_quantizer_storage>
+                       cuvs::distance::DistanceType metric) -> std::optional<host_encoding>
 {
   std::ifstream f(path, std::ios::binary | std::ios::ate);
   if (!f) { return std::nullopt; }
-  auto q               = make_host_quantizer_storage(n_rows, dim, layout, metric);
+  auto q               = make_host_encoding(n_rows, dim, layout, metric);
   std::streamoff bytes = 0;
   for_each_buffer(q, [&bytes](void*, size_t n) { bytes += static_cast<std::streamoff>(n); });
   if (f.tellg() != bytes) {
@@ -541,7 +551,7 @@ inline auto cache_load(const std::string& path,
 }
 
 /** Writes via a temporary so an interrupted run cannot leave a truncated cache behind. */
-inline void cache_store(const std::string& path, host_quantizer_storage& q)
+inline void cache_store(const std::string& path, host_encoding& q)
 {
   const std::string tmp = path + ".tmp";
   {
@@ -572,7 +582,7 @@ inline auto quantize_cached(const float* rows,
                             int64_t n_rows,
                             int64_t dim,
                             bbq_code_layout layout,
-                            cuvs::distance::DistanceType metric) -> host_quantizer_storage
+                            cuvs::distance::DistanceType metric) -> host_encoding
 {
   const auto path = cache_path(n_rows, dim, layout, metric);
   if (auto cached = cache_load(path, n_rows, dim, layout, metric)) { return std::move(*cached); }
@@ -582,30 +592,23 @@ inline auto quantize_cached(const float* rows,
 }
 
 /**
- * Quantize host-resident @p rows and upload the codes, ready for the BBQ NN-Descent build.
+ * Quantize host-resident @p rows in @p layout and upload the codes, ready for a BBQ build.
  *
- * `query_token == doc_token` produces a single quantizer and a symmetric join; differing tokens
- * produce two quantizers and an asymmetric join, where the wider codes serve the query side.
+ * An asymmetric build quantizes the rows twice, once per side: every encoding takes its centroid
+ * from the host mean of the rows, so the two hold the same one.
  */
 inline auto quantize_to_device(raft::resources const& res,
                                const float* rows,
                                int64_t n_rows,
                                int64_t dim,
                                cuvs::distance::DistanceType metric,
-                               bbq_code_layout query_layout,
-                               bbq_code_layout doc_layout)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+                               bbq_code_layout layout) -> cuvs::device_bbq_dataset<float, int64_t>
 {
-  validate_layout_pair(query_layout, doc_layout);
-  std::vector<host_quantizer_storage> host;
-  host.push_back(quantize_cached(rows, n_rows, dim, query_layout, metric));
-  if (doc_layout != query_layout) {
-    host.push_back(quantize_cached(rows, n_rows, dim, doc_layout, metric));
-  }
-  auto device = make_device_bbq_dataset<int64_t>(res, host);
-  // The uploads are stream-ordered against `host`, which dies with this frame.
+  const auto encoding = quantize_cached(rows, n_rows, dim, layout, metric);
+  auto dataset        = to_device_bbq_dataset(res, encoding);
+  // The uploads are stream-ordered against the host encoding, which dies with this frame.
   raft::resource::sync_stream(res);
-  return device;
+  return dataset;
 }
 
 inline auto quantize_to_device(raft::resources const& res,
@@ -613,16 +616,8 @@ inline auto quantize_to_device(raft::resources const& res,
                                int64_t n_rows,
                                int64_t dim,
                                cuvs::distance::DistanceType metric,
-                               std::string_view query_token,
-                               std::string_view doc_token)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+                               std::string_view token) -> cuvs::device_bbq_dataset<float, int64_t>
 {
-  return quantize_to_device(res,
-                            rows,
-                            n_rows,
-                            dim,
-                            metric,
-                            parse_bbq_layout_token(query_token),
-                            parse_bbq_layout_token(doc_token));
+  return quantize_to_device(res, rows, n_rows, dim, metric, parse_bbq_layout_token(token));
 }
 }  // namespace cuvs::preprocessing::quantize::bbq::detail
