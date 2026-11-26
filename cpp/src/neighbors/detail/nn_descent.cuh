@@ -42,6 +42,7 @@
 
 #include <mma.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 #include <numeric>
@@ -220,69 +221,40 @@ constexpr int WMMA_M                    = 16;
 constexpr int WMMA_N                    = 16;
 constexpr int WMMA_K                    = 16;
 
-template <typename Data_t>
-__device__ __forceinline__ void load_vec(Data_t* vec_buffer,
-                                         const Data_t* d_vec,
+// Vectorized float/half calls rely on the alignment and row-stride checks in local_join().
+template <bool Vectorized = false, typename DstT, typename SrcT>
+__device__ __forceinline__ void load_vec(DstT* vec_buffer,
+                                         const SrcT* d_vec,
                                          const int load_dims,
                                          const int padding_dims,
                                          const int lane_id)
 {
-  if constexpr (std::is_same_v<Data_t, float> or std::is_same_v<Data_t, uint8_t> or
-                std::is_same_v<Data_t, int8_t>) {
-    constexpr int num_load_elems_per_warp = raft::warp_size();
-    for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-      int idx = step * num_load_elems_per_warp + lane_id;
-      if (idx < load_dims) {
+  constexpr bool convert_pair =
+    Vectorized && std::is_same_v<DstT, __half> && std::is_same_v<SrcT, float>;
+  constexpr bool copy_halves =
+    Vectorized && std::is_same_v<DstT, __half> && std::is_same_v<SrcT, __half>;
+  constexpr int width          = convert_pair ? 2 : (copy_halves ? 4 : 1);
+  constexpr int elems_per_warp = raft::warp_size() * width;
+  for (int step = 0; step < raft::ceildiv(padding_dims, elems_per_warp); step++) {
+    int idx = step * elems_per_warp + lane_id * width;
+    if (idx + width <= load_dims) {
+      if constexpr (convert_pair) {
+        float2 value = *reinterpret_cast<const float2*>(d_vec + idx);
+        *reinterpret_cast<__half2*>(vec_buffer + idx) = __floats2half2_rn(value.x, value.y);
+      } else if constexpr (copy_halves) {
+        *reinterpret_cast<float2*>(vec_buffer + idx) =
+          *reinterpret_cast<const float2*>(d_vec + idx);
+      } else {
         vec_buffer[idx] = d_vec[idx];
-      } else if (idx < padding_dims) {
-        vec_buffer[idx] = 0.0f;
       }
-    }
-  }
-  if constexpr (std::is_same_v<Data_t, __half>) {
-    if ((size_t)d_vec % sizeof(float2) == 0 && (size_t)vec_buffer % sizeof(float2) == 0 &&
-        load_dims % 4 == 0 && padding_dims % 4 == 0) {
-      constexpr int num_load_elems_per_warp = raft::warp_size() * 4;
-#pragma unroll
-      for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-        int idx_in_vec = step * num_load_elems_per_warp + lane_id * 4;
-        if (idx_in_vec + 4 <= load_dims) {
-          *(float2*)(vec_buffer + idx_in_vec) = *(float2*)(d_vec + idx_in_vec);
-        } else if (idx_in_vec + 4 <= padding_dims) {
-          *(float2*)(vec_buffer + idx_in_vec) = float2({0.0f, 0.0f});
-        }
+    } else if (idx + width <= padding_dims) {
+      if constexpr (convert_pair) {
+        *reinterpret_cast<__half2*>(vec_buffer + idx) = __float2half2_rn(0.0f);
+      } else if constexpr (copy_halves) {
+        *reinterpret_cast<float2*>(vec_buffer + idx) = float2{0.0f, 0.0f};
+      } else {
+        vec_buffer[idx] = DstT{0};
       }
-    } else {
-      constexpr int num_load_elems_per_warp = raft::warp_size();
-      for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-        int idx = step * num_load_elems_per_warp + lane_id;
-        if (idx < load_dims) {
-          vec_buffer[idx] = d_vec[idx];
-        } else if (idx < padding_dims) {
-          vec_buffer[idx] = 0.0f;
-        }
-      }
-    }
-  }
-}
-
-/** Converting load: loads Data_t from global memory into __half shared memory buffer. */
-template <typename Data_t>
-  requires(!std::is_same_v<Data_t, __half>)
-__device__ __forceinline__ void load_vec(__half* vec_buffer,
-                                         const Data_t* d_vec,
-                                         const int load_dims,
-                                         const int padding_dims,
-                                         const int lane_id)
-{
-  constexpr int num_load_elems_per_warp = raft::warp_size();
-  const __half half_0                   = __float2half(0.0f);
-  for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-    int idx = step * num_load_elems_per_warp + lane_id;
-    if (idx < load_dims) {
-      vec_buffer[idx] = d_vec[idx];
-    } else if (idx < padding_dims) {
-      vec_buffer[idx] = half_0;
     }
   }
 }
@@ -878,7 +850,10 @@ __launch_bounds__(BLOCK_SIZE)
 #endif
 }
 
-template <typename Data_t,
+// Vectorized selects 8-byte tile loads; local_join() sets it only when every row is 8-byte aligned,
+// and launches the scalar-load variant otherwise.
+template <bool Vectorized,
+          typename Data_t,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
           typename DistEpilogue_t>
@@ -915,13 +890,19 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr int APAD           = 8;
   constexpr int BPAD           = 8;
   constexpr int TILE_COL_WIDTH = 128;
-  __shared__ __half s_nv[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + APAD];  // New vectors
-  __shared__ __half s_ov[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + BPAD];  // Old vectors
-  static_assert(sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES <=
-                sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + BPAD));
-  // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
-  float* s_distances    = (float*)&s_ov[0][0];
-  int* s_unique_counter = (int*)&s_ov[0][0];
+  // The vector tiles and the two distance blocks have disjoint lifetimes.
+  // Reuse the arena after the final feature-loop barrier to release both accumulators
+  // before metric conversion and graph insertion.
+  constexpr size_t TILE_BYTES = sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + APAD);
+  constexpr size_t DIST_BYTES =
+    align32::roundUp(sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES);
+  static_assert(APAD == BPAD);
+  __shared__ __align__(32) unsigned char s_arena[std::max(2 * TILE_BYTES, 2 * DIST_BYTES)];
+  auto s_nv          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + APAD]>(s_arena);  // New vectors
+  auto s_ov          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + BPAD]>(s_arena + TILE_BYTES);
+  float* s_distances = reinterpret_cast<float*>(s_arena);
+  float* s_distances_old = reinterpret_cast<float*>(s_arena + DIST_BYTES);
+  __shared__ int s_unique_counter[2];
 
   if (threadIdx.x == 0) {
     s_unique_counter[0] = 0;
@@ -980,31 +961,46 @@ __launch_bounds__(BLOCK_SIZE)
 
   wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
   wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
-  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+  // c_nn: new x new (phase 1), c_no: new x old (phase 2). Both phases share one pass over the
+  // feature dimension so each new-vector tile is gathered from global memory only once.
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_nn;
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_no;
+  const bool has_old = list_old_size > 0;
   // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
   // starts past either extent only produces cells calculate_metric discards -- skip its MMA and
   // its store. Staging is cooperative, so this must not skip the barriers.
   const bool warp_active = warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_new_size;
+  const bool warp_active_2 =
+    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
   if (metric != cuvs::distance::DistanceType::BitwiseHamming &&
       metric != cuvs::distance::DistanceType::BitwiseJaccard) {
-    wmma::fill_fragment(c_frag, 0.0);
+    wmma::fill_fragment(c_nn, 0.0);
+    wmma::fill_fragment(c_no, 0.0);
 
     for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
       int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
                              ? data_dim - step * TILE_COL_WIDTH
                              : TILE_COL_WIDTH;
-#pragma unroll
       for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
         int idx = i * num_warps + warp_id;
         if (idx < list_new_size) {
           size_t neighbor_id = new_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
           // converted to fp16 on-the-fly while loading
-          load_vec(s_nv[idx],
-                   data + idx_in_data + step * TILE_COL_WIDTH,
-                   num_load_elems,
-                   TILE_COL_WIDTH,
-                   lane_id);
+          load_vec<Vectorized>(s_nv[idx],
+                               data + idx_in_data + step * TILE_COL_WIDTH,
+                               num_load_elems,
+                               TILE_COL_WIDTH,
+                               lane_id);
+        }
+        if (idx < list_old_size) {
+          size_t neighbor_id = old_neighbors[idx];
+          size_t idx_in_data = neighbor_id * data_dim;
+          load_vec<Vectorized>(s_ov[idx],
+                               data + idx_in_data + step * TILE_COL_WIDTH,
+                               num_load_elems,
+                               TILE_COL_WIDTH,
+                               lane_id);
         }
       }
       __syncthreads();
@@ -1014,15 +1010,36 @@ __launch_bounds__(BLOCK_SIZE)
           a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
         wmma::load_matrix_sync(
           b_frag, s_nv[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
-        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+        wmma::mma_sync(c_nn, a_frag, b_frag, c_nn);
       }
+      // A separate loop rather than a per-accumulator branch inside the one above: with the guard
+      // hoisted out, each loop body is straight-line code the compiler can software-pipeline,
+      // which is worth more than reusing a_frag.
+      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
+        wmma::load_matrix_sync(
+          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
+        wmma::load_matrix_sync(
+          b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
+        wmma::mma_sync(c_no, a_frag, b_frag, c_no);
+      }
+      // Shared memory is only read inside the k loop; one barrier before the next tile load
+      // overwrites s_nv / s_ov (or s_distances, which aliases them, is written) is enough.
       __syncthreads();
     }
 
+    // The final loop barrier completed every tile read. Both products can now replace
+    // the tiles without keeping either accumulator live through the epilogues.
     if (warp_active) {
       wmma::store_matrix_sync(
         s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-        c_frag,
+        c_nn,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
+    if (warp_active_2) {
+      wmma::store_matrix_sync(
+        s_distances_old + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_no,
         SKEWED_MAX_NUM_BI_SAMPLES,
         wmma::mem_row_major);
     }
@@ -1050,72 +1067,9 @@ __launch_bounds__(BLOCK_SIZE)
     }
   }
 
-  if (!list_old_size) return;
+  if (!has_old) return;
 
-  __syncthreads();
-
-  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
-  // starts past either extent only produces cells calculate_metric discards
-  const bool warp_active_2 =
-    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
-  if (metric != cuvs::distance::DistanceType::BitwiseHamming &&
-      metric != cuvs::distance::DistanceType::BitwiseJaccard) {
-    wmma::fill_fragment(c_frag, 0.0);
-    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
-      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
-                             ? data_dim - step * TILE_COL_WIDTH
-                             : TILE_COL_WIDTH;
-      if (TILE_COL_WIDTH < data_dim) {
-#pragma unroll
-        for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-          int idx = i * num_warps + warp_id;
-          if (idx < list_new_size) {
-            size_t neighbor_id = new_neighbors[idx];
-            size_t idx_in_data = neighbor_id * data_dim;
-            load_vec(s_nv[idx],
-                     data + idx_in_data + step * TILE_COL_WIDTH,
-                     num_load_elems,
-                     TILE_COL_WIDTH,
-                     lane_id);
-          }
-        }
-      }
-#pragma unroll
-      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-        int idx = i * num_warps + warp_id;
-        if (idx < list_old_size) {
-          size_t neighbor_id = old_neighbors[idx];
-          size_t idx_in_data = neighbor_id * data_dim;
-          load_vec(s_ov[idx],
-                   data + idx_in_data + step * TILE_COL_WIDTH,
-                   num_load_elems,
-                   TILE_COL_WIDTH,
-                   lane_id);
-        }
-      }
-      __syncthreads();
-
-      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
-        wmma::load_matrix_sync(
-          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
-        wmma::load_matrix_sync(
-          b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
-        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
-      }
-      __syncthreads();
-    }
-
-    if (warp_active_2) {
-      wmma::store_matrix_sync(
-        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-        c_frag,
-        SKEWED_MAX_NUM_BI_SAMPLES,
-        wmma::mem_row_major);
-    }
-    __syncthreads();
-  }
-
-  calculate_metric(s_distances,
+  calculate_metric(s_distances_old,
                    new_neighbors,
                    list_new_size,
                    old_neighbors,
@@ -1137,11 +1091,14 @@ __launch_bounds__(BLOCK_SIZE)
                                  std::numeric_limits<DistData_t>::max()};
     if (idx_in_list < MAX_NUM_BI_SAMPLES) {
       auto temp_min_item =
-        get_min_item(s_list[idx_in_list], idx_in_list, old_neighbors, s_distances);
+        get_min_item(s_list[idx_in_list], idx_in_list, old_neighbors, s_distances_old);
       if (temp_min_item.dist() < min_elem.dist()) { min_elem = temp_min_item; }
     } else {
-      auto temp_min_item = get_min_item(
-        s_list[idx_in_list], idx_in_list - MAX_NUM_BI_SAMPLES, new_neighbors, s_distances, false);
+      auto temp_min_item = get_min_item(s_list[idx_in_list],
+                                        idx_in_list - MAX_NUM_BI_SAMPLES,
+                                        new_neighbors,
+                                        s_distances_old,
+                                        false);
       if (temp_min_item.dist() < min_elem.dist()) { min_elem = temp_min_item; }
     }
 
@@ -2318,7 +2275,27 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
   bool use_simt = (std::is_same_v<input_t, float> && !use_fp16_dist) ||
                   build_config_.metric == cuvs::distance::DistanceType::L1;
 
+  auto launch_wmma = [&](auto vectorized, auto* typed_ptr) {
+    local_join_kernel_wmma<decltype(vectorized)::value>
+      <<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
+                                         h_rev_graph_new_.data_handle(),
+                                         d_list_sizes_new_.data_handle(),
+                                         h_graph_old_.data_handle(),
+                                         h_rev_graph_old_.data_handle(),
+                                         d_list_sizes_old_.data_handle(),
+                                         NUM_SAMPLES,
+                                         typed_ptr,
+                                         ndim_,
+                                         graph_buffer_.data_handle(),
+                                         dists_buffer_.data_handle(),
+                                         d_locks_.data_handle(),
+                                         l2_norms_.data_handle(),
+                                         build_config_.metric,
+                                         dist_epilogue);
+  };
+
   auto launch_kernel = [&](auto* typed_ptr) {
+    using launch_data_t = std::remove_cv_t<std::remove_pointer_t<decltype(typed_ptr)>>;
     if (use_simt) {
       local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
                                                                h_rev_graph_new_.data_handle(),
@@ -2335,22 +2312,21 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
                                                                l2_norms_.data_handle(),
                                                                build_config_.metric,
                                                                dist_epilogue);
+    } else if constexpr (std::is_same_v<launch_data_t, float> ||
+                         std::is_same_v<launch_data_t, __half>) {
+      // The vectorized loads need 8-byte-aligned rows: an aligned base pointer and a row stride
+      // that is a multiple of 8 bytes (this also makes the last partial tile whole loads).
+      bool const aligned =
+        reinterpret_cast<size_t>(typed_ptr) % sizeof(float2) == 0 &&
+        (static_cast<size_t>(ndim_) * sizeof(launch_data_t)) % sizeof(float2) == 0;
+      if (aligned) {
+        launch_wmma(std::true_type{}, typed_ptr);
+      } else {
+        launch_wmma(std::false_type{}, typed_ptr);
+      }
     } else {
-      local_join_kernel_wmma<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                                               h_rev_graph_new_.data_handle(),
-                                                               d_list_sizes_new_.data_handle(),
-                                                               h_graph_old_.data_handle(),
-                                                               h_rev_graph_old_.data_handle(),
-                                                               d_list_sizes_old_.data_handle(),
-                                                               NUM_SAMPLES,
-                                                               typed_ptr,
-                                                               ndim_,
-                                                               graph_buffer_.data_handle(),
-                                                               dists_buffer_.data_handle(),
-                                                               d_locks_.data_handle(),
-                                                               l2_norms_.data_handle(),
-                                                               build_config_.metric,
-                                                               dist_epilogue);
+      // Byte types load one element per lane either way, so they need no unaligned variant.
+      launch_wmma(std::true_type{}, typed_ptr);
     }
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   };
