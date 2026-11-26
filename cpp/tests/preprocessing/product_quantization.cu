@@ -322,9 +322,12 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromHost)
     dataset.data_handle()[i] = static_cast<float>(i % 31) / 31.0f;
   }
 
-  cuvs::neighbors::vpq_params params{
-    .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
-  auto vpq = make_vpq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
+  cuvs::preprocessing::quantize::pq::params params;
+  params.pq_bits       = 4;
+  params.pq_dim        = 4;
+  params.vq_n_centers  = 1;
+  params.kmeans_params = cuvs::cluster::kmeans::balanced_params{.n_iters = 2};
+  auto vpq = make_device_pq_dataset(handle, params, raft::make_const_mdspan(dataset.view()));
   raft::resource::sync_stream(handle);
 
   EXPECT_EQ(vpq.n_rows(), n_rows);
@@ -354,9 +357,12 @@ TEST(ProductQuantizationTestF, MakeVpqDatasetFromPaddedView)
   auto padded = raft::make_device_strided_matrix_view<const float, int64_t, raft::row_major>(
     device_rows.data_handle(), n_rows, dim, stride);
 
-  cuvs::neighbors::vpq_params params{
-    .pq_bits = 4, .pq_dim = 4, .vq_n_centers = 1, .kmeans_n_iters = 2};
-  auto vpq = make_vpq_dataset(handle, params, padded);
+  cuvs::preprocessing::quantize::pq::params params;
+  params.pq_bits       = 4;
+  params.pq_dim        = 4;
+  params.vq_n_centers  = 1;
+  params.kmeans_params = cuvs::cluster::kmeans::balanced_params{.n_iters = 2};
+  auto vpq             = make_device_pq_dataset(handle, params, padded);
   raft::resource::sync_stream(handle);
 
   EXPECT_EQ(vpq.n_rows(), n_rows);

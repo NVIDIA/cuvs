@@ -9,6 +9,7 @@
 #include <cuvs/core/dataset.h>
 #include <cuvs/neighbors/cagra.h>
 #include <cuvs/preprocessing/quantize/bbq.h>
+#include <cuvs/preprocessing/quantize/pq.h>
 #include <dlpack/dlpack.h>
 
 #include <cuda_runtime.h>
@@ -72,13 +73,13 @@ TEST(DatasetC, CreateDestroy)
   ASSERT_EQ(cuvsDatasetDestroy(dataset), CUVS_SUCCESS);
 }
 
-TEST(DatasetC, PQDatasetParamsCreateDestroy)
+TEST(DatasetC, ProductQuantizerParamsCreateDestroy)
 {
-  cuvsPqParams_t params;
-  ASSERT_EQ(cuvsPqParamsCreate(&params), CUVS_SUCCESS);
+  cuvsProductQuantizerParams_t params;
+  ASSERT_EQ(cuvsProductQuantizerParamsCreate(&params), CUVS_SUCCESS);
   ASSERT_NE(params, nullptr);
   EXPECT_EQ(params->pq_bits, 8);
-  ASSERT_EQ(cuvsPqParamsDestroy(params), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsProductQuantizerParamsDestroy(params), CUVS_SUCCESS);
 }
 
 TEST(DatasetC, MakePaddedFromHost)

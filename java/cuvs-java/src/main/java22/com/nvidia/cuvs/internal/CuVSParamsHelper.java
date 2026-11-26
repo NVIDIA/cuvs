@@ -71,12 +71,12 @@ public final class CuVSParamsHelper {
     }
   }
 
-  static CloseableHandle createCagraCompressionParams() {
+  static CloseableHandle createProductQuantizerParams() {
     try (var localArena = Arena.ofConfined()) {
-      var paramsPtrPtr = localArena.allocate(cuvsCagraCompressionParams_t);
+      var paramsPtrPtr = localArena.allocate(cuvsProductQuantizerParams_t);
       checkCuVSError(
-          cuvsCagraCompressionParamsCreate(paramsPtrPtr), "cuvsCagraCompressionParamsCreate");
-      var paramsPtr = paramsPtrPtr.get(cuvsCagraCompressionParams_t, 0L);
+          cuvsProductQuantizerParamsCreate(paramsPtrPtr), "cuvsProductQuantizerParamsCreate");
+      var paramsPtr = paramsPtrPtr.get(cuvsProductQuantizerParams_t, 0L);
       return new CloseableHandle() {
         @Override
         public MemorySegment handle() {
@@ -86,7 +86,7 @@ public final class CuVSParamsHelper {
         @Override
         public void close() {
           checkCuVSError(
-              cuvsCagraCompressionParamsDestroy(paramsPtr), "cuvsCagraCompressionParamsDestroy");
+              cuvsProductQuantizerParamsDestroy(paramsPtr), "cuvsProductQuantizerParamsDestroy");
         }
       };
     }

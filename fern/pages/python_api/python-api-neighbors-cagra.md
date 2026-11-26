@@ -530,6 +530,29 @@ version of cuvs is not guaranteed to work.
 | `out_dataset` | `Dataset, optional` | Empty dataset populated when the file includes dataset storage. If omitted, only the graph is retained. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
+## make_pq_dataset
+
+`@auto_sync_resources`
+
+```python
+def make_pq_dataset(padded_dataset, quantizer_params=None, resources=None)
+```
+
+Train an owning device PQ dataset (CAGRA-Q) from a device-padded dataset.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `padded_dataset` | `Dataset or array` | Device-padded source used to train PQ. Arrays are converted via cuvs.common.dataset.make_device_padded_dataset. |
+| `quantizer_params` | `cuvs.preprocessing.quantize.pq.QuantizerParams, optional` | PQ training parameters. Defaults are used when omitted. |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Returns**
+
+Dataset
+Owning PQ dataset handle. Keep it alive while any index uses it.
+
 ## save
 
 `@auto_sync_resources`
@@ -633,4 +656,5 @@ def update_dataset(Index index, dataset, resources=None)
 
 Update a CAGRA index with a device-padded or device-PQ dataset.
 
-Arrays are converted to device-padded datasets. A PQ ``Dataset`` is attached directly.
+Accepts a ``Dataset`` (padded or ``pq``) or array (promoted to padded).
+The index becomes search-ready in the matching layout.

@@ -1,6 +1,7 @@
 package cagra
 
 // #include <cuvs/neighbors/cagra.h>
+// #include <cuvs/preprocessing/quantize/pq.h>
 import "C"
 
 import (
@@ -11,6 +12,11 @@ import (
 
 type IndexParams struct {
 	params C.cuvsCagraIndexParams_t
+}
+
+// ProductQuantizerParams holds product quantizer training parameters.
+type ProductQuantizerParams struct {
+	params C.cuvsProductQuantizerParams_t
 }
 
 type BuildAlgo int
@@ -25,6 +31,72 @@ var cBuildAlgos = map[BuildAlgo]int{
 	IvfPq:      C.IVF_PQ,
 	NnDescent:  C.NN_DESCENT,
 	AutoSelect: C.AUTO_SELECT,
+}
+
+// CreateProductQuantizerParams creates product quantizer params with library defaults.
+func CreateProductQuantizerParams() (*ProductQuantizerParams, error) {
+	var params C.cuvsProductQuantizerParams_t
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsProductQuantizerParamsCreate(&params)))
+	if err != nil {
+		return nil, err
+	}
+	if params == nil {
+		return nil, errors.New("memory allocation failed")
+	}
+	return &ProductQuantizerParams{params: params}, nil
+}
+
+func (p *ProductQuantizerParams) SetPQBits(value uint32) *ProductQuantizerParams {
+	p.params.pq_bits = C.uint32_t(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetPQDim(value uint32) *ProductQuantizerParams {
+	p.params.pq_dim = C.uint32_t(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetUseSubspaces(value bool) *ProductQuantizerParams {
+	p.params.use_subspaces = C.bool(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetUseVQ(value bool) *ProductQuantizerParams {
+	p.params.use_vq = C.bool(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetVQNCenters(value uint32) *ProductQuantizerParams {
+	p.params.vq_n_centers = C.uint32_t(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetKMeansNIters(value uint32) *ProductQuantizerParams {
+	p.params.kmeans_n_iters = C.uint32_t(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetMaxTrainPointsPerPQCode(value uint32) *ProductQuantizerParams {
+	p.params.max_train_points_per_pq_code = C.uint32_t(value)
+	return p
+}
+
+func (p *ProductQuantizerParams) SetMaxTrainPointsPerVQCluster(value uint32) *ProductQuantizerParams {
+	p.params.max_train_points_per_vq_cluster = C.uint32_t(value)
+	return p
+}
+
+// Close destroys ProductQuantizerParams.
+func (p *ProductQuantizerParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
+	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsProductQuantizerParamsDestroy(p.params)))
+	if err != nil {
+		return err
+	}
+	p.params = nil
+	return nil
 }
 
 // Creates a new IndexParams

@@ -54,6 +54,11 @@ from cuvs.common.dataset import make_device_padded_dataset
 from cuvs.common.exceptions import check_cuvs
 from cuvs.neighbors import ivf_pq
 from cuvs.neighbors.filters import no_filter
+from cuvs.preprocessing.quantize.pq.pq cimport (
+    QuantizerParams,
+    cuvsDatasetMakePq,
+    cuvsProductQuantizerParams_t,
+)
 
 
 cdef class AceParams:
@@ -592,7 +597,8 @@ def update_dataset(Index index, dataset, resources=None):
     """
     Update a CAGRA index with a device-padded or device-PQ dataset.
 
-    Arrays are converted to device-padded datasets. A PQ ``Dataset`` is attached directly.
+    Accepts a ``Dataset`` (padded or ``pq``) or array (promoted to padded).
+    The index becomes search-ready in the matching layout.
     """
     if not index.trained:
         raise ValueError("Index needs to be built before attaching dataset.")
@@ -605,10 +611,10 @@ def update_dataset(Index index, dataset, resources=None):
         source_array = dataset
         dataset_obj = make_device_padded_dataset(dataset, resources=resources)
 
-    cdef cuvsDataset_t dataset_handle = _cagra_dataset_handle(dataset_obj)
     if dataset_obj.layout not in ("padded", "pq"):
         raise TypeError("dataset must have padded or PQ layout")
 
+    cdef cuvsDataset_t dataset_handle = _cagra_dataset_handle(dataset_obj)
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     with cuda_interruptible():
         check_cuvs(cuvsCagraUpdateDataset(
@@ -618,6 +624,55 @@ def update_dataset(Index index, dataset, resources=None):
         ))
     _keep_dataset_alive(index, dataset_obj, source_array)
     return index
+
+
+@auto_sync_resources
+def make_pq_dataset(padded_dataset, quantizer_params=None, resources=None):
+    """
+    Train an owning device PQ dataset (CAGRA-Q) from a device-padded dataset.
+
+    Parameters
+    ----------
+    padded_dataset : Dataset or array
+        Device-padded source used to train PQ. Arrays are converted via
+        :func:`cuvs.common.dataset.make_device_padded_dataset`.
+    quantizer_params : cuvs.preprocessing.quantize.pq.QuantizerParams, optional
+        PQ training parameters. Defaults are used when omitted.
+    {resources_docstring}
+
+    Returns
+    -------
+    Dataset
+        Owning PQ dataset handle. Keep it alive while any index uses it.
+    """
+    cdef Dataset dataset_obj
+    if isinstance(padded_dataset, Dataset):
+        dataset_obj = padded_dataset
+    else:
+        dataset_obj = make_device_padded_dataset(padded_dataset, resources=resources)
+
+    if dataset_obj.layout != "padded" or dataset_obj.memory_type != "device":
+        raise TypeError("padded_dataset must be a device-padded Dataset")
+
+    cdef QuantizerParams params_obj = None
+    cdef cuvsProductQuantizerParams_t params_ptr = NULL
+    if quantizer_params is not None:
+        if not isinstance(quantizer_params, QuantizerParams):
+            raise TypeError("quantizer_params must be a QuantizerParams")
+        params_obj = quantizer_params
+        params_ptr = params_obj.params
+
+    cdef Dataset pq = Dataset()
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cuvsDataset_t source_handle = _cagra_dataset_handle(dataset_obj)
+    with cuda_interruptible():
+        check_cuvs(cuvsDatasetMakePq(
+            res,
+            source_handle,
+            params_ptr,
+            &pq.dataset
+        ))
+    return pq
 
 
 def build_index(IndexParams index_params, dataset, resources=None):

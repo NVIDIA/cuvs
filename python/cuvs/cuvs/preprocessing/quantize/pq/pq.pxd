@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -10,6 +10,7 @@ from libcpp cimport bool
 from cuvs.cluster.kmeans.kmeans cimport cuvsKMeansType
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
+from cuvs.common.dataset cimport cuvsDataset_t
 
 
 cdef extern from "cuvs/preprocessing/quantize/pq.h" nogil:
@@ -75,3 +76,15 @@ cdef extern from "cuvs/preprocessing/quantize/pq.h" nogil:
 
     cuvsError_t cuvsProductQuantizerGetUseVq(
         cuvsProductQuantizer_t quantizer, bool* use_vq)
+
+
+cdef extern from "cuvs/core/dataset.h" nogil:
+    cuvsError_t cuvsDatasetMakePq(
+        cuvsResources_t res,
+        cuvsDataset_t source_dataset,
+        cuvsProductQuantizerParams_t params,
+        cuvsDataset_t* pq_dataset)
+
+
+cdef class QuantizerParams:
+    cdef cuvsProductQuantizerParams* params

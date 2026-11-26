@@ -354,3 +354,17 @@ def make_device_pq_dataset(params, dataset, resources=None)
 ```
 
 Create an owning device PQ dataset.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `params` | `cuvs.preprocessing.quantize.pq.QuantizerParams` | PQ training parameters. |
+| `dataset` | `Dataset or array interface compliant matrix` | Source vectors, shape ``(n_samples, dim)``. |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Returns**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `dataset` | `Dataset` | An owning device PQ dataset handle. |

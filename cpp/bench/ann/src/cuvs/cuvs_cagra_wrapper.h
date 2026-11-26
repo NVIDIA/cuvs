@@ -168,9 +168,9 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
     using dataset_dependent_params = std::function<cuvs::neighbors::cagra::index_params(
       raft::matrix_extent<int64_t>, cuvs::distance::DistanceType)>;
     dataset_dependent_params cagra_params;
-    std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt;
-    size_t num_dataset_splits                              = 1;
-    CagraMergeType merge_type                              = CagraMergeType::kPhysical;
+    std::optional<cuvs::preprocessing::quantize::pq::params> compression = std::nullopt;
+    size_t num_dataset_splits                                            = 1;
+    CagraMergeType merge_type = CagraMergeType::kPhysical;
     cuvs::neighbors::cagra::merge_params merge_params;
   };
 
@@ -411,11 +411,12 @@ void cuvs_cagra<T, IdxT>::compress_dataset(const T* dataset, size_t nrow)
                "cagra: compression_* (CAGRA-Q) requires the graph in memory; it cannot be combined "
                "with a disk-resident (ACE) graph.");
   auto rows = static_cast<int64_t>(nrow);
-  // make_vpq_dataset() reads the rows wherever they are: host-resident ones are subsampled and
-  // encoded in bounded batches instead of being staged on the device.
+  // make_device_pq_dataset() reads the rows wherever they are: host-resident ones are subsampled
+  // and encoded in bounded batches instead of being staged on the device.
   auto src = raft::make_device_matrix_view<const T, int64_t, raft::row_major>(dataset, rows, dim_);
   vpq_dataset_ = std::make_shared<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    cuvs::preprocessing::quantize::pq::make_vpq_dataset(handle_, *index_params_.compression, src));
+    cuvs::preprocessing::quantize::pq::make_device_pq_dataset(
+      handle_, *index_params_.compression, src));
   vpq_index_ = std::make_shared<cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>>(
     handle_, parse_metric_type(metric_), vpq_dataset_->view(), index_->graph());
 

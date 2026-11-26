@@ -10,6 +10,7 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <fstream>
+#include <neighbors/detail/cagra/update_dataset.cuh>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_resources.hpp>
 #include <raft/util/cudart_utils.hpp>

@@ -46,12 +46,14 @@ auto compress(const raft::resources& res,
               uint32_t pq_dim,
               uint32_t pq_bits = 8) -> vpq_dataset_t
 {
-  cuvs::neighbors::vpq_params params;
-  params.pq_dim         = pq_dim;
-  params.pq_bits        = pq_bits;
-  params.vq_n_centers   = 32;
-  params.kmeans_n_iters = 5;  // Codebooks need to be well defined here, not optimal.
-  return cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, params, dataset);
+  cuvs::preprocessing::quantize::pq::params params;
+  params.pq_dim       = pq_dim;
+  params.pq_bits      = pq_bits;
+  params.use_vq       = true;
+  params.vq_n_centers = 32;
+  // Codebooks need to be well defined here, not optimal.
+  params.kmeans_params = cuvs::cluster::kmeans::balanced_params{.n_iters = 5};
+  return cuvs::preprocessing::quantize::pq::make_device_pq_dataset(res, params, dataset);
 }
 
 auto iterative_params(uint32_t graph_degree = 32) -> index_params
@@ -288,8 +290,8 @@ TEST_F(CagraQContractTest, RejectsPqLenOutsideSupportedSet)
 
 TEST_F(CagraQContractTest, RejectsEmptyDataset)
 {
-  // Hand-built rather than compressed, since make_vpq_dataset rejects an empty input of its own
-  // accord. Every other constraint is satisfied so that only the emptiness can trip.
+  // Hand-built rather than compressed, since make_device_pq_dataset rejects an empty input of its
+  // own accord. Every other constraint is satisfied so that only the emptiness can trip.
   const auto width  = static_cast<uint32_t>(dim);
   auto vq_code_book = raft::make_device_matrix<half, uint32_t, raft::row_major>(res_, 1, width);
   auto pq_code_book = raft::make_device_matrix<half, uint32_t, raft::row_major>(res_, 256, 2);

@@ -74,7 +74,7 @@ public class CagraIndexDeprecatedBuilderIT extends CuVSTestCase {
         assertEquals(ROWS, loaded.size());
       }
       assertTrue(stream.closed);
-      try (CagraIndex.DeserializeDataset outDataset =
+      try (CagraIndex.DenseOwningDataset outDataset =
               padded ? new CagraIndex.PaddedDataset() : new CagraIndex.StandardDataset();
           CagraIndex loaded =
               CagraIndex.newBuilder(resources)
