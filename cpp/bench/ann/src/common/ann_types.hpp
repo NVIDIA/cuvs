@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -80,6 +81,15 @@ struct algo_property {
   MemoryType query_memory_type;
 };
 
+/**
+ * Estimated work done by one search() call, used for throughput counters.
+ * A field is empty if the algorithm cannot estimate it.
+ */
+struct work_estimate {
+  std::optional<double> flops;
+  std::optional<size_t> bytes;
+};
+
 class algo_base {
  public:
   using index_type = int64_t;
@@ -147,6 +157,16 @@ class algo : public algo_base {
   virtual void load(const std::string& file)       = 0;
 
   [[nodiscard]] virtual auto get_preference() const -> algo_property = 0;
+
+  /**
+   * Estimate the work done by one search() call of `n_queries` queries with the current search
+   * parameters. The caller multiplies it by the number of calls.
+   * Algorithms that cannot provide an estimate return an empty work_estimate (the default).
+   */
+  [[nodiscard]] virtual auto estimate_work(int /*n_queries*/, int /*k*/) const -> work_estimate
+  {
+    return {};
+  }
 
   // Some algorithms don't save the building dataset in their indices.
   // So they should be given the access to that dataset during searching.

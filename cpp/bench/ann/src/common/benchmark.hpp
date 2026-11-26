@@ -349,6 +349,15 @@ void bench_search(::benchmark::State& state,
 
   if (state.skipped()) { return; }
 
+  // Record the estimated work: each counter only if the algorithm provides its estimate.
+  const auto work      = dynamic_cast<algo<T>*>(current_algo.get())->estimate_work(n_queries, k);
+  const auto n_batches = queries_processed / n_queries;
+  if (work.bytes) { state.SetBytesProcessed(*work.bytes * n_batches); }
+  if (work.flops) {
+    state.counters.insert(
+      {"flops_per_second", {*work.flops * n_batches, benchmark::Counter::kIsRate}});
+  }
+
   // Each thread calculates recall on their partition of queries.
   // evaluate recall
   if (dataset->max_k() >= k && dataset->gt_maps().has_value()) {
