@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -83,11 +83,11 @@ struct algo_property {
 
 /**
  * Estimated work done by one search() call, used for throughput counters.
- * `flops` is empty if the algorithm cannot estimate it.
+ * A field is empty if the algorithm cannot estimate it.
  */
 struct work_estimate {
   std::optional<double> flops;
-  size_t bytes;
+  std::optional<size_t> bytes;
 };
 
 class algo_base {
@@ -161,12 +161,11 @@ class algo : public algo_base {
   /**
    * Estimate the work done by one search() call of `n_queries` queries with the current search
    * parameters. The caller multiplies it by the number of calls.
-   * Algorithms that cannot provide an estimate return std::nullopt (the default).
+   * Algorithms that cannot provide an estimate return an empty work_estimate (the default).
    */
-  [[nodiscard]] virtual auto estimate_work(int /*n_queries*/, int /*k*/) const
-    -> std::optional<work_estimate>
+  [[nodiscard]] virtual auto estimate_work(int /*n_queries*/, int /*k*/) const -> work_estimate
   {
-    return std::nullopt;
+    return {};
   }
 
   // Some algorithms don't save the building dataset in their indices.

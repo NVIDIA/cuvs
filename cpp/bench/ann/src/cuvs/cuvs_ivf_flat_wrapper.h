@@ -74,8 +74,7 @@ class cuvs_ivf_flat : public algo<T>, public algo_gpu {
   void save(const std::string& file) const override;
   void load(const std::string&) override;
   std::unique_ptr<algo<T>> copy() override;
-  [[nodiscard]] auto estimate_work(int n_queries, int k) const
-    -> std::optional<work_estimate> override;
+  [[nodiscard]] auto estimate_work(int n_queries, int k) const -> work_estimate override;
 
  private:
   // handle_ must go first to make sure it dies last and all memory allocated in pool
@@ -136,9 +135,11 @@ std::unique_ptr<algo<T>> cuvs_ivf_flat<T, IdxT>::copy()
 }
 
 template <typename T, typename IdxT>
-auto cuvs_ivf_flat<T, IdxT>::estimate_work(int n_queries, int k) const
-  -> std::optional<work_estimate>
+auto cuvs_ivf_flat<T, IdxT>::estimate_work(int n_queries, int k) const -> work_estimate
 {
+  // No estimate for filtered searches: how much data they load is not known.
+  if (filter_->get_filter_type() != cuvs::neighbors::filtering::FilterType::None) { return {}; }
+
   const double nlist  = index_->n_lists();
   const double nprobe = std::min<double>(search_params_.n_probes, nlist);
   const double n_rows = index_->size();
@@ -154,14 +155,15 @@ auto cuvs_ivf_flat<T, IdxT>::estimate_work(int n_queries, int k) const
   const double flops = 2.0 * n_queries * dim * (nlist + comparisons_per_query);
 
   // Expected number of distinct clusters probed in the batch if each query picks nprobe clusters
-  // uniformly at random. Each of them is read once per batch; the centroids are read once per batch.
-  const double distinct_clusters_probed =
-    nlist * (1.0 - std::pow(1.0 - nprobe / nlist, n_queries));
-  const size_t bytes = sizeof(float) * nlist * dim +
-                       sizeof(T) * (distinct_clusters_probed * average_cluster_size * dim +
-                                    n_queries * dim) +
-                       static_cast<size_t>(n_queries) * k *
-                         (sizeof(float) + sizeof(algo_base::index_type));
+  // uniformly at random. We assume that each of them is read once per batch. This is the ideal
+  // case: unlike IVF-PQ, the IVF-Flat search does not sort the probes by cluster ID, so queries
+  // that share a cluster may read it more than once, and the real traffic may be higher. We also
+  // assume that the centroids are read once per batch.
+  const double distinct_clusters_probed = nlist * (1.0 - std::pow(1.0 - nprobe / nlist, n_queries));
+  const size_t bytes =
+    sizeof(float) * nlist * dim +
+    sizeof(T) * (distinct_clusters_probed * average_cluster_size * dim + n_queries * dim) +
+    static_cast<size_t>(n_queries) * k * (sizeof(float) + sizeof(algo_base::index_type));
   return work_estimate{flops, bytes};
 }
 

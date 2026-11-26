@@ -55,8 +55,7 @@ class cuvs_gpu : public algo<T>, public algo_gpu {
               algo_base::index_type* neighbors,
               float* distances) const final;
 
-  [[nodiscard]] auto estimate_work(int n_queries, int k) const
-    -> std::optional<work_estimate> override;
+  [[nodiscard]] auto estimate_work(int n_queries, int k) const -> work_estimate override;
 
   // to enable dataset access from GPU memory
   [[nodiscard]] auto get_preference() const -> algo_property override
@@ -154,8 +153,11 @@ void cuvs_gpu<T>::search(
 }
 
 template <typename T>
-auto cuvs_gpu<T>::estimate_work(int n_queries, int k) const -> std::optional<work_estimate>
+auto cuvs_gpu<T>::estimate_work(int n_queries, int k) const -> work_estimate
 {
+  // No estimate for filtered searches: how much data they load is not known.
+  if (filter_->get_filter_type() != cuvs::neighbors::filtering::FilterType::None) { return {}; }
+
   const size_t n_rows = index_->size();  // number of vectors in the dataset
   const size_t dim    = this->dim_;      // length of each vector
 
@@ -163,9 +165,9 @@ auto cuvs_gpu<T>::estimate_work(int n_queries, int k) const -> std::optional<wor
   const double flops = 2.0 * n_queries * n_rows * dim;
 
   // Minimum traffic: read the dataset and the queries once, write k results per query.
-  const size_t bytes = sizeof(T) * (n_rows * dim + n_queries * dim) +
-                       static_cast<size_t>(n_queries) * k *
-                         (sizeof(float) + sizeof(algo_base::index_type));
+  const size_t bytes =
+    sizeof(T) * (n_rows * dim + n_queries * dim) +
+    static_cast<size_t>(n_queries) * k * (sizeof(float) + sizeof(algo_base::index_type));
   return work_estimate{flops, bytes};
 }
 

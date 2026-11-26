@@ -347,15 +347,13 @@ void bench_search(::benchmark::State& state,
   // This will be the total number of queries across all threads
   state.counters.insert({{"total_queries", queries_processed}});
 
-  // Record the estimated work if the algorithm provides an estimate.
-  if (const auto work =
-        dynamic_cast<algo<T>*>(current_algo.get())->estimate_work(n_queries, k)) {
-    const auto n_batches = queries_processed / n_queries;
-    state.SetBytesProcessed(work->bytes * n_batches);
-    if (work->flops) {
-      state.counters.insert(
-        {"flops_per_second", {*work->flops * n_batches, benchmark::Counter::kIsRate}});
-    }
+  // Record the estimated work: each counter only if the algorithm provides its estimate.
+  const auto work      = dynamic_cast<algo<T>*>(current_algo.get())->estimate_work(n_queries, k);
+  const auto n_batches = queries_processed / n_queries;
+  if (work.bytes) { state.SetBytesProcessed(*work.bytes * n_batches); }
+  if (work.flops) {
+    state.counters.insert(
+      {"flops_per_second", {*work.flops * n_batches, benchmark::Counter::kIsRate}});
   }
 
   if (state.skipped()) { return; }

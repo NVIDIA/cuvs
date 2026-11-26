@@ -87,8 +87,7 @@ class cuvs_ivf_pq : public algo<T>, public algo_gpu {
   void save(const std::string& file) const override;
   void load(const std::string&) override;
   std::unique_ptr<algo<T>> copy() override;
-  [[nodiscard]] auto estimate_work(int n_queries, int k) const
-    -> std::optional<work_estimate> override;
+  [[nodiscard]] auto estimate_work(int n_queries, int k) const -> work_estimate override;
 
  private:
   // handle_ must go first to make sure it dies last and all memory allocated in pool
@@ -135,9 +134,15 @@ std::unique_ptr<algo<T>> cuvs_ivf_pq<T, IdxT>::copy()
 }
 
 template <typename T, typename IdxT>
-auto cuvs_ivf_pq<T, IdxT>::estimate_work(int n_queries, int k) const
-  -> std::optional<work_estimate>
+auto cuvs_ivf_pq<T, IdxT>::estimate_work(int n_queries, int k) const -> work_estimate
 {
+  // No estimate for filtered searches (how much data they load is not known) nor for dynamic
+  // batching (a batch can run on more rows than the n_queries of the benchmark).
+  if (filter_->get_filter_type() != cuvs::neighbors::filtering::FilterType::None ||
+      dynamic_batcher_) {
+    return {};
+  }
+
   const double nlist  = index_->n_lists();
   const double nprobe = std::min<double>(search_params_.n_probes, nlist);
   const double n_rows = index_->size();
@@ -151,9 +156,10 @@ auto cuvs_ivf_pq<T, IdxT>::estimate_work(int n_queries, int k) const
   const double average_cluster_size = n_rows / nlist;
 
   // Expected number of distinct clusters probed in the batch if each query picks nprobe clusters
-  // uniformly at random. Each of them is read once per batch; the centroids are read once per batch.
-  const double distinct_clusters_probed =
-    nlist * (1.0 - std::pow(1.0 - nprobe / nlist, n_queries));
+  // uniformly at random. We assume that each of them is read once per batch: when several queries
+  // are expected to probe the same cluster, the search sorts the probes by cluster ID to maximize
+  // cache usage. We also assume that the centroids are read once per batch.
+  const double distinct_clusters_probed = nlist * (1.0 - std::pow(1.0 - nprobe / nlist, n_queries));
 
   // The cluster centers read by the coarse search: the copy in coarse_search_dtype, with its padded
   // width, as selected by get_centers() in the library's search.
@@ -161,17 +167,16 @@ auto cuvs_ivf_pq<T, IdxT>::estimate_work(int n_queries, int k) const
     return sizeof(*m.data_handle()) * static_cast<double>(m.size());
   };
   const auto dtype           = search_params_.coarse_search_dtype;
-  const double centers_bytes = dtype == CUDA_R_16F ? bytes_of(index_->centers_half(handle_))
+  const double centers_bytes = dtype == CUDA_R_16F  ? bytes_of(index_->centers_half(handle_))
                                : dtype == CUDA_R_8I ? bytes_of(index_->centers_int8(handle_))
                                                     : bytes_of(index_->centers());
 
   // Only the coarse search and the scan of the compressed vectors are counted. The query rotation,
   // the lookup tables and the refinement step are not.
-  const size_t bytes = centers_bytes +
-                       distinct_clusters_probed * average_cluster_size * compressed_vector_bytes +
-                       sizeof(T) * n_queries * dim +
-                       static_cast<size_t>(n_queries) * k *
-                         (sizeof(float) + sizeof(algo_base::index_type));
+  const size_t bytes =
+    centers_bytes + distinct_clusters_probed * average_cluster_size * compressed_vector_bytes +
+    sizeof(T) * n_queries * dim +
+    static_cast<size_t>(n_queries) * k * (sizeof(float) + sizeof(algo_base::index_type));
 
   // Flops are not estimated for IVF-PQ yet.
   return work_estimate{std::nullopt, bytes};
