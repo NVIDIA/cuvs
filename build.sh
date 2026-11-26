@@ -515,8 +515,9 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
   fi
 fi
 
-CUVS_TARBALL_CUDA_VERSION_MAJOR_MINOR="$(echo "$CUVS_TARBALL_CUDA_VERSION" | sed -E "s/^([0-9]+\.[0-9]+)/\1/")"
-CUDA_VERSION="${RAPIDS_CUDA_VERSION:-${CUVS_TARBALL_CUDA_VERSION_MAJOR_MINOR:-$(nvcc --version | sed -E -n "s/^.*release ([0-9]+\.[0-9]+).*$/\1/p")}}"
+CUVS_TARBALL_CUDA_VERSION_MAJOR_MINOR="${CUVS_TARBALL_CUDA_VERSION%.*}"
+RAPIDS_CUDA_VERSION_MAJOR_MINOR="${RAPIDS_CUDA_VERSION%.*}"
+CUDA_VERSION="${RAPIDS_CUDA_VERSION_MAJOR_MINOR:-${CUVS_TARBALL_CUDA_VERSION_MAJOR_MINOR:-$(nvcc --version | sed -E -n "s/^.*release ([0-9]+\.[0-9]+).*$/\1/p")}}"
 if [[ -z "$CUDA_VERSION" ]]; then
     echo "Could not determine CUDA version. Please set RAPIDS_CUDA_VERSION or CUVS_TARBALL_CUDA_VERSION or make sure your \$PATH contains a valid nvcc."
     exit 1
