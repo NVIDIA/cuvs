@@ -6,6 +6,7 @@ package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.TestUtils.generateRandomVector;
+import static com.nvidia.cuvs.lucene.TestUtils.graphOf;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
@@ -20,10 +21,7 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
-import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
-import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
-import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -487,14 +485,6 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
         }
       }
     }
-  }
-
-  private static HnswGraph graphOf(LeafReader leaf, String field) throws Exception {
-    KnnVectorsReader reader = ((CodecReader) leaf).getVectorReader();
-    if (reader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
-      reader = fieldsReader.getFieldReader(field);
-    }
-    return ((HnswGraphProvider) reader).getGraph(field);
   }
 
   private static void assertAllGraphOrdinalsInBounds(HnswGraph graph, int vectorCount)

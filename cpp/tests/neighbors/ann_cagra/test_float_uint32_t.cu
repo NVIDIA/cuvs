@@ -7,6 +7,8 @@
 
 #include "../ann_cagra.cuh"
 
+#include <algorithm>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -135,6 +137,152 @@ TEST(AnnCagraMultiPartition, MultiKernelRejected)
                                        search_params);
 }
 
+namespace {
+// Runs a filtered multi-partition MULTI_CTA search where every partition keeps only ~4% of its rows
+// (still more than k each) and reports the number of queries that returned fewer than k neighbors
+// and the recall against an exact search over the kept rows.
+void search_with_selective_filter(float filtering_rate, int& short_queries, double& recall)
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  constexpr int num_partitions = 4, part_size = 500, dim = 128, n_queries = 500, k = 10;
+  // Keep one row in `keep_every` (~4% of each partition, i.e. ~21 rows per partition).
+  constexpr int keep_every = 24;
+  constexpr int n_rows     = num_partitions * part_size;
+
+  rmm::device_uvector<float> database(static_cast<size_t>(n_rows) * dim, stream);
+  rmm::device_uvector<float> queries(static_cast<size_t>(n_queries) * dim, stream);
+  raft::random::RngState r(1234ULL);
+  InitDataset(handle, database.data(), n_rows, dim, cuvs::distance::DistanceType::L2Expanded, r);
+  InitDataset(handle, queries.data(), n_queries, dim, cuvs::distance::DistanceType::L2Expanded, r);
+  raft::resource::sync_stream(handle);
+
+  cagra::index_params index_params;
+  index_params.graph_degree              = 32;
+  index_params.intermediate_graph_degree = 64;
+  index_params.graph_build_params        = graph_build_params::nn_descent_params(
+    index_params.intermediate_graph_degree, index_params.metric);
+
+  std::vector<cagra::index<float, std::uint32_t>> part_indices;
+  // An index only holds a view, so any padded copy has to outlive it.
+  std::vector<cuvs::neighbors::test::padded_device_matrix_for_cagra<float>> part_padded;
+  part_padded.reserve(num_partitions);
+  std::vector<cuvs::core::bitset<uint32_t, int64_t>> part_bitsets;
+  part_bitsets.reserve(num_partitions);
+  std::vector<cuvs::core::bitset_view<uint32_t, int64_t>> partition_bitsets;
+  std::vector<int64_t> removed_local;
+  for (int64_t i = 0; i < part_size; i++) {
+    if (i % keep_every != 0) { removed_local.push_back(i); }
+  }
+  auto removed =
+    raft::make_device_vector<int64_t, int64_t>(handle, static_cast<int64_t>(removed_local.size()));
+  raft::update_device(removed.data_handle(), removed_local.data(), removed_local.size(), stream);
+  for (int p = 0; p < num_partitions; p++) {
+    auto view = raft::make_device_matrix_view<const float, int64_t>(
+      database.data() + static_cast<size_t>(p) * part_size * dim, part_size, dim);
+    part_padded.emplace_back(handle, view);
+    auto const& padded = part_padded.back().view;
+    part_indices.push_back(cagra::build(handle, index_params, padded));
+    auto& part_index = part_indices.back();
+    part_index       = cagra::update_dataset(handle, std::move(part_index), padded);
+    part_bitsets.emplace_back(handle, removed.view(), part_size);
+    partition_bitsets.push_back(part_bitsets.back().view());
+  }
+  std::vector<const cagra::index<float, std::uint32_t>*> index_ptrs;
+  for (auto& idx : part_indices) {
+    index_ptrs.push_back(&idx);
+  }
+
+  const size_t out_size = static_cast<size_t>(n_queries) * k;
+  rmm::device_uvector<uint32_t> partition_ids_dev(out_size, stream);
+  rmm::device_uvector<uint32_t> neighbors_dev(out_size, stream);
+  rmm::device_uvector<float> distances_dev(out_size, stream);
+
+  // A small itopk_size, as used for small k, on the MULTI_CTA algorithm that AUTO picks for a
+  // handful of queries over a handful of partitions.
+  cagra::search_params search_params;
+  search_params.algo           = search_algo::MULTI_CTA;
+  search_params.itopk_size     = k;
+  search_params.filtering_rate = filtering_rate;
+
+  cagra::search(
+    handle,
+    search_params,
+    index_ptrs,
+    raft::make_device_matrix_view<const float, int64_t>(queries.data(), n_queries, dim),
+    raft::make_device_matrix_view<uint32_t, int64_t>(partition_ids_dev.data(), n_queries, k),
+    raft::make_device_matrix_view<uint32_t, int64_t>(neighbors_dev.data(), n_queries, k),
+    raft::make_device_matrix_view<float, int64_t>(distances_dev.data(), n_queries, k),
+    partition_bitsets);
+
+  std::vector<uint32_t> partition_ids(out_size);
+  std::vector<uint32_t> neighbors(out_size);
+  std::vector<float> distances(out_size);
+  std::vector<float> host_database(static_cast<size_t>(n_rows) * dim);
+  std::vector<float> host_queries(static_cast<size_t>(n_queries) * dim);
+  raft::update_host(partition_ids.data(), partition_ids_dev.data(), out_size, stream);
+  raft::update_host(neighbors.data(), neighbors_dev.data(), out_size, stream);
+  raft::update_host(distances.data(), distances_dev.data(), out_size, stream);
+  raft::update_host(host_database.data(), database.data(), host_database.size(), stream);
+  raft::update_host(host_queries.data(), queries.data(), host_queries.size(), stream);
+  raft::resource::sync_stream(handle);
+
+  // Exact top-k over the rows that pass the filter, for recall.
+  std::vector<int64_t> kept_rows;
+  for (int64_t g = 0; g < n_rows; g++) {
+    if ((g % part_size) % keep_every == 0) { kept_rows.push_back(g); }
+  }
+  ASSERT_GT(kept_rows.size(), static_cast<size_t>(k));
+
+  short_queries  = 0;
+  size_t matches = 0;
+  for (int q = 0; q < n_queries; q++) {
+    std::vector<std::pair<float, int64_t>> exact;
+    for (auto g : kept_rows) {
+      float d = 0;
+      for (int j = 0; j < dim; j++) {
+        const float diff = host_queries[q * dim + j] - host_database[g * dim + j];
+        d += diff * diff;
+      }
+      exact.emplace_back(d, g);
+    }
+    std::partial_sort(exact.begin(), exact.begin() + k, exact.end());
+    std::vector<int64_t> expected;
+    for (int j = 0; j < k; j++) {
+      expected.push_back(exact[j].second);
+    }
+
+    int valid = 0;
+    for (int j = 0; j < k; j++) {
+      const size_t i = static_cast<size_t>(q) * k + j;
+      if (distances[i] == std::numeric_limits<float>::max()) { continue; }
+      ASSERT_LT(partition_ids[i], static_cast<uint32_t>(num_partitions));
+      ASSERT_LT(neighbors[i], static_cast<uint32_t>(part_size));
+      ASSERT_EQ(neighbors[i] % keep_every, 0u) << "filtered-out row returned";
+      valid++;
+      const int64_t g = static_cast<int64_t>(partition_ids[i]) * part_size + neighbors[i];
+      if (std::find(expected.begin(), expected.end(), g) != expected.end()) { matches++; }
+    }
+    if (valid < k) { short_queries++; }
+  }
+  recall = static_cast<double>(matches) / out_size;
+}
+}  // namespace
+
+// A selective per-partition filter must not leave the search short of neighbors. Single-partition
+// search derives the filtering rate from the bitset and enlarges itopk_size accordingly; the
+// multi-partition search must do the same, or MULTI_CTA can return fewer than k valid neighbors
+// even though every partition holds more than k rows that pass the filter.
+TEST(AnnCagraMultiPartition, SelectiveFilterReturnsKNeighbors)
+{
+  int short_queries = 0;
+  double recall     = 0;
+  search_with_selective_filter(-1.0f, short_queries, recall);
+  EXPECT_EQ(short_queries, 0) << "queries returning fewer than k neighbors";
+  EXPECT_GE(recall, 0.95);
+}
+
 // The shared plan descriptor and the cross-partition select_k direction are derived from
 // indices[0], so all partitions must share one metric; a mismatch must be rejected.
 TEST(AnnCagraMultiPartition, MixedMetricRejected)
@@ -208,6 +356,193 @@ TEST(AnnCagraPq, BuildUpdatePqSearch)
   for (int i = 0; i < n_queries; i++) {
     EXPECT_EQ(neighbors_h(i, 0), static_cast<uint32_t>(i));
   }
+}
+
+// GPiPNN reaches CAGRA through two pieces of glue the parameterized sweep above cannot isolate: a
+// validation step that refuses any dataset view other than the contiguous, even-`dim`,
+// device-resident matrix GPiPNN takes, and a reconciliation step that silently rewrites the
+// caller's GPiPNN parameters to agree with CAGRA's. The sweep can only cover shapes that are
+// accepted, so the refusals are pinned here.
+namespace {
+
+constexpr int64_t kGpipnnRows    = 512;
+constexpr uint32_t kGpipnnDegree = 32;
+
+auto make_gpipnn_params(cuvs::distance::DistanceType metric =
+                          cuvs::distance::DistanceType::L2Expanded) -> cagra::index_params
+{
+  cagra::index_params params;
+  params.metric                    = metric;
+  params.graph_degree              = kGpipnnDegree;
+  params.intermediate_graph_degree = kGpipnnDegree * 2;
+  graph_build_params::gpipnn_params gp;
+  gp.graph_degree           = kGpipnnDegree;  // agrees with CAGRA's, so nothing is reconciled
+  gp.metric                 = metric;
+  params.graph_build_params = gp;
+  return params;
+}
+
+/** Builds with the GPiPNN builder and returns the resulting graph on the host. */
+template <typename DatasetViewT>
+auto gpipnn_graph(raft::resources const& res,
+                  cagra::index_params const& params,
+                  DatasetViewT const& dataset) -> std::vector<uint32_t>
+{
+  auto index = cagra::build(res, params, dataset);
+  std::vector<uint32_t> out(index.graph().size());
+  raft::copy(
+    out.data(), index.graph().data_handle(), out.size(), raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  return out;
+}
+
+/** Random rows of `dim` columns. */
+struct gpipnn_fixture {
+  raft::resources res;
+  int64_t dim;
+  int64_t n_rows;
+  rmm::device_uvector<float> narrow;
+
+  explicit gpipnn_fixture(int64_t d, int64_t rows = kGpipnnRows)
+    : dim(d),
+      n_rows(rows),
+      narrow(static_cast<size_t>(rows * d), raft::resource::get_cuda_stream(res))
+  {
+    raft::random::RngState r(1234ULL);
+    InitDataset(res,
+                narrow.data(),
+                static_cast<uint32_t>(n_rows),
+                static_cast<uint32_t>(dim),
+                cuvs::distance::DistanceType::L2Expanded,
+                r);
+    raft::resource::sync_stream(res);
+  }
+
+  auto narrow_matrix() const -> raft::device_matrix_view<const float, int64_t>
+  {
+    return raft::make_device_matrix_view<const float, int64_t>(narrow.data(), n_rows, dim);
+  }
+};
+
+}  // namespace
+
+// Conforming any of the three unsupported dataset shapes below would mean allocating a second copy
+// of the dataset behind the caller's back, so each is refused and the caller is asked to hand over
+// a dataset GPiPNN can consume directly. Refusing matters more than it looks: GPiPNN is only ever
+// selected explicitly, so quietly conforming or falling back would hand back a graph built from
+// data, or by an algorithm, other than the one that was asked for.
+TEST(AnnCagraGpipnn, OddDimRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/7);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), dataset), std::exception);
+}
+
+// A padded dataset carries a row stride wider than the logical `dim`, which GPiPNN's GEMM cannot
+// address. Rejection is on the stride rather than the view type, so this needs a `dim` that CAGRA
+// actually pads: 6 floats pads to a stride of 8 while staying even, isolating the stride from the
+// odd-`dim` rule above.
+TEST(AnnCagraGpipnn, PaddedStrideRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/6);
+  auto owned_padded = make_device_padded_dataset(f.res, f.narrow_matrix());
+  auto padded_view  = owned_padded->view();
+  ASSERT_NE(static_cast<int64_t>(padded_view.data_const_view().stride(0)), f.dim)
+    << "padded copy was not actually strided";
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), padded_view), std::exception);
+}
+
+// A padded view whose `dim` already meets CAGRA's row alignment is laid out exactly like a standard
+// one, so the stride rule has to let it through: rejecting the padded view *type* would turn away
+// data GPiPNN can consume as is. This is also the shape the parameterized sweep builds from.
+TEST(AnnCagraGpipnn, AlignedPaddedViewAccepted)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  // `make_device_padded_dataset` refuses a dataset that is already correctly strided and asks for
+  // the view factory instead, which is itself the point: this layout needs no padded copy.
+  auto padded_view = make_device_padded_dataset_view(f.res, f.narrow_matrix());
+  ASSERT_EQ(static_cast<int64_t>(padded_view.data_const_view().stride(0)), f.dim)
+    << "dim 8 floats should already be 16-byte row aligned";
+
+  const auto from_padded = gpipnn_graph(f.res, make_gpipnn_params(), padded_view);
+  const auto from_standard =
+    gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
+  ASSERT_EQ(from_padded, from_standard);
+}
+
+// A host-resident dataset would have to be staged to device, which is the same hidden copy.
+TEST(AnnCagraGpipnn, HostDatasetRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto host = raft::make_host_matrix<float, int64_t>(f.n_rows, f.dim);
+  raft::copy(
+    host.data_handle(), f.narrow.data(), host.size(), raft::resource::get_cuda_stream(f.res));
+  raft::resource::sync_stream(f.res);
+
+  auto host_view = make_host_standard_dataset_view(raft::make_const_mdspan(host.view()));
+  EXPECT_THROW(cagra::build(f.res, make_gpipnn_params(), host_view), std::exception);
+}
+
+// GPiPNN's own `graph_degree`, `max_candidates` and `metric` are overridden to agree with CAGRA's
+// rather than being rejected. The override has to actually happen: `max_candidates` below
+// `graph_degree` would otherwise fail GPiPNN's own validation, and a disagreeing degree or metric
+// would quietly produce the wrong graph.
+TEST(AnnCagraGpipnn, ParametersReconciledWithCagra)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+
+  auto params       = make_gpipnn_params();
+  auto& gp          = std::get<graph_build_params::gpipnn_params>(params.graph_build_params);
+  gp.graph_degree   = kGpipnnDegree / 2;
+  gp.max_candidates = 4;
+  gp.metric         = cuvs::distance::DistanceType::CosineExpanded;
+
+  const auto reconciled = gpipnn_graph(f.res, params, dataset);
+  ASSERT_EQ(reconciled.size(), static_cast<size_t>(kGpipnnRows) * kGpipnnDegree);
+
+  // CAGRA's values win, so the graph must equal the one built from parameters that already agreed.
+  const auto agreed = gpipnn_graph(f.res, make_gpipnn_params(), dataset);
+  ASSERT_EQ(reconciled, agreed);
+}
+
+// A dataset smaller than the requested degree has its `graph_degree` lowered by
+// `check_graph_degree` to `n_rows - 1`. GPiPNN has to build at the lowered degree like the other
+// builders do: with the requested one it would trip its own "more rows than graph_degree" check
+// and reject a dataset CAGRA accepts.
+TEST(AnnCagraGpipnn, ReducedGraphDegreeForSmallDataset)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  constexpr int64_t kSmallRows = 48;
+  gpipnn_fixture f(/*dim=*/8, kSmallRows);
+
+  auto params                      = make_gpipnn_params();
+  params.graph_degree              = 64;  // deliberately larger than the dataset
+  params.intermediate_graph_degree = 128;
+  std::get<graph_build_params::gpipnn_params>(params.graph_build_params).graph_degree =
+    params.graph_degree;
+
+  const auto graph =
+    gpipnn_graph(f.res, params, make_device_standard_dataset_view(f.narrow_matrix()));
+  ASSERT_EQ(graph.size(), static_cast<size_t>(kSmallRows * (kSmallRows - 1)));
+}
+
+// Only L2Expanded and CosineExpanded are supported; anything else must be refused rather than
+// quietly built as L2. On a GPU too old for GPiPNN the builder is swapped for NN-descent before
+// this check runs, which would make the metric legal again.
+TEST(AnnCagraGpipnn, UnsupportedMetricRejected)
+{
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
+  gpipnn_fixture f(/*dim=*/8);
+  auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
+  EXPECT_THROW(
+    cagra::build(f.res, make_gpipnn_params(cuvs::distance::DistanceType::InnerProduct), dataset),
+    std::exception);
 }
 
 }  // namespace cuvs::neighbors::cagra

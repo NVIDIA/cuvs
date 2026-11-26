@@ -102,7 +102,7 @@ outputs:
         - if: linux64
           then:
             - libaio
-            - libboost-devel =1.87
+            - libboost-devel =1.88
             - mkl-devel =2023
 
   - package:
@@ -470,7 +470,7 @@ outputs:
         - if: linux64
           then:
             - libaio
-            - libboost-devel =1.87
+            - libboost-devel =1.88
             - mkl-devel =2023
       run:
         - if: aarch64
@@ -492,10 +492,13 @@ outputs:
             - mkl =2023
             - llvm-openmp
       ignore_run_exports:
+        from_package:
+          - libboost-devel
         by_name:
           - cuda-cudart
           - cuda-nvrtc
           - cuda-version
+          - libboost
           - libcublas
           - libcurand
           - libcusolver

@@ -774,16 +774,11 @@ static void update_dataset(raft::resources* res_ptr,
   }
 }
 
-static void _set_graph_build_params(
-  std::variant<std::monostate,
-               cuvs::neighbors::cagra::graph_build_params::ivf_pq_params,
-               cuvs::neighbors::cagra::graph_build_params::nn_descent_params,
-               cuvs::neighbors::cagra::graph_build_params::ace_params,
-               cuvs::neighbors::cagra::graph_build_params::iterative_search_params>& out_params,
-  cuvsCagraIndexParams& params,
-  cuvsCagraGraphBuildAlgo algo,
-  int64_t n_rows,
-  int64_t dim)
+static void _set_graph_build_params(cuvs::neighbors::cagra::graph_build_params_t& out_params,
+                                    cuvsCagraIndexParams& params,
+                                    cuvsCagraGraphBuildAlgo algo,
+                                    int64_t n_rows,
+                                    int64_t dim)
 
 {
   auto metric = static_cast<cuvs::distance::DistanceType>((int)params.metric);
@@ -1342,6 +1337,8 @@ void _merge(cuvsResources_t res,
   params_cpp.intermediate_graph_degree =
     params.intermediate_graph_degree;
   params_cpp.graph_degree = params.graph_degree;
+  params_cpp.variable_graph_degree_fraction = params.variable_graph_degree_fraction;
+  params_cpp.guarantee_connectivity         = params.guarantee_connectivity;
 
   int64_t total_size = 0;
   int64_t dim        = 0;
@@ -1448,6 +1445,8 @@ static void _populate_cagra_index_params_from_cpp(cuvsCagraIndexParams_t c_param
   c_params->metric = static_cast<cuvsDistanceType>(cpp_params.metric);
   c_params->intermediate_graph_degree = cpp_params.intermediate_graph_degree;
   c_params->graph_degree = cpp_params.graph_degree;
+  c_params->variable_graph_degree_fraction = cpp_params.variable_graph_degree_fraction;
+  c_params->guarantee_connectivity         = cpp_params.guarantee_connectivity;
 
   // Set build algo and parameters based on the variant
   if (std::holds_alternative<cuvs::neighbors::cagra::graph_build_params::nn_descent_params>(
@@ -1491,6 +1490,8 @@ void convert_c_index_params(cuvsCagraIndexParams params,
   out->metric                    = static_cast<cuvs::distance::DistanceType>((int)params.metric);
   out->intermediate_graph_degree = params.intermediate_graph_degree;
   out->graph_degree              = params.graph_degree;
+  out->variable_graph_degree_fraction = params.variable_graph_degree_fraction;
+  out->guarantee_connectivity         = params.guarantee_connectivity;
   _set_graph_build_params(out->graph_build_params, params, params.build_algo, n_rows, dim);
 
 }
@@ -2268,7 +2269,10 @@ extern "C" cuvsError_t cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t* params
                                                              .intermediate_graph_degree = 128,
                                                              .graph_degree              = 64,
                                                              .build_algo                = IVF_PQ,
-                                                             .nn_descent_niter          = 20};
+                                                             .nn_descent_niter          = 20,
+                                                             .graph_build_params        = nullptr,
+                                                             .variable_graph_degree_fraction = 1.0,
+                                                             .guarantee_connectivity         = false};
     (*params)->graph_build_params = new cuvsIvfPqParams{nullptr, nullptr, 1};
   });
 }

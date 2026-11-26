@@ -171,7 +171,11 @@ void search_impl(raft::resources const& handle,
       [=] __device__(const uint32_t idx, const float dist) {
         const auto query   = idx / n_lists;
         const auto cluster = idx % n_lists;
-        return dist / (q_norm_ptr[query] * index_center_norm_ptr[cluster]);
+        // A list whose k-means cluster ended up empty has a zero center. Define the cosine
+        // distance to a zero-norm vector as 1 (similarity 0), as IVF-SQ does: a NaN here is never
+        // selected, and with fewer finite lists than n_probes the probes get padded with list 0.
+        const auto denom = q_norm_ptr[query] * index_center_norm_ptr[cluster];
+        return denom > 0.0f ? dist / denom : 0.0f;
       },
       raft::make_const_mdspan(distance_buffer_dev_view));
   }

@@ -83,9 +83,12 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
       assumeTrue("cuVS not supported: " + unsupported.getMessage(), false);
     }
     assumeTrue("cuVS not supported", isSupported());
-    codec = new CuVS2510GPUSearchCodec(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
+    codec = CuVSCodecs.gpuSearch(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
 
-    int datasetSize = 2000;
+    // Four segments of 1000, so each category's filter accepts about 42 documents per segment: more
+    // than the max(k, perLeafTopK) at or below which the query falls back to Lucene's per-segment
+    // search (k on Lucene 10.2, 24 for these sizes on 10.3).
+    int datasetSize = 4000;
     int dimensions = 128;
     int numQueries = 64;
     topK = 10;
@@ -114,15 +117,14 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
     // DirectoryReader resolves the stored codec name through SPI. Give that singleton the same
     // deliberately small cache budget while it constructs this test's segment readers, then restore
     // its previous format so the test does not alter later reader construction in this JVM.
-    CuVS2510GPUSearchCodec spiCodec =
-        (CuVS2510GPUSearchCodec) Codec.forName("CuVS2510GPUSearchCodec");
+    CuVSFilterCodec spiCodec = (CuVSFilterCodec) Codec.forName(codec.getName());
     KnnVectorsFormat previousFormat = spiCodec.knnVectorsFormat();
-    spiCodec.setKnnFormat(
+    spiCodec.setKnnVectorsFormat(
         new CuVS2510GPUVectorsFormat(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG));
     try {
       reader = DirectoryReader.open(directory);
     } finally {
-      spiCodec.setKnnFormat(previousFormat);
+      spiCodec.setKnnVectorsFormat(previousFormat);
     }
     searcher = new IndexSearcher(reader);
     queryVectors = generateDataset(random(), numQueries, dimensions);
@@ -159,7 +161,7 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
       }
     }
     assertEquals(
-        "every filter here leaves far more than topK candidates per segment",
+        "every filter here leaves more than max(k, perLeafTopK) candidates per segment",
         NUM_CATEGORIES,
         gpuPath);
   }

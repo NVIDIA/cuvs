@@ -27,10 +27,10 @@ void serialize_impl(raft::resources const& handle, std::ostream& os, const index
   raft::serialize_scalar(handle, os, idx.n_lists());
   raft::serialize_scalar(handle, os, idx.adaptive_centers());
   raft::serialize_scalar(handle, os, idx.conservative_memory_allocation());
-  raft::serialize_scalar(handle, os, idx.quantizer().threshold.extent(0));
-  if (idx.quantizer().threshold.extent(0) > 0) {
-    cuvs::util::detail::serialize_mdspan(handle, os, idx.quantizer().threshold.view());
-  }
+  // The zero threshold is implied by the dimension and has no stored thresholds
+  const auto* threshold = std::get_if<1>(&idx.quantizer().value);
+  raft::serialize_scalar(handle, os, int64_t{threshold != nullptr ? threshold->extent(0) : 0});
+  if (threshold != nullptr) { cuvs::util::detail::serialize_mdspan(handle, os, threshold->view()); }
   cuvs::util::detail::serialize_mdspan(handle, os, idx.centers());
   if (idx.adaptive_centers()) {
     cuvs::util::detail::serialize_mdspan(handle, os, idx.center_counts());
@@ -68,10 +68,12 @@ auto deserialize_impl(raft::resources const& handle, Input& input) -> index<int6
   params.conservative_memory_allocation = cma;
   index<int64_t> idx(handle, params, dim);
 
-  auto& quantizer     = detail::index_access::quantizer(idx);
-  quantizer.threshold = raft::make_device_vector<float, int64_t>(handle, n_threshold);
+  // The index is created with the zero-threshold quantizer of the given dimension
   if (n_threshold > 0) {
-    cuvs::util::detail::deserialize_mdspan(handle, input, quantizer.threshold.view());
+    auto thresholds = raft::make_device_vector<float, int64_t>(handle, n_threshold);
+    cuvs::util::detail::deserialize_mdspan(handle, input, thresholds.view());
+    detail::index_access::quantizer(idx) =
+      cuvs::preprocessing::quantize::binary::quantizer<float>(std::move(thresholds));
   }
   cuvs::util::detail::deserialize_mdspan(handle, input, detail::index_access::centers(idx).view());
   if (adaptive) {
@@ -101,18 +103,7 @@ void extend(raft::resources const& handle,
             std::optional<raft::device_vector_view<const int64_t, int64_t>> new_indices,
             index<int64_t>* index)
 {
-  RAFT_EXPECTS(index != nullptr, "index cannot be empty.");
-  RAFT_EXPECTS(new_vectors.dim() == index->dim(),
-               "The dimension of the vectors must equal the dimension of the index.");
-  if (new_indices.has_value()) {
-    RAFT_EXPECTS(new_vectors.n_rows() == new_indices->extent(0),
-                 "new_vectors and new_indices have different number of rows");
-  }
-  detail::extend(handle,
-                 index,
-                 new_vectors.data_const_view().data_handle(),
-                 new_indices.has_value() ? new_indices->data_handle() : nullptr,
-                 new_vectors.n_rows());
+  detail::extend(handle, new_vectors, new_indices, index);
 }
 
 void search(raft::resources const& handle,

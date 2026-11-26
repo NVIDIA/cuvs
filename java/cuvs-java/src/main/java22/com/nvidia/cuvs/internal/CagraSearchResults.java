@@ -21,6 +21,9 @@ import java.util.function.LongToIntFunction;
  */
 class CagraSearchResults {
 
+  /** The id single-CTA search gives an empty top-k slot: the invalid index with its top bit clear. */
+  private static final long SINGLE_CTA_EMPTY_ID = 0x7FFFFFFFL;
+
   /**
    * Factory method to create an on-heap SearchResults (backed by standard Java data types and containers) from
    * native/off-heap memory data structures.
@@ -51,10 +54,10 @@ class CagraSearchResults {
         long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0, i);
         float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
         // Empty top-k slots (fewer than k passing candidates) carry a sentinel distance of
-        // FLT_MAX. Prefer this over the neighbor-index sentinel: the index sentinel is not uniform
-        // across CAGRA search algorithms (single-CTA emits 0x7FFFFFFF, multi-CTA 0xFFFFFFFF), so
-        // the distance is the reliable, algorithm-independent signal for an empty slot.
-        if (dst != Float.MAX_VALUE) {
+        // FLT_MAX, negated for inner product, but cosine rescales it into an ordinary-looking
+        // value. The id sentinel differs between the search algorithms: multi-CTA emits
+        // 0xFFFFFFFF, which reads as -1, and single-CTA emits 0x7FFFFFFF.
+        if (!SearchResultsImpl.isEmptySlot(id, dst) && id != SINGLE_CTA_EMPTY_ID) {
           resultMap.put(mapping.applyAsInt(id), dst);
         }
       }

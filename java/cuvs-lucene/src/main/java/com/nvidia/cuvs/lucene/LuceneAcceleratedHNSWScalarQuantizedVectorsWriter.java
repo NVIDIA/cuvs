@@ -15,6 +15,7 @@ import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_I
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_VERSION;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
@@ -53,13 +54,11 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 26.02
  */
-public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVectorsWriter {
+public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.class);
   private static final String COMPONENT = "Lucene99AcceleratedHNSWQuantizedVectorsWriter";
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final Integer VERSION_CURRENT;
 
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
@@ -70,15 +69,6 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   private boolean finished;
   private String vemFileName;
   private String vexFileName;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VERSION_CURRENT = LUCENE_PROVIDER.getStaticIntParam("VERSION_CURRENT");
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes {@link LuceneAcceleratedHNSWScalarQuantizedVectorsWriter}
@@ -114,13 +104,13 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       CodecUtil.writeIndexHeader(
           hnswMeta,
           HNSW_META_CODEC_NAME,
-          VERSION_CURRENT,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          VERSION_CURRENT,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       success = true;
@@ -243,6 +233,10 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
     flatVectorsWriter.flush(maxDoc, sortMap);
+    // Since Lucene 10.4, the scalar-quantized flat writer normalizes the buffered vectors of COSINE
+    // fields in place when it flushes, so a flush builds their graph from normalized vectors and a
+    // merge from the vectors as indexed. Both are built with the configured cuVS distance, which
+    // does not depend on the field's similarity yet.
     for (var field : fields) {
       if (sortMap == null) {
         writeField(field);
@@ -321,11 +315,9 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     }
   }
 
-  /**
-   * Write field for merging.
-   */
+  /** Merges one field, building its graph from the merged vectors. */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }

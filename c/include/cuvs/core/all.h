@@ -46,6 +46,7 @@
 #include <cuvs/preprocessing/quantize/binary.h>
 #include <cuvs/preprocessing/quantize/bbq.h>
 #include <cuvs/preprocessing/quantize/pq.h>
+#include <cuvs/preprocessing/quantize/rabitq.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
 
 #include <cuvs/selection/select_k.h>

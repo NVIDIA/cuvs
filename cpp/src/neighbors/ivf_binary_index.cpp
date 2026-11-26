@@ -9,6 +9,7 @@
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/integer_utils.hpp>
 
 #include <limits>
 
@@ -20,7 +21,7 @@ uint32_t encoded_length(uint32_t dim)
   RAFT_EXPECTS(dim > 0, "The dimension of a binary index must be positive");
   RAFT_EXPECTS(dim <= std::numeric_limits<uint32_t>::max() / 8,
                "The binary dimension is too large for the per-bit center statistics");
-  return (dim + 7) / 8;
+  return raft::div_rounding_up_safe<uint32_t>(dim, 8);
 }
 
 template <typename T>
@@ -36,9 +37,8 @@ void zero_fill(raft::resources const& res, T* ptr, size_t n)
 
 template <typename IdxT>
 index<IdxT>::index(raft::resources const& res)
-  : dim_{0},
-    adaptive_centers_{false},
-    quantizer_{res},
+  : adaptive_centers_{false},
+    quantizer_{},
     centers_{raft::make_device_matrix<uint8_t, int64_t>(res, 0, 0)},
     center_counts_{raft::make_device_matrix<uint32_t, int64_t>(res, 0, 0)},
     lists_{res}
@@ -47,9 +47,8 @@ index<IdxT>::index(raft::resources const& res)
 
 template <typename IdxT>
 index<IdxT>::index(raft::resources const& res, const index_params& params, uint32_t dim)
-  : dim_{dim},
-    adaptive_centers_{params.adaptive_centers},
-    quantizer_{res},
+  : adaptive_centers_{params.adaptive_centers},
+    quantizer_{dim},
     centers_{raft::make_device_matrix<uint8_t, int64_t>(res, params.n_lists, encoded_length(dim))},
     center_counts_{raft::make_device_matrix<uint32_t, int64_t>(
       res,
@@ -70,7 +69,7 @@ index<IdxT>::index(raft::resources const& res, const index_params& params, uint3
 template <typename IdxT>
 uint32_t index<IdxT>::dim() const noexcept
 {
-  return dim_;
+  return quantizer_.dim();
 }
 
 template <typename IdxT>
