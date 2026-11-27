@@ -357,7 +357,7 @@ template <typename T,
             raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
 auto sample_training_residuals(
   raft::resources const& res,
-  random::RngState random_state,
+  raft::random::RngState random_state,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
   raft::device_matrix_view<const T, int64_t> centroids,
   raft::device_vector_view<const LabelT, int64_t> labels,

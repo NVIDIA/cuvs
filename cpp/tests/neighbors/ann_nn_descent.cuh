@@ -288,7 +288,7 @@ class AnnNNDescentDistEpiTest : public ::testing::TestWithParam<AnnNNDescentInpu
       auto build_config = nn_descent::detail::get_build_config(
         handle_, index_params, ps.n_rows, ps.dim, ps.metric, extended_graph_degree, graph_degree);
       auto gnnd      = nn_descent::detail::GNND<const DataT, int>(handle_, build_config);
-      auto int_graph = raft::make_host_matrix<int, IdxT, row_major>(
+      auto int_graph = raft::make_host_matrix<int, IdxT, raft::row_major>(
         ps.n_rows, static_cast<IdxT>(extended_graph_degree));
 
       auto dist_epilogue =

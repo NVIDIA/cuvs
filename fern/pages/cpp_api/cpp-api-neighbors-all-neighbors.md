@@ -53,11 +53,12 @@ Builds an approximate all-neighbors knn graph  (find nearest neighbors for all t
 void build(
 const raft::resources& handle,
 const all_neighbors_params& params,
-raft::host_matrix_view<const float, int64_t, row_major> dataset,
-raft::device_matrix_view<int64_t, int64_t, row_major> indices,
-std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
-std::optional<raft::device_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
-float alpha                                                                       = 1.0);
+raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+raft::device_matrix_view<int64_t, int64_t, raft::row_major> indices,
+std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances = std::nullopt,
+std::optional<raft::device_vector_view<float, int64_t, raft::row_major>> core_distances =
+std::nullopt,
+float alpha = 1.0);
 ```
 
 Usage example:
@@ -68,10 +69,10 @@ Usage example:
 | --- | --- | --- | --- |
 | `handle` | in | `const raft::resources&` | raft::resources is an object managing resources |
 | `params` | in | [`const all_neighbors_params&`](/api-reference/cpp-api-neighbors-all-neighbors#neighbors-all-neighbors-all-neighbors-params) | an instance of all_neighbors::all_neighbors_params that are parameters to build all-neighbors knn graph |
-| `dataset` | in | `raft::host_matrix_view<const float, int64_t, row_major>` | raft::host_matrix_view input dataset expected to be located in host memory |
-| `indices` | out | `raft::device_matrix_view<int64_t, int64_t, row_major>` | nearest neighbor indices of shape [n_row x k] on device memory |
-| `distances` | out | `std::optional<raft::device_matrix_view<float, int64_t, row_major>>` | nearest neighbor distances [n_row x k] on device memory<br />Default: `std::nullopt`. |
-| `core_distances` | out | `std::optional<raft::device_vector_view<float, int64_t, row_major>>` | array for core distances of size [n_row]. Requires distances matrix to compute core_distances. If core_distances is given, the resulting indices and distances will be mutual reachability space.<br />Default: `std::nullopt`. |
+| `dataset` | in | `raft::host_matrix_view<const float, int64_t, raft::row_major>` | raft::host_matrix_view input dataset expected to be located in host memory |
+| `indices` | out | `raft::device_matrix_view<int64_t, int64_t, raft::row_major>` | nearest neighbor indices of shape [n_row x k] on device memory |
+| `distances` | out | `std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>>` | nearest neighbor distances [n_row x k] on device memory<br />Default: `std::nullopt`. |
+| `core_distances` | out | `std::optional<raft::device_vector_view<float, int64_t, raft::row_major>>` | array for core distances of size [n_row]. Requires distances matrix to compute core_distances. If core_distances is given, the resulting indices and distances will be mutual reachability space.<br />Default: `std::nullopt`. |
 | `alpha` | in | `float` | distance scaling parameter as used in robust single linkage.<br />Default: `1.0`. |
 
 **Returns**
@@ -86,11 +87,12 @@ Builds an approximate all-neighbors knn graph  (find nearest neighbors for all t
 void build(
 const raft::resources& handle,
 const all_neighbors_params& params,
-raft::host_matrix_view<const float, int64_t, row_major> dataset,
-raft::host_matrix_view<int64_t, int64_t, row_major> indices,
-std::optional<raft::host_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
-std::optional<raft::host_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
-float alpha                                                                     = 1.0);
+raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+raft::host_matrix_view<int64_t, int64_t, raft::row_major> indices,
+std::optional<raft::host_matrix_view<float, int64_t, raft::row_major>> distances = std::nullopt,
+std::optional<raft::host_vector_view<float, int64_t, raft::row_major>> core_distances =
+std::nullopt,
+float alpha = 1.0);
 ```
 
 Usage example:
@@ -101,10 +103,10 @@ Usage example:
 | --- | --- | --- | --- |
 | `handle` | in | `const raft::resources&` | raft::resources is an object managing resources |
 | `params` | in | [`const all_neighbors_params&`](/api-reference/cpp-api-neighbors-all-neighbors#neighbors-all-neighbors-all-neighbors-params) | an instance of all_neighbors::all_neighbors_params that are parameters to build all-neighbors knn graph |
-| `dataset` | in | `raft::host_matrix_view<const float, int64_t, row_major>` | raft::host_matrix_view input dataset expected to be located in host memory |
-| `indices` | out | `raft::host_matrix_view<int64_t, int64_t, row_major>` | nearest neighbor indices of shape [n_row x k] on host memory |
-| `distances` | out | `std::optional<raft::host_matrix_view<float, int64_t, row_major>>` | nearest neighbor distances [n_row x k] on host memory<br />Default: `std::nullopt`. |
-| `core_distances` | out | `std::optional<raft::host_vector_view<float, int64_t, row_major>>` | array for core distances of size [n_row] on host memory. Requires distances matrix to compute core_distances. If core_distances is given, the resulting indices and distances will be mutual reachability space.<br />Default: `std::nullopt`. |
+| `dataset` | in | `raft::host_matrix_view<const float, int64_t, raft::row_major>` | raft::host_matrix_view input dataset expected to be located in host memory |
+| `indices` | out | `raft::host_matrix_view<int64_t, int64_t, raft::row_major>` | nearest neighbor indices of shape [n_row x k] on host memory |
+| `distances` | out | `std::optional<raft::host_matrix_view<float, int64_t, raft::row_major>>` | nearest neighbor distances [n_row x k] on host memory<br />Default: `std::nullopt`. |
+| `core_distances` | out | `std::optional<raft::host_vector_view<float, int64_t, raft::row_major>>` | array for core distances of size [n_row] on host memory. Requires distances matrix to compute core_distances. If core_distances is given, the resulting indices and distances will be mutual reachability space.<br />Default: `std::nullopt`. |
 | `alpha` | in | `float` | distance scaling parameter as used in robust single linkage.<br />Default: `1.0`. |
 
 **Returns**
@@ -119,11 +121,12 @@ Builds an approximate all-neighbors knn graph (find nearest neighbors for all th
 void build(
 const raft::resources& handle,
 const all_neighbors_params& params,
-raft::device_matrix_view<const float, int64_t, row_major> dataset,
-raft::device_matrix_view<int64_t, int64_t, row_major> indices,
-std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
-std::optional<raft::device_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
-float alpha                                                                       = 1.0);
+raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+raft::device_matrix_view<int64_t, int64_t, raft::row_major> indices,
+std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances = std::nullopt,
+std::optional<raft::device_vector_view<float, int64_t, raft::row_major>> core_distances =
+std::nullopt,
+float alpha = 1.0);
 ```
 
 Usage example:
@@ -134,10 +137,10 @@ Usage example:
 | --- | --- | --- | --- |
 | `handle` | in | `const raft::resources&` | raft::resources is an object managing resources |
 | `params` | in | [`const all_neighbors_params&`](/api-reference/cpp-api-neighbors-all-neighbors#neighbors-all-neighbors-all-neighbors-params) | an instance of all_neighbors::all_neighbors_params that are parameters to build all-neighbors knn graph |
-| `dataset` | in | `raft::device_matrix_view<const float, int64_t, row_major>` | raft::device_matrix_view input dataset expected to be located in device memory |
-| `indices` | out | `raft::device_matrix_view<int64_t, int64_t, row_major>` | nearest neighbor indices of shape [n_row x k] on device memory |
-| `distances` | out | `std::optional<raft::device_matrix_view<float, int64_t, row_major>>` | nearest neighbor distances [n_row x k] on device memory<br />Default: `std::nullopt`. |
-| `core_distances` | out | `std::optional<raft::device_vector_view<float, int64_t, row_major>>` | array for core distances of size [n_row]. Requires distances matrix to compute core_distances. If core_distances is given, the resulting indices and distances will be mutual reachability space.<br />Default: `std::nullopt`. |
+| `dataset` | in | `raft::device_matrix_view<const float, int64_t, raft::row_major>` | raft::device_matrix_view input dataset expected to be located in device memory |
+| `indices` | out | `raft::device_matrix_view<int64_t, int64_t, raft::row_major>` | nearest neighbor indices of shape [n_row x k] on device memory |
+| `distances` | out | `std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>>` | nearest neighbor distances [n_row x k] on device memory<br />Default: `std::nullopt`. |
+| `core_distances` | out | `std::optional<raft::device_vector_view<float, int64_t, raft::row_major>>` | array for core distances of size [n_row]. Requires distances matrix to compute core_distances. If core_distances is given, the resulting indices and distances will be mutual reachability space.<br />Default: `std::nullopt`. |
 | `alpha` | in | `float` | distance scaling parameter as used in robust single linkage.<br />Default: `1.0`. |
 
 **Returns**

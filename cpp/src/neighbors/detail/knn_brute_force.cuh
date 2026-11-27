@@ -976,7 +976,7 @@ void search(raft::resources const& res,
 template <typename T, typename DistT, typename AccessorT, typename LayoutT = raft::row_major>
 cuvs::neighbors::brute_force::index<T, DistT> build(
   raft::resources const& res,
-  mdspan<const T, matrix_extent<int64_t>, LayoutT, AccessorT> dataset,
+  raft::mdspan<const T, raft::matrix_extent<int64_t>, LayoutT, AccessorT> dataset,
   cuvs::distance::DistanceType metric,
   DistT metric_arg)
 {
@@ -987,14 +987,14 @@ cuvs::neighbors::brute_force::index<T, DistT> build(
   if (metric == cuvs::distance::DistanceType::L2Expanded ||
       metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
       metric == cuvs::distance::DistanceType::CosineExpanded) {
-    auto dataset_storage = std::optional<device_matrix<T, int64_t, LayoutT>>{};
+    auto dataset_storage = std::optional<raft::device_matrix<T, int64_t, LayoutT>>{};
     auto dataset_view    = [&res, &dataset_storage, dataset]() {
       if constexpr (std::is_same_v<decltype(dataset),
-                                      raft::device_matrix_view<const T, int64_t, row_major>>) {
+                                      raft::device_matrix_view<const T, int64_t, raft::row_major>>) {
         return dataset;
       } else {
         dataset_storage =
-          make_device_matrix<T, int64_t, LayoutT>(res, dataset.extent(0), dataset.extent(1));
+          raft::make_device_matrix<T, int64_t, LayoutT>(res, dataset.extent(0), dataset.extent(1));
         raft::copy(res, dataset_storage->view(), dataset);
         return raft::make_const_mdspan(dataset_storage->view());
       }

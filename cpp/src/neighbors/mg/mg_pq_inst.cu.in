@@ -12,7 +12,7 @@
   cuvs::neighbors::mg_index<ivf_pq::index<IdxT>, T, IdxT> build(                            \
     const raft::resources& res,                                                             \
     const mg_index_params<ivf_pq::index_params>& index_params,                              \
-    raft::host_matrix_view<const T, int64_t, row_major> index_dataset)                      \
+    raft::host_matrix_view<const T, int64_t, raft::row_major> index_dataset)                \
   {                                                                                         \
     cuvs::neighbors::mg_index<ivf_pq::index<IdxT>, T, IdxT> index(res, index_params.mode);  \
     cuvs::neighbors::snmg::detail::build(                                                   \
@@ -25,7 +25,7 @@
                                                                                             \
   void extend(const raft::resources& res,                                                   \
               cuvs::neighbors::mg_index<ivf_pq::index<IdxT>, T, IdxT>& index,               \
-              raft::host_matrix_view<const T, int64_t, row_major> new_vectors,              \
+              raft::host_matrix_view<const T, int64_t, raft::row_major> new_vectors,        \
               std::optional<raft::host_vector_view<const IdxT, int64_t>> new_indices)       \
   {                                                                                         \
     cuvs::neighbors::snmg::detail::extend(res, index, new_vectors, new_indices);            \
@@ -34,9 +34,9 @@
   void search(const raft::resources& res,                                                   \
               const cuvs::neighbors::mg_index<ivf_pq::index<IdxT>, T, IdxT>& index,         \
               const mg_search_params<ivf_pq::search_params>& search_params,                 \
-              raft::host_matrix_view<const T, int64_t, row_major> queries,                  \
-              raft::host_matrix_view<IdxT, int64_t, row_major> neighbors,                   \
-              raft::host_matrix_view<float, int64_t, row_major> distances)                  \
+              raft::host_matrix_view<const T, int64_t, raft::row_major> queries,            \
+              raft::host_matrix_view<IdxT, int64_t, raft::row_major> neighbors,             \
+              raft::host_matrix_view<float, int64_t, raft::row_major> distances)            \
   {                                                                                         \
     cuvs::neighbors::snmg::detail::search(                                                  \
       res,                                                                                  \

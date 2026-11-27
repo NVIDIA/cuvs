@@ -462,8 +462,11 @@ class ivf_pq_test : public ::testing::TestWithParam<ivf_pq_inputs> {
       handle_, list_data_view, index->pq_bits(), row_offset, codes2.view());
 
     // Write it back
-    ivf_pq::helpers::codepacker::pack(
-      handle_, make_const_mdspan(codes2.view()), index->pq_bits(), row_offset, list_data_view);
+    ivf_pq::helpers::codepacker::pack(handle_,
+                                      raft::make_const_mdspan(codes2.view()),
+                                      index->pq_bits(),
+                                      row_offset,
+                                      list_data_view);
     ASSERT_TRUE(cuvs::devArrMatch(old_list->data.data_handle(),
                                   new_list->data.data_handle(),
                                   list_data_byte_size,

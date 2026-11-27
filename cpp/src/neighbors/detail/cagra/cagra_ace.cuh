@@ -456,7 +456,7 @@ void ace_gather_partition_dataset(
   size_t augmented_sub_dataset_size,
   size_t dataset_dim,
   size_t partition_id,
-  raft::host_matrix_view<const T, int64_t, row_major> dataset,
+  raft::host_matrix_view<const T, int64_t, raft::row_major> dataset,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_backward_mapping,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_backward_mapping,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_partition_offsets,
@@ -611,7 +611,7 @@ void ace_adjust_sub_graph_ids_disk(
 // partitions). Uses buffered writes optimized for NVMe storage.
 template <typename T, typename IdxT>
 void ace_reorder_and_store_dataset(
-  raft::host_matrix_view<const T, int64_t, row_major> dataset,
+  raft::host_matrix_view<const T, int64_t, raft::row_major> dataset,
   size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
