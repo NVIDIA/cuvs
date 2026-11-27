@@ -43,10 +43,6 @@ class DataQuantizerGPU {
     float const_scaling_factor_8bit;
   };
 
-  // Static methods
-  static float get_const_scaling_factors(raft::resources const& handle, size_t dim, size_t ex_bits);
-
-  float get_const_scaling_factors_fully_gpu(size_t dim, size_t ex_bits);
   // Constructor: initialize from dimension and bit count.
   explicit DataQuantizerGPU(raft::resources const& handle, size_t dim, size_t b)
     : DIM(dim),
@@ -78,16 +74,9 @@ class DataQuantizerGPU {
   static constexpr size_t num_short_factors() { return NUM_SHORT_FACTORS; }
   const FastQuantizeFactors* get_query_scaling_factor() const { return &fast_quantize_factors; }
   FastQuantizeFactors* get_query_scaling_factor() { return &fast_quantize_factors; }
-  void compute_query_scaling_factors(size_t dim)
-  {
-    fast_quantize_factors.const_scaling_factor_4bit = get_const_scaling_factors(handle_, dim, 3);
-    fast_quantize_factors.const_scaling_factor_8bit = get_const_scaling_factors_fully_gpu(dim, 7);
-  }
-  void compute_quantize_scaling_factors()
-  {
-    const_scaling_factor = get_const_scaling_factors_fully_gpu(D, EX_BITS);
-  }
-  void set_quantize_scaling_factors(float value) { const_scaling_factor = value; }
+  void compute_query_scaling_factors(size_t dim);
+  // Reuse the query estimate when the data uses the same code width.
+  void compute_quantize_scaling_factors();
 
   // Public configuration flag
   bool fast_quantize_flag;

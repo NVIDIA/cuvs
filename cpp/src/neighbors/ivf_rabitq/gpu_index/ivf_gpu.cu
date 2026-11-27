@@ -392,18 +392,8 @@ void IVFGPU::construct_on_gpu(const float* device_data,
   // pre-compute rescaling factors for search
   DQ->compute_query_scaling_factors(this->num_padded_dim);
 
-  // compute rescaling factors for query if needed
+  // Only fast data quantization needs a shared scaling factor.
   if (DQ->fast_quantize_flag) { DQ->compute_quantize_scaling_factors(); }
-
-  if (DQ->fast_quantize_flag) {
-    if (ex_bits == 3) {
-      DQ->set_quantize_scaling_factors(DQ->get_query_scaling_factor()->const_scaling_factor_4bit);
-    } else if (ex_bits == 7) {
-      DQ->set_quantize_scaling_factors(DQ->get_query_scaling_factor()->const_scaling_factor_8bit);
-    } else {
-      DQ->compute_quantize_scaling_factors();
-    }
-  }
 
   // -------------------------
   // 2. Validate cluster IDs on GPU
@@ -553,18 +543,8 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
   // pre-compute rescaling factors for search
   DQ->compute_query_scaling_factors(this->num_padded_dim);
 
-  // compute rescaling factors for query if needed
+  // Only fast data quantization needs a shared scaling factor.
   if (DQ->fast_quantize_flag) { DQ->compute_quantize_scaling_factors(); }
-
-  if (DQ->fast_quantize_flag) {
-    if (ex_bits == 3) {
-      DQ->set_quantize_scaling_factors(DQ->get_query_scaling_factor()->const_scaling_factor_4bit);
-    } else if (ex_bits == 7) {
-      DQ->set_quantize_scaling_factors(DQ->get_query_scaling_factor()->const_scaling_factor_8bit);
-    } else {
-      DQ->compute_quantize_scaling_factors();
-    }
-  }
 
   // -------------------------
   // 1. Use cluster IDs already on device
