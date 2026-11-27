@@ -52,8 +52,8 @@ enum cuvsRabitqRotatorKind {
  */
 enum cuvsRabitqDeltaKind {
   CUVS_RABITQ_DELTA_KIND_RECONSTRUCTION = 0,
-  CUVS_RABITQ_DELTA_KIND_UNBIASED = 1,
-  CUVS_RABITQ_DELTA_KIND_PLAIN = 2,
+  CUVS_RABITQ_DELTA_KIND_UNBIASED       = 1,
+  CUVS_RABITQ_DELTA_KIND_PLAIN          = 2,
 };
 
 /**
@@ -68,8 +68,7 @@ struct cuvsRabitqQuantizerParams {
    * Number of *extended* bits per dimension. The total code width is
    * `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so
    * `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common
-   * 4-bit configuration. `ex_bits = 8` needs `uint16` codes; `uint8` codes are
-   * rejected.
+   * 4-bit configuration. Signs and extra bits are packed separately for all widths.
    *
    * Possible value range: [0, 8].
    */
@@ -303,10 +302,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
  * @brief Quantizes a raw dataset, emitting per-vector `(delta, vl)` factors.
  *
  * Performs the whole chain: zero-pad `dim -> padded_dim`, rotate, optionally
- * subtract the rotated centroid, then quantize the residuals. One code element
- * is written per padded dimension; each holds an unsigned
- * `cuvsRabitqQuantizerParams::ex_bits + 1` bit value, so `codes` must be
- * `n_rows x padded_dim`.
+ * subtract the rotated centroid, then quantize the residuals into separate
+ * packed signs and extra bits, using the layout consumed by IVF RaBitQ.
  *
  * Rows are processed in internal batches. A temporary float buffer is used
  * internally to store the rotated residuals. This is allocated from the workspace
@@ -323,7 +320,13 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
  * @param[in] dataset a row-major `n_rows x dim` float32 host or device matrix
  * @param[in] centroid optional un-rotated `dim` float32 device vector; when non-NULL, codes are
  *            computed on the residuals w.r.t. this centroid. Pass NULL to skip centering.
- * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
+ * @param[out] signs a row-major `padded_dim / 32 x n_rows` uint32 device matrix;
+ *            word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31.
+ *            A set bit denotes a nonnegative residual, including zero.
+ * @param[out] extra_bits a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device
+ *            matrix. Values are packed most significant bit first; negative residuals
+ *            store the complemented magnitude within `ex_bits` bits. The second extent
+ *            is zero when `ex_bits == 0`; the tensor must still be supplied.
  * @param[out] delta per-vector scale, an `n_rows` float32 device vector
  * @param[out] vl per-vector offset (`delta * -(2^ex_bits - 0.5)`), an `n_rows` float32 device
  *             vector
@@ -334,7 +337,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
                                             cuvsRabitqRotator_t rotator,
                                             DLManagedTensor* dataset,
                                             DLManagedTensor* centroid,
-                                            DLManagedTensor* codes,
+                                            DLManagedTensor* signs,
+                                            DLManagedTensor* extra_bits,
                                             DLManagedTensor* delta,
                                             DLManagedTensor* vl);
 
@@ -360,7 +364,13 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
  * @param[in] rotator the rotator whose padded dim matches the encoder
  * @param[in] dataset a row-major `n_rows x dim` float32 host or device matrix
  * @param[in] centroid optional un-rotated `dim` float32 device vector; treated as zero when NULL
- * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
+ * @param[out] signs a row-major `padded_dim / 32 x n_rows` uint32 device matrix;
+ *            word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31.
+ *            A set bit denotes a nonnegative residual, including zero.
+ * @param[out] extra_bits a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device
+ *            matrix. Values are packed most significant bit first; negative residuals
+ *            store the complemented magnitude within `ex_bits` bits. The second extent
+ *            is zero when `ex_bits == 0`; the tensor must still be supplied.
  * @param[out] factors a row-major `n_rows x 3` float32 device matrix
  * @return cuvsError_t
  */
@@ -369,7 +379,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
                                                 cuvsRabitqRotator_t rotator,
                                                 DLManagedTensor* dataset,
                                                 DLManagedTensor* centroid,
-                                                DLManagedTensor* codes,
+                                                DLManagedTensor* signs,
+                                                DLManagedTensor* extra_bits,
                                                 DLManagedTensor* factors);
 
 /**
@@ -385,7 +396,13 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
  * @param[in] encoder a RaBitQ encoder
  * @param[in] residuals a row-major `n_rows x padded_dim` float32 device matrix, rotated and
  *            centered
- * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
+ * @param[out] signs a row-major `padded_dim / 32 x n_rows` uint32 device matrix;
+ *            word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31.
+ *            A set bit denotes a nonnegative residual, including zero.
+ * @param[out] extra_bits a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device
+ *            matrix. Values are packed most significant bit first; negative residuals
+ *            store the complemented magnitude within `ex_bits` bits. The second extent
+ *            is zero when `ex_bits == 0`; the tensor must still be supplied.
  * @param[out] delta per-vector scale, an `n_rows` float32 device vector
  * @param[out] vl per-vector offset (`delta * -(2^ex_bits - 0.5)`), an `n_rows` float32 device
  *             vector
@@ -394,7 +411,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
 CUVS_EXPORT cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
                                                      cuvsRabitqEncoder_t encoder,
                                                      DLManagedTensor* residuals,
-                                                     DLManagedTensor* codes,
+                                                     DLManagedTensor* signs,
+                                                     DLManagedTensor* extra_bits,
                                                      DLManagedTensor* delta,
                                                      DLManagedTensor* vl);
 
@@ -413,7 +431,13 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
  *            centered
  * @param[in] rotated_centroid optional rotated, padded centroid (a `padded_dim` float32 device
  *            vector); treated as zero when NULL
- * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
+ * @param[out] signs a row-major `padded_dim / 32 x n_rows` uint32 device matrix;
+ *            word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31.
+ *            A set bit denotes a nonnegative residual, including zero.
+ * @param[out] extra_bits a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device
+ *            matrix. Values are packed most significant bit first; negative residuals
+ *            store the complemented magnitude within `ex_bits` bits. The second extent
+ *            is zero when `ex_bits == 0`; the tensor must still be supplied.
  * @param[out] factors a row-major `n_rows x 3` float32 device matrix
  * @return cuvsError_t
  */
@@ -421,7 +445,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
                                                          cuvsRabitqEncoder_t encoder,
                                                          DLManagedTensor* residuals,
                                                          DLManagedTensor* rotated_centroid,
-                                                         DLManagedTensor* codes,
+                                                         DLManagedTensor* signs,
+                                                         DLManagedTensor* extra_bits,
                                                          DLManagedTensor* factors);
 
 /**
@@ -487,8 +512,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqEncoderGetDim(cuvsRabitqEncoder_t encoder, int
 /**
  * @brief Get the working dimension of an encoder: `dim` rounded up to a multiple of 32.
  *
- * This is the number of code elements emitted per vector, i.e. the second
- * extent that the `codes` tensor must have.
+ * This determines the packed output extents: `padded_dim / 32` sign words and
+ * `padded_dim * ex_bits / 8` extra-bit bytes per vector.
  *
  * @param[in] encoder a RaBitQ encoder
  * @param[out] padded_dim the working dimension

@@ -40,6 +40,27 @@ enum class rotator_kind : uint8_t {
 };
 
 /**
+ * @brief Non-owning output buffers for packed RaBitQ codes.
+ *
+ * Each dimension contributes one sign bit and `params::ex_bits` extra bits.
+ * Sign words are transposed: `signs(word, row)` holds dimensions
+ * `[32 * word, 32 * word + 32)` of a vector, with the first dimension in bit 31.
+ * A set sign bit denotes a nonnegative residual (including zero).
+ *
+ * Extra bits are contiguous per vector, most significant bit first. Negative
+ * residuals store the complemented magnitude within `ex_bits` bits. Combining
+ * the sign bit above these extra bits recovers the unsigned scalar code `c`,
+ * whose signed level is `c - (2^ex_bits - 0.5)`.
+ */
+struct packed_codes_view {
+  /** Row-major `padded_dim / 32 x n_rows` sign words on device. */
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> signs;
+  /** Row-major `n_rows x (padded_dim * ex_bits / 8)` bytes on device.
+   * The second extent is zero for one-bit RaBitQ (`ex_bits == 0`). */
+  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> extra_bits;
+};
+
+/**
  * @brief Rule used to derive the per-vector reconstruction scale `delta`.
  *
  * Only relevant for the `(codes, delta, vl)` output mode; the full-factor mode
@@ -67,8 +88,7 @@ struct params {
    * Number of *extended* bits per dimension. The total code width is
    * `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so
    * `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common
-   * 4-bit configuration. `ex_bits = 8` needs `uint16_t` codes; `uint8_t` codes are
-   * rejected.
+   * 4-bit configuration. Signs and extra bits are packed separately for all widths.
    *
    * Possible value range: [0, 8].
    */
@@ -328,7 +348,7 @@ encoder make_encoder(raft::resources const& res, params const& params, int64_t d
  * auto quantizer =
  *   cuvs::preprocessing::quantize::rabitq::make_quantizer(res, params, dataset.extent(1));
  * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer.encoder, quantizer.rotator,
- *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
+ *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes, delta.view(), vl.view());
  * @endcode
  *
  * @tparam T element type of the rotation matrix
@@ -378,9 +398,8 @@ void rotate(raft::resources const& res,
  * @brief Quantizes a raw dataset, emitting per-vector `(delta, vl)` factors.
  *
  * Performs the whole chain: zero-pad `dim -> padded_dim`, rotate, optionally
- * subtract the rotated centroid, then quantize the residuals. One code element
- * is written per padded dimension; each holds an unsigned
- * `params::ex_bits + 1` bit value, so `codes` must be `n_rows x padded_dim`.
+ * subtract the rotated centroid, then quantize the residuals into the two
+ * buffers described by packed_codes_view.
  *
  * Rows are processed in internal batches. A temporary float buffer is used
  * internally to store the rotated residuals. This is allocated from the workspace
@@ -400,11 +419,14 @@ void rotate(raft::resources const& res,
  * cuvs::preprocessing::quantize::rabitq::params params;
  * auto encoder = cuvs::preprocessing::quantize::rabitq::make_encoder(res, params, dim);
  * auto rotator = cuvs::preprocessing::quantize::rabitq::make_rotator(res, params, dim);
- * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
+ * auto signs = raft::make_device_matrix<uint32_t, int64_t>(res, encoder.padded_dim / 32, n_rows);
+ * auto extra = raft::make_device_matrix<uint8_t, int64_t>(
+ *   res, n_rows, encoder.padded_dim * encoder.params_quantizer.ex_bits / 8);
+ * packed_codes_view codes{signs.view(), extra.view()};
  * auto delta = raft::make_device_vector<float, int64_t>(res, n_rows);
  * auto vl    = raft::make_device_vector<float, int64_t>(res, n_rows);
  * cuvs::preprocessing::quantize::rabitq::transform(res, encoder, rotator,
- *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
+ *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes, delta.view(), vl.view());
  * @endcode
  *
  * @param[in] res raft resource
@@ -413,7 +435,7 @@ void rotate(raft::resources const& res,
  * @param[in] dataset a row-major `n_rows x dim` matrix view on device or host
  * @param[in] centroid optional un-rotated `dim` centroid on device; when set, codes are
  *            computed on the residuals w.r.t. this centroid
- * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
+ * @param[out] codes packed sign words and extra-bit bytes; see packed_codes_view
  * @param[out] delta per-vector scale, `n_rows` elements on device
  * @param[out] vl per-vector offset (`delta * -(2^ex_bits - 0.5)`), `n_rows` elements on device
  *
@@ -423,17 +445,7 @@ void transform(raft::resources const& res,
                rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-               raft::device_vector_view<float, int64_t> delta,
-               raft::device_vector_view<float, int64_t> vl);
-
-/** @copydoc transform */
-void transform(raft::resources const& res,
-               encoder const& encoder,
-               rotator<float> const& rotator,
-               raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
-               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               packed_codes_view codes,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl);
 
@@ -443,17 +455,7 @@ void transform(raft::resources const& res,
                rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-               raft::device_vector_view<float, int64_t> delta,
-               raft::device_vector_view<float, int64_t> vl);
-
-/** @copydoc transform */
-void transform(raft::resources const& res,
-               encoder const& encoder,
-               rotator<float> const& rotator,
-               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
-               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               packed_codes_view codes,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl);
 
@@ -475,10 +477,13 @@ void transform(raft::resources const& res,
  *
  * Usage example:
  * @code{.cpp}
- * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
+ * auto signs = raft::make_device_matrix<uint32_t, int64_t>(res, encoder.padded_dim / 32, n_rows);
+ * auto extra = raft::make_device_matrix<uint8_t, int64_t>(
+ *   res, n_rows, encoder.padded_dim * encoder.params_quantizer.ex_bits / 8);
+ * packed_codes_view codes{signs.view(), extra.view()};
  * auto factors = raft::make_device_matrix<float, int64_t>(res, n_rows, 3);
  * cuvs::preprocessing::quantize::rabitq::transform(res, encoder, rotator,
- *   raft::make_const_mdspan(dataset.view()), std::make_optional(centroid.view()), codes.view(),
+ *   raft::make_const_mdspan(dataset.view()), std::make_optional(centroid.view()), codes,
  *   factors.view());
  * @endcode
  *
@@ -487,7 +492,7 @@ void transform(raft::resources const& res,
  * @param[in] rotator the rotator whose `padded_dim` matches the encoder
  * @param[in] dataset a row-major `n_rows x dim` matrix view on device or host
  * @param[in] centroid optional un-rotated `dim` centroid on device; treated as zero when unset
- * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
+ * @param[out] codes packed sign words and extra-bit bytes; see packed_codes_view
  * @param[out] factors a row-major `n_rows x 3` matrix view on device
  *
  */
@@ -496,16 +501,7 @@ void transform(raft::resources const& res,
                rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-               raft::device_matrix_view<float, int64_t, raft::row_major> factors);
-
-/** @copydoc transform */
-void transform(raft::resources const& res,
-               encoder const& encoder,
-               rotator<float> const& rotator,
-               raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
-               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               packed_codes_view codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors);
 
 /** @copydoc transform */
@@ -514,16 +510,7 @@ void transform(raft::resources const& res,
                rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-               raft::device_matrix_view<float, int64_t, raft::row_major> factors);
-
-/** @copydoc transform */
-void transform(raft::resources const& res,
-               encoder const& encoder,
-               rotator<float> const& rotator,
-               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
-               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               packed_codes_view codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors);
 
 /**
@@ -536,18 +523,21 @@ void transform(raft::resources const& res,
  *
  * Usage example:
  * @code{.cpp}
- * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
+ * auto signs = raft::make_device_matrix<uint32_t, int64_t>(res, encoder.padded_dim / 32, n_rows);
+ * auto extra = raft::make_device_matrix<uint8_t, int64_t>(
+ *   res, n_rows, encoder.padded_dim * encoder.params_quantizer.ex_bits / 8);
+ * packed_codes_view codes{signs.view(), extra.view()};
  * auto delta = raft::make_device_vector<float, int64_t>(res, n_rows);
  * auto vl    = raft::make_device_vector<float, int64_t>(res, n_rows);
  * cuvs::preprocessing::quantize::rabitq::transform_residuals(res, encoder, residuals,
- *   codes.view(), delta.view(), vl.view());
+ *   codes, delta.view(), vl.view());
  * @endcode
  *
  * @param[in] res raft resource
  * @param[in] encoder a RaBitQ encoder
  * @param[in] residuals a row-major `n_rows x padded_dim` matrix view on device, rotated and
  *            centered
- * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
+ * @param[out] codes packed sign words and extra-bit bytes; see packed_codes_view
  * @param[out] delta per-vector scale, `n_rows` elements on device
  * @param[out] vl per-vector offset (`delta * -(2^ex_bits - 0.5)`), `n_rows` elements on device
  *
@@ -555,15 +545,7 @@ void transform(raft::resources const& res,
 void transform_residuals(raft::resources const& res,
                          encoder const& encoder,
                          raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-                         raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-                         raft::device_vector_view<float, int64_t> delta,
-                         raft::device_vector_view<float, int64_t> vl);
-
-/** @copydoc transform_residuals */
-void transform_residuals(raft::resources const& res,
-                         encoder const& encoder,
-                         raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-                         raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+                         packed_codes_view codes,
                          raft::device_vector_view<float, int64_t> delta,
                          raft::device_vector_view<float, int64_t> vl);
 
@@ -578,10 +560,13 @@ void transform_residuals(raft::resources const& res,
  *
  * Usage example:
  * @code{.cpp}
- * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
+ * auto signs = raft::make_device_matrix<uint32_t, int64_t>(res, encoder.padded_dim / 32, n_rows);
+ * auto extra = raft::make_device_matrix<uint8_t, int64_t>(
+ *   res, n_rows, encoder.padded_dim * encoder.params_quantizer.ex_bits / 8);
+ * packed_codes_view codes{signs.view(), extra.view()};
  * auto factors = raft::make_device_matrix<float, int64_t>(res, n_rows, 3);
  * cuvs::preprocessing::quantize::rabitq::transform_residuals(res, encoder, residuals,
- *   std::make_optional(rotated_centroid.view()), codes.view(), factors.view());
+ *   std::make_optional(rotated_centroid.view()), codes, factors.view());
  * @endcode
  *
  * @param[in] res raft resource
@@ -589,7 +574,7 @@ void transform_residuals(raft::resources const& res,
  * @param[in] residuals a row-major `n_rows x padded_dim` matrix view on device, rotated and
  *            centered
  * @param[in] rotated_centroid optional rotated, padded centroid (`padded_dim` elements on device)
- * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
+ * @param[out] codes packed sign words and extra-bit bytes; see packed_codes_view
  * @param[out] factors a row-major `n_rows x 3` matrix view on device
  *
  */
@@ -598,16 +583,7 @@ void transform_residuals(
   encoder const& encoder,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-  raft::device_matrix_view<float, int64_t, raft::row_major> factors);
-
-/** @copydoc transform_residuals */
-void transform_residuals(
-  raft::resources const& res,
-  encoder const& encoder,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+  packed_codes_view codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors);
 
 /** @} */  // end of group rabitq

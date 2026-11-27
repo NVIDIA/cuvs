@@ -34,6 +34,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
+#include "quantize.cuh"
 #include "rotator.cuh"
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
@@ -51,7 +52,6 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// residuals           n_rows x D output (D = rotator.padded_dim): the rotated
 ///                     residuals that the emitted codes refer to.
 /// Remaining parameters mirror quantize_fused_on_residuals.
-template <typename CodeT>
 void quantize_data(raft::resources const& res,
                    raft::device_matrix_view<const float, int64_t, raft::row_major> data,
                    rotator_view<const float> rotator,
@@ -60,7 +60,7 @@ void quantize_data(raft::resources const& res,
                    size_t ex_bits,
                    float const_scaling_factor,
                    bool use_fast,
-                   raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+                   packed_codes_output codes,
                    raft::device_vector_view<float, int64_t> delta,
                    raft::device_vector_view<float, int64_t> vl,
                    raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
@@ -72,7 +72,6 @@ void quantize_data(raft::resources const& res,
 /// for approximate-distance estimation. rotated_centroid (D floats) is
 /// always required here — it participates in the factor computation — and is
 /// zero-filled when there is no centroid.
-template <typename CodeT>
 void quantize_data_full(raft::resources const& res,
                         raft::device_matrix_view<const float, int64_t, raft::row_major> data,
                         rotator_view<const float> rotator,
@@ -81,7 +80,7 @@ void quantize_data_full(raft::resources const& res,
                         size_t ex_bits,
                         float const_scaling_factor,
                         bool use_fast,
-                        raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+                        packed_codes_output codes,
                         raft::device_matrix_view<float, int64_t, raft::row_major> factors,
                         raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                         int coarse_samples,

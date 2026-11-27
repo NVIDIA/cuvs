@@ -54,6 +54,29 @@ std::vector<T> to_host(raft::device_resources const& handle, T const* d_ptr, siz
   return h;
 }
 
+std::vector<uint16_t> unpack_codes(raft::device_resources const& handle,
+                                   rmm::device_uvector<uint32_t> const& signs,
+                                   rmm::device_uvector<uint8_t> const& extra,
+                                   int64_t rows,
+                                   int64_t dim,
+                                   uint32_t bits)
+{
+  auto h_signs = to_host(handle, signs.data(), signs.size());
+  auto h_extra = to_host(handle, extra.data(), extra.size());
+  std::vector<uint16_t> decoded(rows * dim);
+  for (int64_t row = 0; row < rows; ++row) {
+    for (int64_t col = 0; col < dim; ++col) {
+      uint16_t value = (h_signs[col / 32 * rows + row] >> (31 - col % 32)) & 1u;
+      for (uint32_t bit = 0; bit < bits; ++bit) {
+        int64_t pos = col * bits + bit;
+        value = (value << 1) | ((h_extra[row * dim * bits / 8 + pos / 8] >> (7 - pos % 8)) & 1u);
+      }
+      decoded[row * dim + col] = value;
+    }
+  }
+  return decoded;
+}
+
 /** Mirrors detail::padded_dim(): the working dimension is `dim` rounded up to 32. */
 constexpr int64_t expected_padded_dim(int64_t dim) { return ((dim + 31) / 32) * 32; }
 
@@ -94,8 +117,8 @@ void check_restore(raft::device_resources const& handle,
   std::vector<uint8_t> h_flip;
   DLManagedTensor host_state{};
   if (matmul) {
-    h_matrix = to_host(
-      handle, static_cast<float const*>(state->dl_tensor.data), padded_dim * padded_dim);
+    h_matrix =
+      to_host(handle, static_cast<float const*>(state->dl_tensor.data), padded_dim * padded_dim);
     cuvs::core::to_dlpack(raft::make_host_matrix_view<float, int64_t, raft::row_major>(
                             h_matrix.data(), padded_dim, padded_dim),
                           &host_state);
@@ -116,9 +139,9 @@ void check_restore(raft::device_resources const& handle,
     ASSERT_EQ(cuvsRabitqRotatorCreate(&restored), CUVS_SUCCESS);
     restored_rotators.push_back(restored);
     ASSERT_EQ(cuvsRabitqRotatorMakeFromState(res, kind, saved, restored), CUVS_SUCCESS);
-    enum cuvsRabitqRotatorKind read_kind = matmul ? CUVS_RABITQ_ROTATOR_KIND_FHT_KAC
-                                                  : CUVS_RABITQ_ROTATOR_KIND_MATMUL;
-    int64_t read_padded_dim              = 0;
+    enum cuvsRabitqRotatorKind read_kind =
+      matmul ? CUVS_RABITQ_ROTATOR_KIND_FHT_KAC : CUVS_RABITQ_ROTATOR_KIND_MATMUL;
+    int64_t read_padded_dim = 0;
     ASSERT_EQ(cuvsRabitqRotatorGetKind(restored, &read_kind), CUVS_SUCCESS);
     ASSERT_EQ(cuvsRabitqRotatorGetPaddedDim(restored, &read_padded_dim), CUVS_SUCCESS);
     EXPECT_EQ(read_kind, kind);
@@ -161,25 +184,30 @@ void check_host_input(raft::device_resources const& handle,
                       DLManagedTensor* centroid,
                       int64_t padded_dim)
 {
-  auto stream          = raft::resource::get_cuda_stream(handle);
-  const int64_t n_rows = dataset->dl_tensor.shape[0];
-  const int64_t dim    = dataset->dl_tensor.shape[1];
+  auto stream                = raft::resource::get_cuda_stream(handle);
+  const int64_t n_rows       = dataset->dl_tensor.shape[0];
+  const int64_t dim          = dataset->dl_tensor.shape[1];
+  constexpr uint32_t ex_bits = 3;
   auto h_rows = to_host(handle, static_cast<float const*>(dataset->dl_tensor.data), n_rows * dim);
   DLManagedTensor host_dataset{};
   cuvs::core::to_dlpack(
     raft::make_host_matrix_view<float, int64_t, raft::row_major>(h_rows.data(), n_rows, dim),
     &host_dataset);
 
-  rmm::device_uvector<uint8_t> codes(n_rows * padded_dim, stream);
+  rmm::device_uvector<uint32_t> signs(n_rows * padded_dim / 32, stream);
+  rmm::device_uvector<uint8_t> codes(n_rows * padded_dim * ex_bits / 8, stream);
   rmm::device_uvector<float> delta(n_rows, stream);
   rmm::device_uvector<float> vl(n_rows, stream);
   rmm::device_uvector<float> factors(n_rows * 3, stream);
-  auto codes_t   = make_row_major_tensor(codes.data(), n_rows, padded_dim);
+  auto codes_t   = make_row_major_tensor(codes.data(), n_rows, padded_dim * ex_bits / 8);
+  auto signs_t   = make_row_major_tensor(signs.data(), padded_dim / 32, n_rows);
   auto delta_t   = make_vector_tensor(delta.data(), n_rows);
   auto vl_t      = make_vector_tensor(vl.data(), n_rows);
   auto factors_t = make_row_major_tensor(factors.data(), n_rows, 3);
   // Outputs are poisoned before each call, so an element left unwritten cannot match.
   auto poison = [&]() {
+    RAFT_CUDA_TRY(
+      cudaMemsetAsync(signs.data(), 0xff, signs.size() * sizeof(uint32_t), stream.get()));
     RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), 0xff, codes.size(), stream.get()));
     RAFT_CUDA_TRY(cudaMemsetAsync(delta.data(), 0xff, delta.size() * sizeof(float), stream.get()));
     RAFT_CUDA_TRY(cudaMemsetAsync(vl.data(), 0xff, vl.size() * sizeof(float), stream.get()));
@@ -189,23 +217,24 @@ void check_host_input(raft::device_resources const& handle,
   };
 
   // [0]: from the device dataset, [1]: from the host one.
-  std::vector<std::vector<uint8_t>> out_codes, out_ff_codes;
+  std::vector<std::vector<uint16_t>> out_codes, out_ff_codes;
   std::vector<std::vector<float>> out_delta, out_vl, out_factors;
   for (DLManagedTensor* input : {dataset, &host_dataset}) {
     poison();
-    ASSERT_EQ(
-      cuvsRabitqTransform(res, encoder, rotator, input, centroid, &codes_t, &delta_t, &vl_t),
-      CUVS_SUCCESS);
+    ASSERT_EQ(cuvsRabitqTransform(
+                res, encoder, rotator, input, centroid, &signs_t, &codes_t, &delta_t, &vl_t),
+              CUVS_SUCCESS);
     ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
-    out_codes.push_back(to_host(handle, codes.data(), codes.size()));
+    out_codes.push_back(unpack_codes(handle, signs, codes, n_rows, padded_dim, ex_bits));
     out_delta.push_back(to_host(handle, delta.data(), delta.size()));
     out_vl.push_back(to_host(handle, vl.data(), vl.size()));
 
     poison();
-    ASSERT_EQ(cuvsRabitqTransformFull(res, encoder, rotator, input, centroid, &codes_t, &factors_t),
+    ASSERT_EQ(cuvsRabitqTransformFull(
+                res, encoder, rotator, input, centroid, &signs_t, &codes_t, &factors_t),
               CUVS_SUCCESS);
     ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
-    out_ff_codes.push_back(to_host(handle, codes.data(), codes.size()));
+    out_ff_codes.push_back(unpack_codes(handle, signs, codes, n_rows, padded_dim, ex_bits));
     out_factors.push_back(to_host(handle, factors.data(), factors.size()));
   }
   EXPECT_TRUE(out_codes[0] == out_codes[1]) << "codes differ between device and host input";
@@ -218,14 +247,16 @@ void check_host_input(raft::device_resources const& handle,
   std::vector<uint8_t> h_codes(codes.size());
   DLManagedTensor host_codes{};
   cuvs::core::to_dlpack(raft::make_host_matrix_view<uint8_t, int64_t, raft::row_major>(
-                          h_codes.data(), n_rows, padded_dim),
+                          h_codes.data(), n_rows, padded_dim * ex_bits / 8),
                         &host_codes);
-  EXPECT_NE(cuvsRabitqTransform(
-              res, encoder, rotator, &host_dataset, centroid, &host_codes, &delta_t, &vl_t),
-            CUVS_SUCCESS);
+  EXPECT_NE(
+    cuvsRabitqTransform(
+      res, encoder, rotator, &host_dataset, centroid, &signs_t, &host_codes, &delta_t, &vl_t),
+    CUVS_SUCCESS);
 
   free_tensor(host_codes);
   free_tensor(host_dataset);
+  free_tensor(signs_t);
   free_tensor(codes_t);
   free_tensor(delta_t);
   free_tensor(vl_t);
@@ -247,14 +278,10 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   constexpr int64_t dim        = 40;
   constexpr int64_t padded_dim = expected_padded_dim(dim);
   constexpr uint32_t ex_bits   = 3;
-  // Codes hold `ex_bits + 1` bit unsigned values, so this is the largest legal code.
-  constexpr uint32_t max_code = (1u << (ex_bits + 1)) - 1u;
-  // Pre-fill `codes` with a byte larger than max_code: any element the transform
-  // fails to write stays out of range and is caught by the range check below.
+  // Start both packed buffers with a recognizable pattern.
   constexpr int unwritten_sentinel = 0xEE;
 
   static_assert(padded_dim == 64, "test expects dim=40 to pad up to 64");
-  static_assert(unwritten_sentinel > static_cast<int>(max_code), "sentinel must be detectable");
 
   rmm::device_uvector<float> dataset(n_rows * dim, stream);
   rmm::device_uvector<float> centroid(dim, stream);
@@ -310,36 +337,34 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   EXPECT_GT(const_scaling_factor, 0.0f);
 
   // --- transform ---
-  rmm::device_uvector<uint8_t> codes(n_rows * padded_dim, stream);
+  rmm::device_uvector<uint32_t> signs(n_rows * padded_dim / 32, stream);
+  rmm::device_uvector<uint8_t> codes(n_rows * padded_dim * ex_bits / 8, stream);
   rmm::device_uvector<float> delta(n_rows, stream);
   rmm::device_uvector<float> vl(n_rows, stream);
+  RAFT_CUDA_TRY(cudaMemsetAsync(
+    signs.data(), unwritten_sentinel, signs.size() * sizeof(uint32_t), stream.get()));
   RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream.get()));
   handle.sync_stream();
 
   auto dataset_t  = make_row_major_tensor(dataset.data(), n_rows, dim);
   auto centroid_t = make_vector_tensor(centroid.data(), dim);
-  auto codes_t    = make_row_major_tensor(codes.data(), n_rows, padded_dim);
+  auto codes_t    = make_row_major_tensor(codes.data(), n_rows, padded_dim * ex_bits / 8);
+  auto signs_t    = make_row_major_tensor(signs.data(), padded_dim / 32, n_rows);
   auto delta_t    = make_vector_tensor(delta.data(), n_rows);
   auto vl_t       = make_vector_tensor(vl.data(), n_rows);
 
   // A NULL centroid must be accepted and mean "no centering".
-  ASSERT_EQ(
-    cuvsRabitqTransform(res, encoder, rotator, &dataset_t, nullptr, &codes_t, &delta_t, &vl_t),
-    CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqTransform(
+              res, encoder, rotator, &dataset_t, nullptr, &signs_t, &codes_t, &delta_t, &vl_t),
+            CUVS_SUCCESS);
   ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
 
   {
-    auto h_codes = to_host(handle, codes.data(), codes.size());
-    size_t n_out_of_range = 0;
-    bool all_zero         = true;
+    auto h_codes  = unpack_codes(handle, signs, codes, n_rows, padded_dim, ex_bits);
+    bool all_zero = true;
     for (auto c : h_codes) {
-      if (static_cast<uint32_t>(c) > max_code) { ++n_out_of_range; }
       if (c != 0) { all_zero = false; }
     }
-    EXPECT_EQ(n_out_of_range, 0u) << n_out_of_range << " of " << h_codes.size()
-                                  << " codes are outside the " << (ex_bits + 1)
-                                  << "-bit range [0, " << max_code
-                                  << "] (an unwritten element keeps the 0xEE sentinel)";
     EXPECT_FALSE(all_zero) << "quantized codes are all zero";
 
     auto h_delta = to_host(handle, delta.data(), delta.size());
@@ -355,22 +380,21 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   }
 
   // A non-NULL centroid takes the residual path and must produce different codes.
-  auto h_codes_uncentered = to_host(handle, codes.data(), codes.size());
+  auto h_codes_uncentered = unpack_codes(handle, signs, codes, n_rows, padded_dim, ex_bits);
+  RAFT_CUDA_TRY(cudaMemsetAsync(
+    signs.data(), unwritten_sentinel, signs.size() * sizeof(uint32_t), stream.get()));
   RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream.get()));
   handle.sync_stream();
-  ASSERT_EQ(
-    cuvsRabitqTransform(res, encoder, rotator, &dataset_t, &centroid_t, &codes_t, &delta_t, &vl_t),
-    CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqTransform(
+              res, encoder, rotator, &dataset_t, &centroid_t, &signs_t, &codes_t, &delta_t, &vl_t),
+            CUVS_SUCCESS);
   ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
   {
-    auto h_codes          = to_host(handle, codes.data(), codes.size());
-    size_t n_out_of_range = 0;
-    size_t n_diff         = 0;
+    auto h_codes  = unpack_codes(handle, signs, codes, n_rows, padded_dim, ex_bits);
+    size_t n_diff = 0;
     for (size_t i = 0; i < h_codes.size(); ++i) {
-      if (static_cast<uint32_t>(h_codes[i]) > max_code) { ++n_out_of_range; }
       if (h_codes[i] != h_codes_uncentered[i]) { ++n_diff; }
     }
-    EXPECT_EQ(n_out_of_range, 0u) << "centered codes outside the " << (ex_bits + 1) << "-bit range";
     EXPECT_GT(n_diff, 0u) << "passing a centroid did not change the codes";
   }
 
@@ -390,8 +414,8 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
     EXPECT_EQ(state.dl_tensor.shape[0], padded_dim);
     EXPECT_EQ(state.dl_tensor.shape[1], padded_dim);
     // Non-empty in substance, not just in shape: a rotation matrix cannot be all zeros.
-    auto h_state = to_host(
-      handle, static_cast<float const*>(state.dl_tensor.data), padded_dim * padded_dim);
+    auto h_state =
+      to_host(handle, static_cast<float const*>(state.dl_tensor.data), padded_dim * padded_dim);
     bool all_zero = true;
     for (auto v : h_state) {
       if (v != 0.0f) { all_zero = false; }
@@ -403,7 +427,7 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
     EXPECT_EQ(state.dl_tensor.dtype.code, kDLUInt);
     EXPECT_EQ(state.dl_tensor.dtype.bits, 8);
     ASSERT_EQ(state.dl_tensor.shape[0], expected_flip_bytes(padded_dim));
-    auto h_state = to_host(handle,
+    auto h_state      = to_host(handle,
                            static_cast<uint8_t const*>(state.dl_tensor.data),
                            static_cast<size_t>(expected_flip_bytes(padded_dim)));
     size_t n_set_bits = 0;
@@ -424,6 +448,7 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   // --- teardown ---
   free_tensor(dataset_t);
   free_tensor(centroid_t);
+  free_tensor(signs_t);
   free_tensor(codes_t);
   free_tensor(delta_t);
   free_tensor(vl_t);
@@ -432,6 +457,68 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   EXPECT_EQ(cuvsRabitqEncoderDestroy(encoder), CUVS_SUCCESS);
   EXPECT_EQ(cuvsRabitqQuantizerParamsDestroy(params), CUVS_SUCCESS);
   EXPECT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
+}
+
+TEST(RabitqC, PackedResiduals)
+{
+  raft::device_resources handle;
+  auto stream            = raft::resource::get_cuda_stream(handle);
+  auto res               = reinterpret_cast<cuvsResources_t>(&handle);
+  constexpr int64_t rows = 3, dim = 96;
+  std::vector<float> h_residuals(rows * dim);
+  for (int64_t row = 0; row < rows; ++row) {
+    for (int64_t col = 0; col < dim; ++col) {
+      h_residuals[row * dim + col] = row == 2 ? 0.0f : (row == 0 || col % 2 == 0 ? 1.0f : -1.0f);
+    }
+  }
+  rmm::device_uvector<float> residuals(rows * dim, stream), delta(rows, stream), vl(rows, stream),
+    factors(rows * 3, stream);
+  raft::update_device(residuals.data(), h_residuals.data(), h_residuals.size(), stream);
+  auto residuals_t = make_row_major_tensor(residuals.data(), rows, dim);
+  auto delta_t     = make_vector_tensor(delta.data(), rows);
+  auto vl_t        = make_vector_tensor(vl.data(), rows);
+  auto factors_t   = make_row_major_tensor(factors.data(), rows, 3);
+  cuvsRabitqQuantizerParams_t params;
+  cuvsRabitqEncoder_t encoder;
+  ASSERT_EQ(cuvsRabitqQuantizerParamsCreate(&params), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqEncoderCreate(&encoder), CUVS_SUCCESS);
+  params->use_fast = false;
+  for (uint32_t bits : {0u, 3u, 8u}) {
+    SCOPED_TRACE(bits);
+    params->ex_bits = bits;
+    ASSERT_EQ(cuvsRabitqEncoderMake(res, params, dim, encoder), CUVS_SUCCESS);
+    rmm::device_uvector<uint32_t> signs(rows * dim / 32, stream);
+    rmm::device_uvector<uint8_t> extra(rows * dim * bits / 8, stream);
+    auto signs_t = make_row_major_tensor(signs.data(), dim / 32, rows);
+    auto extra_t = make_row_major_tensor(extra.data(), rows, dim * bits / 8);
+    ASSERT_EQ(
+      cuvsRabitqTransformResiduals(res, encoder, &residuals_t, &signs_t, &extra_t, &delta_t, &vl_t),
+      CUVS_SUCCESS);
+    auto ref_signs = to_host(handle, signs.data(), signs.size());
+    auto ref_extra = to_host(handle, extra.data(), extra.size());
+    for (int64_t word = 0; word < dim / 32; ++word) {
+      EXPECT_EQ(ref_signs[word * rows], 0xffffffffu);
+      EXPECT_EQ(ref_signs[word * rows + 1], 0xaaaaaaaau);
+      EXPECT_EQ(ref_signs[word * rows + 2], 0xffffffffu);
+    }
+    ASSERT_EQ(cuvsRabitqTransformResidualsFull(
+                res, encoder, &residuals_t, nullptr, &signs_t, &extra_t, &factors_t),
+              CUVS_SUCCESS);
+    EXPECT_EQ(to_host(handle, signs.data(), signs.size()), ref_signs);
+    EXPECT_EQ(to_host(handle, extra.data(), extra.size()), ref_extra);
+    signs_t.dl_tensor.dtype.bits = 8;
+    EXPECT_NE(
+      cuvsRabitqTransformResiduals(res, encoder, &residuals_t, &signs_t, &extra_t, &delta_t, &vl_t),
+      CUVS_SUCCESS);
+    free_tensor(signs_t);
+    free_tensor(extra_t);
+  }
+  free_tensor(residuals_t);
+  free_tensor(delta_t);
+  free_tensor(vl_t);
+  free_tensor(factors_t);
+  EXPECT_EQ(cuvsRabitqEncoderDestroy(encoder), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsRabitqQuantizerParamsDestroy(params), CUVS_SUCCESS);
 }
 
 }  // namespace

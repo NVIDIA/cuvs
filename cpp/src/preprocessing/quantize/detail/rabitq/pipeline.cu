@@ -57,7 +57,6 @@ void prepare_residuals(raft::resources const& res,
 
 }  // namespace
 
-template <typename CodeT>
 void quantize_data(raft::resources const& res,
                    raft::device_matrix_view<const float, int64_t, raft::row_major> data,
                    rotator_view<const float> rotator,
@@ -66,7 +65,7 @@ void quantize_data(raft::resources const& res,
                    size_t ex_bits,
                    float const_scaling_factor,
                    bool use_fast,
-                   raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+                   packed_codes_output codes,
                    raft::device_vector_view<float, int64_t> delta,
                    raft::device_vector_view<float, int64_t> vl,
                    raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
@@ -94,7 +93,6 @@ void quantize_data(raft::resources const& res,
                               fine_samples);
 }
 
-template <typename CodeT>
 void quantize_data_full(raft::resources const& res,
                         raft::device_matrix_view<const float, int64_t, raft::row_major> data,
                         rotator_view<const float> rotator,
@@ -103,7 +101,7 @@ void quantize_data_full(raft::resources const& res,
                         size_t ex_bits,
                         float const_scaling_factor,
                         bool use_fast,
-                        raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+                        packed_codes_output codes,
                         raft::device_matrix_view<float, int64_t, raft::row_major> factors,
                         raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                         int coarse_samples,
@@ -127,69 +125,5 @@ void quantize_data_full(raft::resources const& res,
                              coarse_samples,
                              fine_samples);
 }
-
-template void quantize_data<uint8_t>(
-  raft::resources const&,
-  raft::device_matrix_view<const float, int64_t, raft::row_major>,
-  rotator_view<const float>,
-  std::optional<raft::device_vector_view<const float, int64_t>>,
-  raft::device_vector_view<float, int64_t>,
-  size_t,
-  float,
-  bool,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major>,
-  raft::device_vector_view<float, int64_t>,
-  raft::device_vector_view<float, int64_t>,
-  raft::device_matrix_view<float, int64_t, raft::row_major>,
-  int,
-  int,
-  int);
-
-template void quantize_data<uint16_t>(
-  raft::resources const&,
-  raft::device_matrix_view<const float, int64_t, raft::row_major>,
-  rotator_view<const float>,
-  std::optional<raft::device_vector_view<const float, int64_t>>,
-  raft::device_vector_view<float, int64_t>,
-  size_t,
-  float,
-  bool,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major>,
-  raft::device_vector_view<float, int64_t>,
-  raft::device_vector_view<float, int64_t>,
-  raft::device_matrix_view<float, int64_t, raft::row_major>,
-  int,
-  int,
-  int);
-
-template void quantize_data_full<uint8_t>(
-  raft::resources const&,
-  raft::device_matrix_view<const float, int64_t, raft::row_major>,
-  rotator_view<const float>,
-  std::optional<raft::device_vector_view<const float, int64_t>>,
-  raft::device_vector_view<float, int64_t>,
-  size_t,
-  float,
-  bool,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major>,
-  raft::device_matrix_view<float, int64_t, raft::row_major>,
-  raft::device_matrix_view<float, int64_t, raft::row_major>,
-  int,
-  int);
-
-template void quantize_data_full<uint16_t>(
-  raft::resources const&,
-  raft::device_matrix_view<const float, int64_t, raft::row_major>,
-  rotator_view<const float>,
-  std::optional<raft::device_vector_view<const float, int64_t>>,
-  raft::device_vector_view<float, int64_t>,
-  size_t,
-  float,
-  bool,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major>,
-  raft::device_matrix_view<float, int64_t, raft::row_major>,
-  raft::device_matrix_view<float, int64_t, raft::row_major>,
-  int,
-  int);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
