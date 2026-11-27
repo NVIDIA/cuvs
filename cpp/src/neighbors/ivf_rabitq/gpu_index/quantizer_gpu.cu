@@ -7,29 +7,15 @@
 // Created by Stardust on 3/10/25.
 //
 
-#include "../../detail/smem_utils.cuh"
+#include "../../../preprocessing/quantize/detail/rabitq/rescale_search.cuh"
 #include "../utils/reductions.cuh"
 #include "quantizer_gpu.cuh"
 
-#include <curand_kernel.h>
-
-#include <rmm/device_buffer.hpp>
-#include <rmm/device_uvector.hpp>
-
 #include <raft/core/device_mdarray.hpp>
-#include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/linalg/map.cuh>
-#include <raft/linalg/norm_types.hpp>
-#include <raft/linalg/normalize.cuh>
-#include <raft/random/rng.cuh>
+#include <raft/util/cudart_utils.hpp>
 
 #include <cub/block/block_reduce.cuh>
-#include <cub/device/device_reduce.cuh>
-
-#include <atomic>
-#include <queue>
-#include <thread>
 
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
@@ -826,117 +812,6 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
 
 namespace {
 
-constexpr std::array<float, 9> kTightStart = {
-  0,
-  0.15,
-  0.20,
-  0.52,
-  0.59,
-  0.71,
-  0.75,
-  0.77,
-  0.81,
-};
-
-template <typename T>
-inline double best_rescale_factor(const T* o_abs, size_t dim, size_t ex_bits)
-{
-  constexpr double kEps = 1e-5;
-  constexpr int kNEnum  = 10;
-  double max_o          = *std::max_element(o_abs, o_abs + dim);
-
-  double t_end   = static_cast<double>(((1 << ex_bits) - 1) + kNEnum) / max_o;
-  double t_start = t_end * kTightStart[ex_bits];
-
-  std::vector<int> cur_o_bar(dim);
-  double sqr_denominator = static_cast<double>(dim) * 0.25;
-  double numerator       = 0;
-
-  for (size_t i = 0; i < dim; ++i) {
-    int cur      = static_cast<int>((t_start * o_abs[i]) + kEps);
-    cur_o_bar[i] = cur;
-    sqr_denominator += cur * cur + cur;
-    numerator += (cur + 0.5) * o_abs[i];
-  }
-
-  std::priority_queue<std::pair<double, size_t>,
-                      std::vector<std::pair<double, size_t>>,
-                      std::greater<>>
-    next_t;
-
-  for (size_t i = 0; i < dim; ++i) {
-    next_t.emplace(static_cast<double>(cur_o_bar[i] + 1) / o_abs[i], i);
-  }
-
-  double max_ip = 0;
-  double t      = 0;
-
-  while (!next_t.empty()) {
-    double cur_t     = next_t.top().first;
-    size_t update_id = next_t.top().second;
-    next_t.pop();
-
-    cur_o_bar[update_id]++;
-    int update_o_bar = cur_o_bar[update_id];
-    sqr_denominator += 2 * update_o_bar;
-    numerator += o_abs[update_id];
-
-    double cur_ip = numerator / std::sqrt(sqr_denominator);
-    if (cur_ip > max_ip) {
-      max_ip = cur_ip;
-      t      = cur_t;
-    }
-
-    if (update_o_bar < (1 << ex_bits) - 1) {
-      double t_next = static_cast<double>(update_o_bar + 1) / o_abs[update_id];
-      if (t_next < t_end) { next_t.emplace(t_next, update_id); }
-    }
-  }
-
-  return t;
-}
-
-}  // anonymous namespace
-
-float DataQuantizerGPU::get_const_scaling_factors(raft::resources const& handle,
-                                                  size_t dim,
-                                                  size_t ex_bits)
-{
-  constexpr long kConstNum = 100;
-
-  // random matrix with normal distribution
-  auto rand = raft::make_device_matrix<double, size_t>(handle, kConstNum, dim);
-  raft::random::RngState rng(7ULL);
-  raft::random::normal(handle, rng, rand.data_handle(), kConstNum * dim, 0., 1.);
-  // row-wise normalization
-  auto row_normalized = raft::make_device_matrix<double, size_t>(handle, kConstNum, dim);
-  raft::linalg::row_normalize<raft::linalg::L2Norm, double, size_t>(
-    handle, rand.view(), row_normalized.view());
-  // take abs values (reusing memory allocation for `rand`)
-  raft::linalg::map(handle,
-                    rand.view(),
-                    raft::abs_op{},
-                    raft::make_device_vector_view<const double, size_t>(
-                      row_normalized.data_handle(), kConstNum * dim));
-  auto h_rand_row_normalized_abs = raft::make_host_matrix<double, size_t>(kConstNum, dim);
-  raft::copy(h_rand_row_normalized_abs.data_handle(),
-             rand.data_handle(),
-             kConstNum * dim,
-             raft::resource::get_cuda_stream(handle));
-  raft::resource::sync_stream(handle);
-
-  double sum = 0;
-  for (long j = 0; j < kConstNum; ++j) {
-    sum += best_rescale_factor(&h_rand_row_normalized_abs(j, 0), dim, ex_bits);
-  }
-
-  double t_const = sum / kConstNum;
-
-  return (float)t_const;
-}
-
-namespace {
-
 extern __constant__ float d_kTightStart_opt[9] = {
   0.0f,
   0.15f,
@@ -1297,112 +1172,27 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
   raft::resource::sync_stream(handle);
 }
 
-template <unsigned int BlockSize>
-__global__ void fully_fused_kernel(float* __restrict__ output_factors,
-                                   const int rows,
-                                   const int cols,
-                                   const int ex_bits,
-                                   unsigned long long seed)
-{
-  using NormReduce = cub::BlockReduce<float, BlockSize>;
-  __shared__ typename NormReduce::TempStorage norm_temp;
-
-  const int row_id = blockIdx.x;
-  if (row_id >= rows) return;
-
-  const int tid        = threadIdx.x;
-  const int block_size = blockDim.x;
-
-  // Calculate shared memory layout
-  // row_data: cols floats
-  extern __shared__ float shared_mem[];
-  float* row_data = shared_mem;
-
-  // Initialize RNG state per thread
-  curandState rng_state;
-  curand_init(seed, row_id * block_size + tid, 0, &rng_state);
-
-  // Generate random Gaussian values and calculate L2 norm
-  float local_sum = 0.0f;
-  for (int i = tid; i < cols; i += block_size) {
-    float val   = curand_normal(&rng_state);
-    row_data[i] = val;
-    local_sum += val * val;
-  }
-
-  float norm_squared = NormReduce(norm_temp).Sum(local_sum);
-
-  // the block sum is only valid in thread 0; need to make inv_norm a shared variable
-  __shared__ float inv_norm;
-  if (tid == 0) { inv_norm = rsqrtf(norm_squared); }
-  __syncthreads();
-
-  for (int i = tid; i < cols; i += block_size) {
-    row_data[i] = fabsf(row_data[i] * inv_norm);
-  }
-  // compute_best_rescale_parallel cross-reads every element of row_data:
-  // its precondition requires the writes above to be block-visible.
-  __syncthreads();
-
-  float rescale_factor = compute_best_rescale_parallel<BlockSize>(row_data, cols, ex_bits);
-
-  if (tid == 0) { output_factors[row_id] = rescale_factor; }
-}
-
 }  // anonymous namespace
 
-float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t ex_bits)
+void DataQuantizerGPU::compute_query_scaling_factors(size_t dim)
 {
-  constexpr long kConstNum = 100;
+  namespace rabitq = cuvs::preprocessing::quantize::rabitq;
+  fast_quantize_factors.const_scaling_factor_4bit =
+    rabitq::detail::get_const_scaling_factor(handle_, dim, 3);
+  fast_quantize_factors.const_scaling_factor_8bit =
+    rabitq::detail::get_const_scaling_factor(handle_, dim, 7);
+}
 
-  rmm::device_uvector<float> d_factors(kConstNum, stream_);
-  rmm::device_uvector<float> d_sum(1, stream_);
-
-  // Calculate block size (must be power of 2 for reductions)
-  int block_size = 256;
-  if (dim <= 512) block_size = 128;
-  if (dim >= 1536) block_size = 512;
-
-  // Calculate shared memory size
-  size_t shared_mem_size = dim * sizeof(float);  // row_data
-
-  unsigned long long seed = time(nullptr);
-  // cub needs the block size at compile time; decay to function pointer for std::atomic
-  auto kernel_fn              = block_size == 128   ? fully_fused_kernel<128>
-                                : block_size == 512 ? fully_fused_kernel<512>
-                                                    : fully_fused_kernel<256>;
-  auto const& kernel_launcher = [&]() {
-    kernel_fn<<<kConstNum, block_size, shared_mem_size, stream_.get()>>>(
-      d_factors.data(), kConstNum, dim, ex_bits, seed);
-  };
-  cudaKernel_t cuda_kernel;
-  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel_fn)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<std::decay_t<decltype(kernel_fn)>>(
-    static_cast<std::uint32_t>(shared_mem_size), kernel_launcher, cuda_kernel);
-  RAFT_CUDA_TRY(cudaGetLastError());
-
-  // Use CUB for reduction - handles any size optimally
-  size_t temp_storage_bytes = 0;
-  cub::DeviceReduce::Sum(
-    nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream_.get());
-
-  {
-    rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
-    cub::DeviceReduce::Sum(d_temp_storage.data(),
-                           temp_storage_bytes,
-                           d_factors.data(),
-                           d_sum.data(),
-                           kConstNum,
-                           stream_.get());
+void DataQuantizerGPU::compute_quantize_scaling_factors()
+{
+  namespace rabitq = cuvs::preprocessing::quantize::rabitq;
+  if (EX_BITS == 3) {
+    const_scaling_factor = fast_quantize_factors.const_scaling_factor_4bit;
+  } else if (EX_BITS == 7) {
+    const_scaling_factor = fast_quantize_factors.const_scaling_factor_8bit;
+  } else {
+    const_scaling_factor = rabitq::detail::get_const_scaling_factor(handle_, D, EX_BITS);
   }
-  RAFT_CUDA_TRY(cudaGetLastError());
-
-  // Copy single value back and sync before reading host variable
-  float sum;
-  raft::copy(&sum, d_sum.data(), 1, stream_);
-  raft::resource::sync_stream(handle_);
-
-  return sum / kConstNum;
 }
 
 void DataQuantizerGPU::alloc_buffers(size_t num_points)
