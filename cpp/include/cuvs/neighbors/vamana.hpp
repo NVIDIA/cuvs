@@ -13,6 +13,7 @@
 #include <raft/core/host_device_accessor.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdspan.hpp>
+#include <raft/core/memory_type.hpp>
 #include <raft/core/resource/stream_view.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
@@ -197,7 +198,11 @@ struct index : cuvs::neighbors::index {
     RAFT_EXPECTS(dataset.extent(0) == vamana_graph.extent(0),
                  "Dataset and vamana_graph must have equal number of rows");
 
-    const bool on_device = raft::get_device_for_address(dataset.data_handle()) >= 0;
+    // Managed memory is device-accessible too, so an aligned managed buffer is kept as a view
+    // instead of being copied.
+    const auto mem_type = raft::get_pointer_memory_info(dataset.data_handle()).type;
+    const bool on_device =
+      mem_type == raft::memory_type::device || mem_type == raft::memory_type::managed;
     bool use_padded_view = false;
     if (on_device) {
       const int64_t row_stride =

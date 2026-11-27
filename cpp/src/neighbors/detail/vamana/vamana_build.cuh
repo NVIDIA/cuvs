@@ -19,6 +19,7 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/memory_type.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/gemm.cuh>
 #include <raft/matrix/copy.cuh>
@@ -35,6 +36,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <new>
+#include <optional>
 #include <type_traits>
 
 #include <cuvs/distance/distance.hpp>
@@ -611,16 +614,41 @@ index<T, IdxT> build(
   RAFT_EXPECTS(params.vamana_iters >= 1.0,
                "vamana_iters must be at least 1.0 to insert the entire input dataset");
 
-  int dim = dataset.extent(1);
+  int dim              = dataset.extent(1);
+  const int64_t n_rows = dataset.extent(0);
+
+  // Graph construction only runs on the GPU. Device and managed memory are used in place; host
+  // and pinned data are staged into a temporary device copy (pinned memory is device-readable,
+  // but the random accesses of the graph build would each cross PCIe).
+  const auto mem_info = raft::get_pointer_memory_info(dataset.data_handle());
+  std::optional<raft::device_matrix<T, int64_t>> staged_dataset;
+  const T* d_dataset_ptr = mem_info.device_pointer;
+  if (mem_info.type != raft::memory_type::device && mem_info.type != raft::memory_type::managed) {
+    RAFT_LOG_DEBUG("Copying the dataset to device for Vamana graph construction");
+    try {
+      staged_dataset = raft::make_device_matrix<T, int64_t>(res, n_rows, dim);
+    } catch (std::bad_alloc& e) {
+      RAFT_FAIL(
+        "Vamana graph construction requires the dataset in GPU memory, but the %zu-byte dataset "
+        "does not fit. Consider allocating it in managed memory.",
+        static_cast<size_t>(n_rows) * dim * sizeof(T));
+    }
+    raft::copy(staged_dataset->data_handle(),
+               dataset.data_handle(),
+               staged_dataset->size(),
+               raft::resource::get_cuda_stream(res));
+    d_dataset_ptr = staged_dataset->data_handle();
+  }
+  auto d_dataset = raft::make_device_matrix_view<const T, int64_t>(d_dataset_ptr, n_rows, dim);
 
   RAFT_LOG_DEBUG("Creating empty graph structure");
-  auto vamana_graph = raft::make_host_matrix<IdxT, int64_t>(dataset.extent(0), graph_degree);
+  auto vamana_graph = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
 
   RAFT_LOG_DEBUG("Running Vamana batched insert algorithm");
 
   IdxT medoid_id;
-  batched_insert_vamana<T, float, IdxT, Accessor>(
-    res, params, dataset, vamana_graph.view(), &medoid_id, params.metric);
+  batched_insert_vamana<T, float, IdxT, typename decltype(d_dataset)::accessor_type>(
+    res, params, d_dataset, vamana_graph.view(), &medoid_id, params.metric);
 
   std::optional<raft::device_matrix<uint8_t, int64_t, raft::row_major>> quantized_vectors;
   if (params.codebooks) {
@@ -678,8 +706,6 @@ index<T, IdxT> build(
                raft::resource::get_cuda_stream(res));
 
     // process in batches
-    const uint32_t n_rows = dataset.extent(0);
-
     auto quantizer = cuvs::preprocessing::quantize::pq::quantizer<float>(
       pq_params,
       cuvs::neighbors::device_vpq_dataset<float, int64_t>{
@@ -691,10 +717,11 @@ index<T, IdxT> build(
       raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(res, n_rows, codes_rowlen);
     // TODO: with scaling workspace we could choose the batch size dynamically
     constexpr uint32_t kReasonableMaxBatchSize = 65536;
-    const uint32_t max_batch_size              = std::min(n_rows, kReasonableMaxBatchSize);
+    const uint32_t max_batch_size =
+      std::min(static_cast<uint32_t>(n_rows), kReasonableMaxBatchSize);
     auto _vamana_batches = cuvs::spatial::knn::detail::utils::make_batch_load_iterator<T>(
       res,
-      dataset.data_handle(),
+      d_dataset.data_handle(),
       static_cast<int64_t>(n_rows),
       static_cast<int64_t>(dim),
       static_cast<size_t>(max_batch_size),
@@ -735,6 +762,11 @@ index<T, IdxT> build(
           quantized_vectors.value().extent(1)));
     }
   }
+
+  // Free the staged copy before the index makes its own padded copy, so peak GPU memory stays
+  // at one copy of the dataset. The index is built from the caller's view: for host data it
+  // copies into storage it owns, so it never refers to the staged copy.
+  staged_dataset.reset();
 
   try {
     auto idx = index<T, IdxT>(
