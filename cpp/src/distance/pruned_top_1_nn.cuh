@@ -12,7 +12,7 @@
 #pragma once
 
 #include "detail/pruned_top_1_nn/cutile/fused_filter_tile.hpp"
-#include "detail/pruned_top_1_nn/pair_prune.cuh"
+#include "detail/pruned_top_1_nn/prune.cuh"
 #include "top_1_nn.cuh"
 
 #include <raft/core/error.hpp>
@@ -200,20 +200,19 @@ void pruned_top_1_nn(raft::resources const& handle,
                           static_cast<int>(PartialDim),
                           bitmap,
                           static_cast<int>(kBitmapWordsPerRow));
-      prune_pairs<PartialDim>(
-        handle,
-        rows,
-        n_rows,
-        y + j * k,
-        static_cast<uint32_t>(j),
-        k,
-        bitmap,
-        static_cast<int>(raft::ceildiv(n_centroids, int64_t{kBitmapWordBits})),
-        offsets,
-        ws + layout.scan,
-        layout.scan_bytes,
-        row_dist,
-        winners);
+      prune<PartialDim>(handle,
+                        rows,
+                        n_rows,
+                        y + j * k,
+                        static_cast<uint32_t>(j),
+                        k,
+                        bitmap,
+                        static_cast<int>(raft::ceildiv(n_centroids, int64_t{kBitmapWordBits})),
+                        offsets,
+                        ws + layout.scan,
+                        layout.scan_bytes,
+                        row_dist,
+                        winners);
     }
     {
       common::nvtx::range<common::nvtx::domain::cuvs> range("pruned_1nn::unpack_winners");
