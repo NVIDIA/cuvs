@@ -1,7 +1,7 @@
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 // clang-format on
@@ -64,23 +64,22 @@ namespace cuvs {
 namespace gemm {
 namespace kernel {
 
-// TODO (cjnolet): We shouldn't be doing `using namespace` in this file.
-using namespace cutlass::gemm::kernel;
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename Mma_,                         ///! Threadblock-scoped matrix multiply-accumulate
-          typename Epilogue_,                    ///! Epilogue
-          typename ThreadblockSwizzle_,          ///! Threadblock swizzling function
-          GroupScheduleMode GroupScheduleMode_,  ///! Type of scheduling to perform
+template <typename Mma_,                 ///! Threadblock-scoped matrix multiply-accumulate
+          typename Epilogue_,            ///! Epilogue
+          typename ThreadblockSwizzle_,  ///! Threadblock swizzling function
+          ///! Type of scheduling to perform
+          cutlass::gemm::kernel::GroupScheduleMode GroupScheduleMode_,
           bool Transposed = false>
 struct FusedDistanceNNPersistent {
  public:
-  using Mma                                         = Mma_;
-  using Epilogue                                    = Epilogue_;
-  using EpilogueOutputOp                            = typename Epilogue::OutputOp;
-  using ThreadblockSwizzle                          = ThreadblockSwizzle_;
-  static GroupScheduleMode const kGroupScheduleMode = GroupScheduleMode_;
-  static bool const kTransposed                     = Transposed;
+  using Mma                = Mma_;
+  using Epilogue           = Epilogue_;
+  using EpilogueOutputOp   = typename Epilogue::OutputOp;
+  using ThreadblockSwizzle = ThreadblockSwizzle_;
+  static cutlass::gemm::kernel::GroupScheduleMode const kGroupScheduleMode = GroupScheduleMode_;
+  static bool const kTransposed                                            = Transposed;
 
   // Optional transpose
   // TODO: This is dangerous- we shouldn't be using `detail` APIs from cutlass
@@ -125,11 +124,11 @@ struct FusedDistanceNNPersistent {
   using WarpCount               = typename Mma::WarpCount;
   static int const kThreadCount = 32 * WarpCount::kCount;
 
-  using ProblemVisitor = GemmGroupedProblemVisitor<ThreadblockShape,
-                                                   kGroupScheduleMode,
-                                                   kThreadCount,
-                                                   kThreadCount,
-                                                   kTransposed>;
+  using ProblemVisitor = cutlass::gemm::kernel::GemmGroupedProblemVisitor<ThreadblockShape,
+                                                                          kGroupScheduleMode,
+                                                                          kThreadCount,
+                                                                          kThreadCount,
+                                                                          kTransposed>;
 
   //
   // Structures

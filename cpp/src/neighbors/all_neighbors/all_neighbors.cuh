@@ -30,20 +30,20 @@ GRAPH_BUILD_ALGO check_params_validity(const all_neighbors_params& params,
 {
   // 1. Check output memory-space consistency
   constexpr bool host_output =
-    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, raft::row_major>>;
   constexpr bool device_output =
-    std::is_same_v<IndicesView, raft::device_matrix_view<IdxT, IdxT, row_major>>;
+    std::is_same_v<IndicesView, raft::device_matrix_view<IdxT, IdxT, raft::row_major>>;
   static_assert(host_output || device_output,
                 "indices must be a host_matrix_view or device_matrix_view");
   if constexpr (host_output) {
-    static_assert(std::is_same_v<DistancesView, raft::host_matrix_view<T, IdxT, row_major>>,
+    static_assert(std::is_same_v<DistancesView, raft::host_matrix_view<T, IdxT, raft::row_major>>,
                   "distances must be a host_matrix_view when indices are on host");
-    static_assert(std::is_same_v<CoreView, raft::host_vector_view<T, IdxT, row_major>>,
+    static_assert(std::is_same_v<CoreView, raft::host_vector_view<T, IdxT, raft::row_major>>,
                   "core_distances must be a host_vector_view when indices are on host");
   } else {
-    static_assert(std::is_same_v<DistancesView, raft::device_matrix_view<T, IdxT, row_major>>,
+    static_assert(std::is_same_v<DistancesView, raft::device_matrix_view<T, IdxT, raft::row_major>>,
                   "distances must be a device_matrix_view when indices are on device");
-    static_assert(std::is_same_v<CoreView, raft::device_vector_view<T, IdxT, row_major>>,
+    static_assert(std::is_same_v<CoreView, raft::device_vector_view<T, IdxT, raft::row_major>>,
                   "core_distances must be a device_vector_view when indices are on device");
   }
 
@@ -130,10 +130,10 @@ template <typename T, typename IdxT, typename Accessor, typename DistEpilogueT =
 void full_build(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  mdspan<const T, matrix_extent<IdxT>, row_major, Accessor> dataset,
-  raft::device_matrix_view<IdxT, IdxT, row_major> indices,
-  std::optional<raft::device_matrix_view<T, IdxT, row_major>> distances = std::nullopt,
-  DistEpilogueT dist_epilogue                                           = DistEpilogueT{})
+  raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> dataset,
+  raft::device_matrix_view<IdxT, IdxT, raft::row_major> indices,
+  std::optional<raft::device_matrix_view<T, IdxT, raft::row_major>> distances = std::nullopt,
+  DistEpilogueT dist_epilogue                                                 = DistEpilogueT{})
 {
   size_t num_rows = static_cast<size_t>(dataset.extent(0));
   size_t num_cols = static_cast<size_t>(dataset.extent(1));
@@ -150,10 +150,10 @@ template <typename T, typename IdxT, typename Accessor, typename DistEpilogueT =
 void full_build_host(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  mdspan<const T, matrix_extent<IdxT>, row_major, Accessor> dataset,
-  raft::host_matrix_view<IdxT, IdxT, row_major> indices,
-  std::optional<raft::host_matrix_view<T, IdxT, row_major>> distances = std::nullopt,
-  DistEpilogueT dist_epilogue                                         = DistEpilogueT{})
+  raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> dataset,
+  raft::host_matrix_view<IdxT, IdxT, raft::row_major> indices,
+  std::optional<raft::host_matrix_view<T, IdxT, raft::row_major>> distances = std::nullopt,
+  DistEpilogueT dist_epilogue                                               = DistEpilogueT{})
 {
   size_t num_rows = static_cast<size_t>(dataset.extent(0));
   size_t k        = static_cast<size_t>(indices.extent(1));
@@ -161,7 +161,7 @@ void full_build_host(
   // kNN algorithms require device-resident output graph
   auto indices_d = raft::make_device_matrix<IdxT, IdxT>(handle, num_rows, k);
   std::optional<raft::device_matrix<T, IdxT>> distances_d;
-  std::optional<raft::device_matrix_view<T, IdxT, row_major>> distances_d_view;
+  std::optional<raft::device_matrix_view<T, IdxT, raft::row_major>> distances_d_view;
   if (distances.has_value()) {
     distances_d.emplace(raft::make_device_matrix<T, IdxT>(handle, num_rows, k));
     distances_d_view = distances_d.value().view();
@@ -176,7 +176,7 @@ void full_build_host(
 
 // Host counterparts of raft::matrix::shift used to insert the self-references.
 template <typename IdxT>
-void host_shift_self_indices(raft::host_matrix_view<IdxT, IdxT, row_major> indices)
+void host_shift_self_indices(raft::host_matrix_view<IdxT, IdxT, raft::row_major> indices)
 {
   size_t num_rows = static_cast<size_t>(indices.extent(0));
   size_t k        = static_cast<size_t>(indices.extent(1));
@@ -193,9 +193,9 @@ void host_shift_self_indices(raft::host_matrix_view<IdxT, IdxT, row_major> indic
 // provided (e.g. the core distances), otherwise with fill_val.
 template <typename T, typename IdxT>
 void host_shift_distances(
-  raft::host_matrix_view<T, IdxT, row_major> distances,
+  raft::host_matrix_view<T, IdxT, raft::row_major> distances,
   std::optional<T> fill_val,
-  std::optional<raft::host_vector_view<const T, IdxT, row_major>> col0 = std::nullopt)
+  std::optional<raft::host_vector_view<const T, IdxT, raft::row_major>> col0 = std::nullopt)
 {
   size_t num_rows = static_cast<size_t>(distances.extent(0));
   size_t k        = static_cast<size_t>(distances.extent(1));
@@ -219,7 +219,7 @@ void shift_indices_distances(const raft::resources& handle,
                              std::optional<CoreView> core_distances = std::nullopt)
 {
   constexpr bool host_output =
-    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, raft::row_major>>;
 
   if constexpr (host_output) {
     host_shift_self_indices<IdxT>(indices);
@@ -255,14 +255,14 @@ template <typename T,
           typename CoreView>
 void build(const raft::resources& handle,
            const all_neighbors_params& params,
-           raft::host_matrix_view<const T, IdxT, row_major> dataset,
+           raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
            IndicesView indices,
            std::optional<DistancesView> distances = std::nullopt,
            std::optional<CoreView> core_distances = std::nullopt,
            T alpha                                = 1.0)
 {
   constexpr bool host_output =
-    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, raft::row_major>>;
 
   auto build_algo =
     check_params_validity<T, IdxT>(params, dataset, indices, distances, core_distances);
@@ -349,11 +349,11 @@ template <typename T, typename IdxT>
 void build(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  raft::device_matrix_view<const T, IdxT, row_major> dataset,
-  raft::device_matrix_view<IdxT, IdxT, row_major> indices,
-  std::optional<raft::device_matrix_view<T, IdxT, row_major>> distances      = std::nullopt,
-  std::optional<raft::device_vector_view<T, IdxT, row_major>> core_distances = std::nullopt,
-  T alpha                                                                    = 1.0)
+  raft::device_matrix_view<const T, IdxT, raft::row_major> dataset,
+  raft::device_matrix_view<IdxT, IdxT, raft::row_major> indices,
+  std::optional<raft::device_matrix_view<T, IdxT, raft::row_major>> distances      = std::nullopt,
+  std::optional<raft::device_vector_view<T, IdxT, raft::row_major>> core_distances = std::nullopt,
+  T alpha                                                                          = 1.0)
 {
   auto build_algo =
     check_params_validity<T, IdxT>(params, dataset, indices, distances, core_distances);

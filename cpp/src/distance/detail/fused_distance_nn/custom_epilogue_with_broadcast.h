@@ -83,9 +83,6 @@ namespace cuvs {
 namespace epilogue {
 namespace threadblock {
 
-// TODO (cjnolet): We shouldn't be doing `using namespace` in this file.
-using namespace cutlass::epilogue::threadblock;
-
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// This base class is meant to define the concept required of the
@@ -186,8 +183,9 @@ template <
                       ///< MatrixShape)
   int FragmentsPerPartition = 1,  ///< Used to coarsten the epilogue granularity
   int IterationsUnroll      =     ///< Used to reduce binary size when epilogue op is large
-  (!IsEpilogueFunctorHeavy<OutputOp_>::value)>
-class EpilogueWithBroadcastCustom : public EpilogueBase<Shape_,
+  (!cutlass::epilogue::threadblock::IsEpilogueFunctorHeavy<OutputOp_>::value)>
+class EpilogueWithBroadcastCustom
+  : public cutlass::epilogue::threadblock::EpilogueBase<Shape_,
                                                         typename WarpMmaOperator_::Shape,
                                                         PartitionsK,
                                                         AccumulatorFragmentIterator_,
@@ -195,13 +193,13 @@ class EpilogueWithBroadcastCustom : public EpilogueBase<Shape_,
                                                         Padding_,
                                                         FragmentsPerPartition> {
  public:
-  using Base = EpilogueBase<Shape_,
-                            typename WarpMmaOperator_::Shape,
-                            PartitionsK,
-                            AccumulatorFragmentIterator_,
-                            WarpTileIterator_,
-                            Padding_,
-                            FragmentsPerPartition>;
+  using Base = cutlass::epilogue::threadblock::EpilogueBase<Shape_,
+                                                            typename WarpMmaOperator_::Shape,
+                                                            PartitionsK,
+                                                            AccumulatorFragmentIterator_,
+                                                            WarpTileIterator_,
+                                                            Padding_,
+                                                            FragmentsPerPartition>;
 
   using Shape                       = Shape_;
   using WarpMmaOperator             = WarpMmaOperator_;
@@ -306,7 +304,7 @@ class EpilogueWithBroadcastCustom : public EpilogueBase<Shape_,
 
     /// I'm not sure what I meant here.
     static int const kThreadAccessesPerRow =
-      const_max(1, (Shape::kN + kThreadCount - 1) / kThreadCount);
+      cutlass::const_max(1, (Shape::kN + kThreadCount - 1) / kThreadCount);
 
     /// Shape of the shared memory allocation for the epilogue
     using StorageShape = cutlass::MatrixShape<kThreadRows, Shape::kN>;

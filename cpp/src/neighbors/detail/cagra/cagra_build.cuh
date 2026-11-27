@@ -456,7 +456,7 @@ void build_knn_graph(
     size_t(dataset.extent(1)),
     size_t(knn_graph.extent(1)));
 
-  std::optional<raft::host_matrix_view<IdxT, int64_t, row_major>> graph_view = knn_graph;
+  std::optional<raft::host_matrix_view<IdxT, int64_t, raft::row_major>> graph_view = knn_graph;
   auto nn_descent_idx = cuvs::neighbors::nn_descent::build(res, build_params, dataset, graph_view);
 
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;
@@ -486,7 +486,7 @@ void build_knn_graph(raft::resources const& res,
     size_t(dataset.dim()),
     size_t(knn_graph.extent(1)));
 
-  std::optional<raft::host_matrix_view<IdxT, int64_t, row_major>> graph_view = knn_graph;
+  std::optional<raft::host_matrix_view<IdxT, int64_t, raft::row_major>> graph_view = knn_graph;
   auto nn_descent_idx = cuvs::neighbors::nn_descent::build(res, build_params, dataset, graph_view);
 
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;

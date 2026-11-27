@@ -4014,9 +4014,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const float, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(
@@ -4024,9 +4024,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const float, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4055,9 +4055,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const half, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(
@@ -4065,9 +4065,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const half, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4096,9 +4096,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(
@@ -4106,9 +4106,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4137,18 +4137,18 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(const raft::resources& clique,
             const cuvs::neighbors::
               mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& index,
             const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-            raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-            raft::host_matrix_view<int64_t, int64_t, row_major> neighbors,
-            raft::host_matrix_view<float, int64_t, row_major> distances);
+            raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+            raft::host_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4177,9 +4177,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const float, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(
@@ -4187,9 +4187,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const float, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const float, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4218,9 +4218,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const half, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(
@@ -4228,9 +4228,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const half, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const half, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4259,9 +4259,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(
@@ -4269,9 +4269,9 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const int8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const int8_t, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \ingroup mg_cpp_index_search
 /**
@@ -4300,18 +4300,18 @@ void search(
   const cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
   const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-  raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-  raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-  raft::host_matrix_view<float, int64_t, row_major> distances);
+  raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+  raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+  raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /** @copydoc search */
 void search(const raft::resources& clique,
             const cuvs::neighbors::
               mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& index,
             const cuvs::neighbors::mg_search_params<cagra::search_params>& search_params,
-            raft::host_matrix_view<const uint8_t, int64_t, row_major> queries,
-            raft::host_matrix_view<uint32_t, int64_t, row_major> neighbors,
-            raft::host_matrix_view<float, int64_t, row_major> distances);
+            raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
+            raft::host_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
+            raft::host_matrix_view<float, int64_t, raft::row_major> distances);
 
 /// \defgroup mg_cpp_serialize ANN MG index serialization
 

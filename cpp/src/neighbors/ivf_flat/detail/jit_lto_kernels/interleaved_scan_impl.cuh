@@ -108,7 +108,7 @@ __device__ __forceinline__ void interleaved_scan_impl(const uint32_t query_smem_
   }
 
   // Copy a part of the query into shared memory for faster processing
-  copy_vectorized(query_shared, query, std::min(dim, query_smem_elems));
+  raft::copy_vectorized(query_shared, query, std::min(dim, query_smem_elems));
   __syncthreads();
 
   using local_topk_t = block_sort_t<Capacity, Ascending, float, uint32_t>;

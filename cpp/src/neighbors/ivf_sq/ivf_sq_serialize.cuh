@@ -32,21 +32,21 @@ void serialize(raft::resources const& handle, Output& os, const index<CodeT>& in
   dtype_string.resize(4);
   os << dtype_string;
 
-  serialize_scalar(handle, os, serialization_version);
-  serialize_scalar(handle, os, index_.size());
-  serialize_scalar(handle, os, index_.dim());
-  serialize_scalar(handle, os, index_.n_lists());
-  serialize_scalar(handle, os, index_.metric());
-  serialize_scalar(handle, os, index_.conservative_memory_allocation());
+  raft::serialize_scalar(handle, os, serialization_version);
+  raft::serialize_scalar(handle, os, index_.size());
+  raft::serialize_scalar(handle, os, index_.dim());
+  raft::serialize_scalar(handle, os, index_.n_lists());
+  raft::serialize_scalar(handle, os, index_.metric());
+  raft::serialize_scalar(handle, os, index_.conservative_memory_allocation());
   cuvs::util::detail::serialize_mdspan(handle, os, index_.centers());
 
   if (index_.center_norms()) {
     bool has_norms = true;
-    serialize_scalar(handle, os, has_norms);
+    raft::serialize_scalar(handle, os, has_norms);
     cuvs::util::detail::serialize_mdspan(handle, os, *index_.center_norms());
   } else {
     bool has_norms = false;
-    serialize_scalar(handle, os, has_norms);
+    raft::serialize_scalar(handle, os, has_norms);
   }
 
   cuvs::util::detail::serialize_mdspan(handle, os, index_.sq_vmin());

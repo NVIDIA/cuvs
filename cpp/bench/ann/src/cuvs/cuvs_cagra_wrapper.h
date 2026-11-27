@@ -473,8 +473,8 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     *graph_ = std::move(new_graph);
 
     // NB: update_graph() only stores a view in the index. We need to keep the graph object alive.
-    index_->update_graph(handle_, make_const_mdspan(graph_->view()));
-    if (vpq_index_) { vpq_index_->update_graph(handle_, make_const_mdspan(graph_->view())); }
+    index_->update_graph(handle_, raft::make_const_mdspan(graph_->view()));
+    if (vpq_index_) { vpq_index_->update_graph(handle_, raft::make_const_mdspan(graph_->view())); }
     // graph_ owns the graph now, so release the host index that used to own it.
     host_index_.reset();
     needs_dynamic_batcher_update = true;

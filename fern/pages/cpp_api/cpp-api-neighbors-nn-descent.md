@@ -127,7 +127,7 @@ Construct a new index object
 ```cpp
 index(raft::resources const& res,
 raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_view,
-std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances_view =
+std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances_view =
 std::nullopt,
 cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
 ```
@@ -140,7 +140,7 @@ This constructor creates an nn-descent index using a user allocated host memory 
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` | raft::resources is an object managing resources |
 | `graph_view` |  | `raft::host_matrix_view<IdxT, int64_t, raft::row_major>` | raft::host_matrix_view&lt;IdxT, int64_t, raft::row_major&gt; for storing knn-graph |
-| `distances_view` |  | `std::optional<raft::device_matrix_view<float, int64_t, row_major>>` | optional raft::device_matrix_view&lt;float, int64_t, row_major&gt; for storing distances<br />Default: `std::nullopt`. |
+| `distances_view` |  | `std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>>` | optional raft::device_matrix_view&lt;float, int64_t, row_major&gt; for storing distances<br />Default: `std::nullopt`. |
 | `metric` |  | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | distance metric to use<br />Default: `cuvs::distance::DistanceType::L2Expanded`. |
 
 **Returns**
@@ -207,12 +207,12 @@ neighborhood graph distances [size, graph-degree]
 
 ```cpp
 [[nodiscard]] inline auto distances() noexcept
--> std::optional<device_matrix_view<float, int64_t, row_major>>;
+-> std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>>;
 ```
 
 **Returns**
 
-`std::optional<device_matrix_view<float, int64_t, row_major>>`
+`std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>>`
 
 ## nn-descent index build
 

@@ -48,7 +48,7 @@ void reset_global_matrices(raft::resources const& res,
   T global_distances_fill_value =
     select_min ? std::numeric_limits<T>::max() : std::numeric_limits<T>::lowest();
 
-  if constexpr (std::is_same_v<NbrView, raft::host_matrix_view<IdxT, IdxT, row_major>>) {
+  if constexpr (std::is_same_v<NbrView, raft::host_matrix_view<IdxT, IdxT, raft::row_major>>) {
     std::fill(global_neighbors.data_handle(),
               global_neighbors.data_handle() + num_rows * k,
               global_neighbors_fill_value);
@@ -79,7 +79,7 @@ void reset_global_matrices(raft::resources const& res,
 template <typename T, typename IdxT>
 void get_centroids_on_data_subsample(raft::resources const& res,
                                      cuvs::distance::DistanceType metric,
-                                     raft::host_matrix_view<const T, IdxT, row_major> dataset,
+                                     raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
                                      raft::device_matrix_view<T, IdxT> centroids)
 {
   size_t num_rows       = static_cast<size_t>(dataset.extent(0));
@@ -109,7 +109,7 @@ void single_gpu_assign_clusters(
   size_t n_clusters,
   size_t n_rows_per_batch,
   size_t base_row_offset,
-  raft::host_matrix_view<const T, IdxT, row_major> dataset,
+  raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
   raft::device_matrix_view<T, IdxT, raft::row_major> centroids,
   cuvs::distance::DistanceType metric,
   raft::host_matrix_view<IdxT, IdxT, raft::row_major> global_nearest_cluster)
@@ -168,7 +168,7 @@ void single_gpu_assign_clusters(
 template <typename T, typename IdxT>
 void assign_clusters(raft::resources const& res,
                      const all_neighbors_params& params,
-                     raft::host_matrix_view<const T, IdxT, row_major> dataset,
+                     raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
                      raft::device_matrix_view<T, IdxT, raft::row_major> centroids,
                      raft::host_matrix_view<IdxT, IdxT, raft::row_major> global_nearest_cluster)
 {
@@ -298,19 +298,19 @@ void get_min_max_cluster_size(size_t k,
 
 template <typename T, typename IdxT>
 void single_gpu_batch_build(const raft::resources& handle,
-                            raft::host_matrix_view<const T, IdxT, row_major> dataset,
+                            raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
                             detail::all_neighbors_builder<T, IdxT>& knn_builder,
                             size_t n_clusters,
                             global_graph_view<T, IdxT> global,
-                            raft::host_vector_view<IdxT, IdxT, row_major> cluster_sizes,
-                            raft::host_vector_view<IdxT, IdxT, row_major> cluster_offsets,
-                            raft::host_vector_view<IdxT, IdxT, row_major> inverted_indices)
+                            raft::host_vector_view<IdxT, IdxT, raft::row_major> cluster_sizes,
+                            raft::host_vector_view<IdxT, IdxT, raft::row_major> cluster_offsets,
+                            raft::host_vector_view<IdxT, IdxT, raft::row_major> inverted_indices)
 {
   size_t num_rows = dataset.extent(0);
   size_t num_cols = dataset.extent(1);
 
   auto cluster_data =
-    raft::make_host_matrix<T, IdxT, row_major>(knn_builder.max_cluster_size, num_cols);
+    raft::make_host_matrix<T, IdxT, raft::row_major>(knn_builder.max_cluster_size, num_cols);
 
   knn_builder.prepare_build(dataset);
 
@@ -348,15 +348,16 @@ template <typename T,
           typename GNbrView,
           typename GDistView,
           typename DistEpilogueT = raft::identity_op>
-void multi_gpu_batch_build(const raft::resources& handle,
-                           const all_neighbors_params& params,
-                           raft::host_matrix_view<const T, IdxT, row_major> dataset,
-                           GNbrView global_neighbors,
-                           GDistView global_distances,
-                           raft::host_vector_view<IdxT, IdxT, row_major> cluster_sizes,
-                           raft::host_vector_view<const IdxT, IdxT, row_major> cluster_offsets_c,
-                           raft::host_vector_view<IdxT, IdxT, row_major> inverted_indices,
-                           DistEpilogueT dist_epilogue = DistEpilogueT{})
+void multi_gpu_batch_build(
+  const raft::resources& handle,
+  const all_neighbors_params& params,
+  raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
+  GNbrView global_neighbors,
+  GDistView global_distances,
+  raft::host_vector_view<IdxT, IdxT, raft::row_major> cluster_sizes,
+  raft::host_vector_view<const IdxT, IdxT, raft::row_major> cluster_offsets_c,
+  raft::host_vector_view<IdxT, IdxT, raft::row_major> inverted_indices,
+  DistEpilogueT dist_epilogue = DistEpilogueT{})
 {
   constexpr bool host_output = std::is_same_v<GNbrView, raft::host_matrix_view<IdxT, IdxT>>;
 
@@ -497,7 +498,7 @@ template <typename T,
           typename DistEpilogueT = raft::identity_op>
 void batch_build(const raft::resources& handle,
                  const all_neighbors_params& params,
-                 raft::host_matrix_view<const T, IdxT, row_major> dataset,
+                 raft::host_matrix_view<const T, IdxT, raft::row_major> dataset,
                  IndicesView indices,
                  std::optional<DistancesView> distances = std::nullopt,
                  BatchBuildAux<IdxT>* aux_vectors       = nullptr,
@@ -509,7 +510,7 @@ void batch_build(const raft::resources& handle,
   }
 
   constexpr bool host_output =
-    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, row_major>>;
+    std::is_same_v<IndicesView, raft::host_matrix_view<IdxT, IdxT, raft::row_major>>;
 
   size_t num_rows = static_cast<size_t>(dataset.extent(0));
   size_t num_cols = static_cast<size_t>(dataset.extent(1));

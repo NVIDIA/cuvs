@@ -129,11 +129,12 @@ struct all_neighbors_params {
 void build(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  raft::host_matrix_view<const float, int64_t, row_major> dataset,
-  raft::device_matrix_view<int64_t, int64_t, row_major> indices,
-  std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
-  std::optional<raft::device_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
-  float alpha                                                                       = 1.0);
+  raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> indices,
+  std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances = std::nullopt,
+  std::optional<raft::device_vector_view<float, int64_t, raft::row_major>> core_distances =
+    std::nullopt,
+  float alpha = 1.0);
 
 /**
  * @brief Builds an approximate all-neighbors knn graph  (find nearest neighbors for all the
@@ -163,11 +164,12 @@ void build(
 void build(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  raft::host_matrix_view<const float, int64_t, row_major> dataset,
-  raft::host_matrix_view<int64_t, int64_t, row_major> indices,
-  std::optional<raft::host_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
-  std::optional<raft::host_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
-  float alpha                                                                     = 1.0);
+  raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+  raft::host_matrix_view<int64_t, int64_t, raft::row_major> indices,
+  std::optional<raft::host_matrix_view<float, int64_t, raft::row_major>> distances = std::nullopt,
+  std::optional<raft::host_vector_view<float, int64_t, raft::row_major>> core_distances =
+    std::nullopt,
+  float alpha = 1.0);
 
 /**
  * @brief Builds an approximate all-neighbors knn graph (find nearest neighbors for all the training
@@ -199,11 +201,12 @@ void build(
 void build(
   const raft::resources& handle,
   const all_neighbors_params& params,
-  raft::device_matrix_view<const float, int64_t, row_major> dataset,
-  raft::device_matrix_view<int64_t, int64_t, row_major> indices,
-  std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances      = std::nullopt,
-  std::optional<raft::device_vector_view<float, int64_t, row_major>> core_distances = std::nullopt,
-  float alpha                                                                       = 1.0);
+  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> indices,
+  std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances = std::nullopt,
+  std::optional<raft::device_vector_view<float, int64_t, raft::row_major>> core_distances =
+    std::nullopt,
+  float alpha = 1.0);
 
 /** @} */
 }  // namespace all_neighbors

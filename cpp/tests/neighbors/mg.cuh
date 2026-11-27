@@ -40,8 +40,8 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
   AnnMGTest()
     : clique_(),
       ps(::testing::TestWithParam<AnnMGInputs>::GetParam()),
-      d_index_dataset(0, resource::get_cuda_stream(clique_)),
-      d_queries(0, resource::get_cuda_stream(clique_)),
+      d_index_dataset(0, raft::resource::get_cuda_stream(clique_)),
+      d_queries(0, raft::resource::get_cuda_stream(clique_)),
       h_index_dataset(0),
       h_queries(0)
   {
@@ -57,9 +57,10 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
     std::vector<T> distances_snmg_ann(queries_size);
 
     {
-      rmm::device_uvector<T> distances_ref_dev(queries_size, resource::get_cuda_stream(clique_));
+      rmm::device_uvector<T> distances_ref_dev(queries_size,
+                                               raft::resource::get_cuda_stream(clique_));
       rmm::device_uvector<int64_t> neighbors_ref_dev(queries_size,
-                                                     resource::get_cuda_stream(clique_));
+                                                     raft::resource::get_cuda_stream(clique_));
       cuvs::neighbors::naive_knn<T, DataT, int64_t>(clique_,
                                                     distances_ref_dev.data(),
                                                     neighbors_ref_dev.data(),
@@ -70,15 +71,15 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
                                                     ps.dim,
                                                     ps.k,
                                                     ps.metric);
-      update_host(distances_ref.data(),
-                  distances_ref_dev.data(),
-                  queries_size,
-                  resource::get_cuda_stream(clique_));
-      update_host(neighbors_ref.data(),
-                  neighbors_ref_dev.data(),
-                  queries_size,
-                  resource::get_cuda_stream(clique_));
-      resource::sync_stream(clique_);
+      raft::update_host(distances_ref.data(),
+                        distances_ref_dev.data(),
+                        queries_size,
+                        raft::resource::get_cuda_stream(clique_));
+      raft::update_host(neighbors_ref.data(),
+                        neighbors_ref_dev.data(),
+                        queries_size,
+                        raft::resource::get_cuda_stream(clique_));
+      raft::resource::sync_stream(clique_);
     }
 
     int64_t n_rows_per_search_batch = 3000;  // [3000, 3000, 1000] == 7000 rows
@@ -105,13 +106,13 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_probes    = ps.nprobe;
       search_params.search_mode = LOAD_BALANCER;
 
-      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto queries = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto queries = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
-      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
-      auto distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+      auto distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       tmp_index_file index_file;
@@ -131,7 +132,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::ivf_flat::search(
         clique_, new_index, search_params, queries, neighbors, distances);
-      resource::sync_stream(clique_);
+      raft::resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
       ASSERT_TRUE(eval_neighbours(neighbors_ref,
@@ -167,13 +168,13 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_probes    = ps.nprobe;
       search_params.search_mode = LOAD_BALANCER;
 
-      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto queries = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto queries = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
-      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
-      auto distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+      auto distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       tmp_index_file index_file;
@@ -193,7 +194,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::ivf_pq::search(
         clique_, new_index, search_params, queries, neighbors, distances);
-      resource::sync_stream(clique_);
+      raft::resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
       ASSERT_TRUE(eval_neighbours(neighbors_ref,
@@ -224,14 +225,14 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
       mg_search_params<cagra::search_params> search_params;
 
-      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto index_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(index_dataset);
-      auto queries            = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto queries            = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
-      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
-      auto distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+      auto distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       tmp_index_file index_file;
@@ -259,7 +260,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_rows_per_batch = n_rows_per_search_batch;
       cuvs::neighbors::cagra::search(
         clique_, search_index, search_params, queries, neighbors, distances);
-      resource::sync_stream(clique_);
+      raft::resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
       ASSERT_TRUE(eval_neighbours(neighbors_ref,
@@ -295,11 +296,11 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         ivf_flat::serialize(clique_, index_file.filename, index);
       }
 
-      auto queries = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto queries = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
-      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
-      auto distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+      auto distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       auto distributed_index =
@@ -310,7 +311,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       cuvs::neighbors::ivf_flat::search(
         clique_, distributed_index, search_params, queries, neighbors, distances);
 
-      resource::sync_stream(clique_);
+      raft::resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
       ASSERT_TRUE(eval_neighbours(neighbors_ref,
@@ -345,11 +346,11 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         ivf_pq::serialize(clique_, index_file.filename, index);
       }
 
-      auto queries = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto queries = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
-      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
-      auto distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+      auto distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       auto distributed_index =
@@ -360,7 +361,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       cuvs::neighbors::ivf_pq::search(
         clique_, distributed_index, search_params, queries, neighbors, distances);
 
-      resource::sync_stream(clique_);
+      raft::resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
       ASSERT_TRUE(eval_neighbours(neighbors_ref,
@@ -391,11 +392,11 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         cuvs::neighbors::cagra::serialize(clique_, index_file.filename, index);
       }
 
-      auto queries = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto queries = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
-      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+      auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
         neighbors_snmg_ann.data(), ps.num_queries, ps.k);
-      auto distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+      auto distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         distances_snmg_ann.data(), ps.num_queries, ps.k);
 
       auto distributed_index =
@@ -416,7 +417,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       cuvs::neighbors::cagra::search(
         clique_, search_index, search_params, queries, neighbors, distances);
 
-      resource::sync_stream(clique_);
+      raft::resource::sync_stream(clique_);
 
       double min_recall = static_cast<double>(ps.nprobe) / static_cast<double>(ps.nlist);
       ASSERT_TRUE(eval_neighbours(neighbors_ref,
@@ -447,9 +448,9 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_probes    = ps.nprobe;
       search_params.search_mode = ROUND_ROBIN;
 
-      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto small_batch_query = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto small_batch_query = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
 
       auto index = cuvs::neighbors::ivf_flat::build(clique_, index_params, index_dataset);
@@ -468,9 +469,9 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 #pragma omp parallel for
       for (uint64_t search_idx = 0; search_idx < searches_correctness.size(); search_idx++) {
         uint64_t offset            = search_idx * ps.num_queries * ps.k;
-        auto small_batch_neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+        auto small_batch_neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
           load_balancer_neighbors_snmg_ann.data() + offset, ps.num_queries, ps.k);
-        auto small_batch_distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+        auto small_batch_distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
           load_balancer_distances_snmg_ann.data() + offset, ps.num_queries, ps.k);
 
         search_params.n_rows_per_batch = n_rows_per_search_batch;
@@ -516,9 +517,9 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       search_params.n_probes    = ps.nprobe;
       search_params.search_mode = ROUND_ROBIN;
 
-      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto small_batch_query = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto small_batch_query = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
 
       auto index = cuvs::neighbors::ivf_pq::build(clique_, index_params, index_dataset);
@@ -537,9 +538,9 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 #pragma omp parallel for
       for (uint64_t search_idx = 0; search_idx < searches_correctness.size(); search_idx++) {
         uint64_t offset            = search_idx * ps.num_queries * ps.k;
-        auto small_batch_neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+        auto small_batch_neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
           load_balancer_neighbors_snmg_ann.data() + offset, ps.num_queries, ps.k);
-        auto small_batch_distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+        auto small_batch_distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
           load_balancer_distances_snmg_ann.data() + offset, ps.num_queries, ps.k);
 
         search_params.n_rows_per_batch = n_rows_per_search_batch;
@@ -581,10 +582,10 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       mg_search_params<cagra::search_params> search_params;
       search_params.search_mode = ROUND_ROBIN;
 
-      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto index_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(index_dataset);
-      auto small_batch_query  = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
+      auto small_batch_query  = raft::make_host_matrix_view<const DataT, int64_t, raft::row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
 
       auto index = cuvs::neighbors::cagra::build(clique_, index_params, index_dataset_view);
@@ -607,9 +608,9 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 #pragma omp parallel for
       for (uint64_t search_idx = 0; search_idx < searches_correctness.size(); search_idx++) {
         uint64_t offset            = search_idx * ps.num_queries * ps.k;
-        auto small_batch_neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
+        auto small_batch_neighbors = raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(
           load_balancer_neighbors_snmg_ann.data() + offset, ps.num_queries, ps.k);
-        auto small_batch_distances = raft::make_host_matrix_view<float, int64_t, row_major>(
+        auto small_batch_distances = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
           load_balancer_distances_snmg_ann.data() + offset, ps.num_queries, ps.k);
 
         search_params.n_rows_per_batch = n_rows_per_search_batch;
@@ -643,8 +644,8 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
   void SetUp() override
   {
-    d_index_dataset.resize(ps.num_db_vecs * ps.dim, resource::get_cuda_stream(clique_));
-    d_queries.resize(ps.num_queries * ps.dim, resource::get_cuda_stream(clique_));
+    d_index_dataset.resize(ps.num_db_vecs * ps.dim, raft::resource::get_cuda_stream(clique_));
+    d_queries.resize(ps.num_queries * ps.dim, raft::resource::get_cuda_stream(clique_));
     h_index_dataset.resize(ps.num_db_vecs * ps.dim);
     h_queries.resize(ps.num_queries * ps.dim);
 
@@ -662,10 +663,12 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
     raft::copy(h_index_dataset.data(),
                d_index_dataset.data(),
                d_index_dataset.size(),
-               resource::get_cuda_stream(clique_));
-    raft::copy(
-      h_queries.data(), d_queries.data(), d_queries.size(), resource::get_cuda_stream(clique_));
-    resource::sync_stream(clique_);
+               raft::resource::get_cuda_stream(clique_));
+    raft::copy(h_queries.data(),
+               d_queries.data(),
+               d_queries.size(),
+               raft::resource::get_cuda_stream(clique_));
+    raft::resource::sync_stream(clique_);
   }
 
   void TearDown() override {}

@@ -149,7 +149,7 @@ struct index : cuvs::neighbors::index {
    */
   index(raft::resources const& res,
         raft::host_matrix_view<IdxT, int64_t, raft::row_major> graph_view,
-        std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances_view =
+        std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances_view =
           std::nullopt,
         cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
     : cuvs::neighbors::index(),
@@ -189,7 +189,7 @@ struct index : cuvs::neighbors::index {
 
   /** neighborhood graph distances [size, graph-degree] */
   [[nodiscard]] inline auto distances() noexcept
-    -> std::optional<device_matrix_view<float, int64_t, row_major>>
+    -> std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>>
   {
     return distances_view_;
   }
@@ -205,10 +205,10 @@ struct index : cuvs::neighbors::index {
   raft::resources const& res_;
   cuvs::distance::DistanceType metric_;
   raft::host_matrix<IdxT, int64_t, raft::row_major> graph_;  // graph to return for non-int IdxT
-  std::optional<raft::device_matrix<float, int64_t, row_major>> distances_;
+  std::optional<raft::device_matrix<float, int64_t, raft::row_major>> distances_;
   raft::host_matrix_view<IdxT, int64_t, raft::row_major>
     graph_view_;  // view of graph for user provided matrix
-  std::optional<raft::device_matrix_view<float, int64_t, row_major>> distances_view_;
+  std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances_view_;
   bool return_distances_;
 };
 

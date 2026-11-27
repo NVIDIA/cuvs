@@ -319,7 +319,7 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
           flat_codes.view());
 
         helpers::codepacker::pack(
-          handle_, make_const_mdspan(flat_codes.view()), idx.veclen(), 0, list_data.view());
+          handle_, raft::make_const_mdspan(flat_codes.view()), idx.veclen(), 0, list_data.view());
 
         {
           auto mask = raft::make_device_vector<bool>(handle_, n_elems);

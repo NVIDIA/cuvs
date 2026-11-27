@@ -1469,8 +1469,6 @@ enable_if_valid_list_t<ListT> deserialize_list(const raft::resources& handle,
                                                const typename ListT::spec_type& device_spec);
 }  // namespace ivf
 
-using namespace raft;
-
 template <typename AnnIndexType, typename T, typename IdxT>
 struct iface {
   iface()
@@ -1493,26 +1491,28 @@ struct iface {
 };
 
 template <typename AnnIndexType, typename T, typename IdxT, typename Accessor>
-void build(const raft::resources& handle,
-           cuvs::neighbors::iface<AnnIndexType, T, IdxT>& interface,
-           const cuvs::neighbors::index_params* index_params,
-           raft::mdspan<const T, matrix_extent<int64_t>, row_major, Accessor> index_dataset);
+void build(
+  const raft::resources& handle,
+  cuvs::neighbors::iface<AnnIndexType, T, IdxT>& interface,
+  const cuvs::neighbors::index_params* index_params,
+  raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> index_dataset);
 
 template <typename AnnIndexType, typename T, typename IdxT, typename Accessor1, typename Accessor2>
 void extend(
   const raft::resources& handle,
   cuvs::neighbors::iface<AnnIndexType, T, IdxT>& interface,
-  raft::mdspan<const T, matrix_extent<int64_t>, row_major, Accessor1> new_vectors,
-  std::optional<raft::mdspan<const IdxT, vector_extent<int64_t>, layout_c_contiguous, Accessor2>>
+  raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor1> new_vectors,
+  std::optional<
+    raft::mdspan<const IdxT, raft::vector_extent<int64_t>, raft::layout_c_contiguous, Accessor2>>
     new_indices);
 
 template <typename AnnIndexType, typename T, typename IdxT, typename searchIdxT>
 void search(const raft::resources& handle,
             const cuvs::neighbors::iface<AnnIndexType, T, IdxT>& interface,
             const cuvs::neighbors::search_params* search_params,
-            raft::device_matrix_view<const T, int64_t, row_major> h_queries,
-            raft::device_matrix_view<searchIdxT, int64_t, row_major> d_neighbors,
-            raft::device_matrix_view<float, int64_t, row_major> d_distances);
+            raft::device_matrix_view<const T, int64_t, raft::row_major> h_queries,
+            raft::device_matrix_view<searchIdxT, int64_t, raft::row_major> d_neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> d_distances);
 
 template <typename AnnIndexType, typename T, typename IdxT>
 void serialize(const raft::resources& handle,

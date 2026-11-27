@@ -82,9 +82,6 @@ namespace cuvs {
 namespace epilogue {
 namespace threadblock {
 
-// TODO (cjnolet): We shouldn't be doing `using namespace` in this file.
-using namespace cutlass::epilogue::threadblock;
-
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Tile iterator used to load and store output tile from global memory in epilogue.
@@ -143,8 +140,8 @@ class PredicatedTileIteratorReducedVec {
   //
 
   /// Uses a non-template class
-  struct Params : PredicatedTileIteratorParams {
-    using Base = PredicatedTileIteratorParams;
+  struct Params : cutlass::epilogue::threadblock::PredicatedTileIteratorParams {
+    using Base = cutlass::epilogue::threadblock::PredicatedTileIteratorParams;
 
     EpilogueOpParams user_param;
     CUTLASS_HOST_DEVICE
@@ -152,16 +149,15 @@ class PredicatedTileIteratorReducedVec {
 
     CUTLASS_HOST_DEVICE
     Params(Layout const& layout)
-      : PredicatedTileIteratorParams(
-          layout.stride(0) * int(sizeof(AccessType)) / kElementsPerAccess,
-          make_OutputTileThreadMapDesc<ThreadMap>())
+      : Base(layout.stride(0) * int(sizeof(AccessType)) / kElementsPerAccess,
+             cutlass::epilogue::threadblock::make_OutputTileThreadMapDesc<ThreadMap>())
     {
     }
 
     CUTLASS_HOST_DEVICE
     Params(Layout const& layout, EpilogueOpParams const& user_param_)
-      : PredicatedTileIteratorParams(int(sizeof(AccessType)) / kElementsPerAccess,
-                                     make_OutputTileThreadMapDesc<ThreadMap>()),
+      : Base(int(sizeof(AccessType)) / kElementsPerAccess,
+             cutlass::epilogue::threadblock::make_OutputTileThreadMapDesc<ThreadMap>()),
         user_param(user_param_)
     {
     }

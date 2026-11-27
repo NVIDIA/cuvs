@@ -1,7 +1,7 @@
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
  */
 // clang-format on
@@ -61,9 +61,6 @@
 namespace cuvs {
 namespace epilogue {
 namespace thread {
-
-// TODO (cjnolet): We shouldn't be doing `using namespace` in this file.
-using namespace cutlass::epilogue::thread;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
