@@ -27,6 +27,7 @@
 #include <raft/util/itertools.hpp>
 
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/managed_memory_resource.hpp>
 
 #include <gtest/gtest.h>
 
@@ -54,6 +55,9 @@ struct cast_to_half_op {
   __device__ half operator()(float x) const { return __float2half(x); }
 };
 
+// Where the dataset passed to vamana::build lives.
+enum class dataset_location { device, host, managed };
+
 struct AnnVamanaInputs {
   int n_rows;
   int dim;
@@ -61,7 +65,7 @@ struct AnnVamanaInputs {
   int visited_size;
   double max_fraction;
   cuvs::distance::DistanceType metric;
-  bool host_dataset;
+  dataset_location dataset_loc;
   int reverse_batchsize;
   double insert_iters;
 
@@ -157,14 +161,25 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
       (const DataT*)database.data(), ps.n_rows, ps.dim);
 
+    // Declared before the index so the managed buffer outlives the index, which may keep a view
+    // into it.
+    rmm::mr::managed_memory_resource managed_mr;
+    rmm::device_uvector<DataT> database_managed(0, stream_, managed_mr);
     vamana::index<DataT, IdxT> index(handle_);
-    if (ps.host_dataset) {
+    if (ps.dataset_loc == dataset_location::host) {
       auto database_host = raft::make_host_matrix<DataT, int64_t>(ps.n_rows, ps.dim);
       raft::copy(database_host.data_handle(), database.data(), database.size(), stream_);
       auto database_host_view = raft::make_host_matrix_view<const DataT, int64_t>(
         (const DataT*)database_host.data_handle(), ps.n_rows, ps.dim);
 
       index = vamana::build(handle_, index_params, database_host_view);
+    } else if (ps.dataset_loc == dataset_location::managed) {
+      database_managed.resize(database.size(), stream_);
+      raft::copy(database_managed.data(), database.data(), database.size(), stream_);
+      auto database_managed_view = raft::make_device_matrix_view<const DataT, int64_t>(
+        database_managed.data(), ps.n_rows, ps.dim);
+
+      index = vamana::build(handle_, index_params, database_managed_view);
     } else {
       index = vamana::build(handle_, index_params, database_view);
     };
@@ -316,7 +331,7 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
     {64, 256},  // visited_size
     {0.06, 0.1},
     {cuvs::distance::DistanceType::L2Expanded},
-    {false},
+    {dataset_location::device},
     {100, 1000000},
     {1.0, 1.5},
     {100},
@@ -334,7 +349,7 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
     {128, 512},  // visited_size
     {0.06},
     {cuvs::distance::DistanceType::L2Expanded},
-    {false},
+    {dataset_location::device},
     {1000000},
     {1.0},
     {100},
@@ -353,7 +368,7 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
     {256},  // visited_size
     {0.06},
     {cuvs::distance::DistanceType::L2Expanded},
-    {false},
+    {dataset_location::device},
     {1000000},
     {1.0},
     {100},
@@ -372,7 +387,27 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
     {512, 1024},  // visited_size
     {0.06},
     {cuvs::distance::DistanceType::L2Expanded},
-    {false},
+    {dataset_location::device},
+    {1000000},
+    {1.0},
+    {100},
+    {10},
+    {cagra::search_algo::AUTO},
+    {10},
+    {64},
+    {1},
+    {0.2});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  // Host and managed datasets: aligned and unaligned row widths, plus the codebook dims.
+  inputs2 = raft::util::itertools::product<AnnVamanaInputs>(
+    {1000},
+    {1, 7, 64, 137, 384, 1024},
+    {32},  // graph degree
+    {64},  // visited_size
+    {0.06},
+    {cuvs::distance::DistanceType::L2Expanded},
+    {dataset_location::host, dataset_location::managed},
     {1000000},
     {1.0},
     {100},
