@@ -73,9 +73,6 @@ namespace cuvs {
 namespace epilogue {
 namespace threadblock {
 
-// TODO (cjnolet): We shouldn't be doing `using namespace` in this file.
-using namespace cutlass::epilogue::threadblock;
-
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Tile iterator used to load and store output tile from global memory in epilogue.
@@ -128,17 +125,16 @@ class PredicatedTileIteratorNormVecSmem {
   //
 
   /// Uses a non-template class
-  struct Params : PredicatedTileIteratorParams {
-    using Base = PredicatedTileIteratorParams;
+  struct Params : cutlass::epilogue::threadblock::PredicatedTileIteratorParams {
+    using Base = cutlass::epilogue::threadblock::PredicatedTileIteratorParams;
 
     CUTLASS_HOST_DEVICE
     Params() {}
 
     CUTLASS_HOST_DEVICE
     Params(Layout const& layout)
-      : PredicatedTileIteratorParams(
-          layout.stride(0) * int(sizeof(AccessType)) / kElementsPerAccess,
-          make_OutputTileThreadMapDesc<ThreadMap>())
+      : Base(layout.stride(0) * int(sizeof(AccessType)) / kElementsPerAccess,
+             cutlass::epilogue::threadblock::make_OutputTileThreadMapDesc<ThreadMap>())
     {
     }
 
@@ -226,7 +222,7 @@ class PredicatedTileIteratorNormVecSmem {
   //
 
   /// Parameters structure containing reference and precomputed state.
-  PredicatedTileIteratorParams params_;
+  cutlass::epilogue::threadblock::PredicatedTileIteratorParams params_;
 
   /// Byte-level pointer
   uint8_t* byte_pointer_;
@@ -258,7 +254,8 @@ class PredicatedTileIteratorNormVecSmem {
 
   static_assert(sizeof(extent_row_) == 4, "Expected 32b extents");
   static_assert(sizeof(thread_start_row_) == 4, "Expected 32b extents");
-  static_assert(sizeof(PredicatedTileIteratorParams::stride) == 8, "Expected 64b strides");
+  static_assert(sizeof(cutlass::epilogue::threadblock::PredicatedTileIteratorParams::stride) == 8,
+                "Expected 64b strides");
 
  private:
   //
@@ -275,13 +272,14 @@ class PredicatedTileIteratorNormVecSmem {
 
   /// Constructor
   CUTLASS_DEVICE
-  PredicatedTileIteratorNormVecSmem(SharedStorage& shared_storage,
-                                    PredicatedTileIteratorParams const& params,
-                                    Element* pointer,
-                                    TensorCoord extent,
-                                    int thread_idx,
-                                    TensorCoord& threadblock_offset,
-                                    int const* indices = nullptr)
+  PredicatedTileIteratorNormVecSmem(
+    SharedStorage& shared_storage,
+    cutlass::epilogue::threadblock::PredicatedTileIteratorParams const& params,
+    Element* pointer,
+    TensorCoord extent,
+    int thread_idx,
+    TensorCoord& threadblock_offset,
+    int const* indices = nullptr)
     : params_(params), indices_(indices), shared_storage_(shared_storage)
   {
     TensorCoord thread_offset = ThreadMap::initial_offset(thread_idx) + threadblock_offset;
