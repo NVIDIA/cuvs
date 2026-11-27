@@ -127,9 +127,14 @@ Alternatively, if `graph_build_algo == "NN_DESCENT"`, then we can customize the 
 
 This is a benchmark that enables interoperability between `CAGRA` built `HNSW` search. It uses the `CAGRA` built graph as the base layer of an `hnswlib` index to search queries only within the base layer (this is enabled with a simple patch to `hnswlib`).
 
-`build` : Same as `build` of CAGRA
+The CAGRA graph is built with parameters derived from `M` and `ef_construction`.
 
-`search` : Same as `search` of Hnswlib
+| Parameter | Type | Required | Data Type | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `M` | `build` | N | Positive integer >0 | 32 | Number of bi-directional links create for every new element during construction. |
+| `ef_construction` | `build` | N | Positive integer >0 | 200 | Controls index time and accuracy. Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
+| `hierarchy` | `build` | N | [`none`, `cpu`, `gpu`] | `gpu` | Type of HNSW hierarchy to build. `none` creates a base-layer-only index, `cpu` builds full hierarchy on CPU, `gpu` builds full hierarchy on GPU. |
+| `ef` | `search` | Y | Positive integer >0 |  | Size of the dynamic list for the nearest neighbors used for search. Higher value leads to more accurate but slower search. Cannot be lower than `k`. |
 
 ### cuvs_vamana
 

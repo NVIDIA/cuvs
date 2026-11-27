@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -120,12 +120,11 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
         "test-data/result/build/cuvs_cagra_hnswlib,test.csv": {
             "header": common_build_header
             + [
+                "M",
                 "ef_construction",
-                "graph_degree",
-                "intermediate_graph_degree",
                 "label",
             ],
-            "rows": 2,
+            "rows": 3,
         },
         "test-data/result/build/faiss_gpu_ivf_flat,test.csv": {
             "header": common_build_header
@@ -171,12 +170,11 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
                 "build time",
                 "build threads",
                 "build cpu_time",
+                "M",
                 "ef_construction",
-                "graph_degree",
-                "intermediate_graph_degree",
                 "label",
             ],
-            "rows": 4,
+            "rows": 6,
         },
         "test-data/result/search/cuvs_cagra,test,k10,bs100,latency.csv": {
             "header": common_search_header
