@@ -1,16 +1,13 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
- * except for the matmul rotator: its matrix comes from the shared
- * preprocessing helper and is applied as y = P x.
  */
 
 //
-// GPU rotator supporting two implementations:
-//   - matmul  : full D x D random orthogonal matrix via cuBLAS sgemm, O(N*D^2)
-//   - fht_kac : Fast Hadamard Transform + Kac's walk, O(N*D*logD)
+// GPU rotator supporting two implementations (D is the padded width; dim is
+// the logical input width):
+//   - matmul  : D x D random orthogonal matrix via RAFT GEMM, O(n_rows*D*dim)
+//   - fht_kac : Fast Hadamard Transform + Kac's walk, O(n_rows*D*logD)
 //
 // This layer owns NO state. The rotation matrix / flip bits live in device
 // buffers owned by the caller (the public `rabitq::rotator` struct holds them
@@ -19,7 +16,7 @@
 //   (b) generate the state into caller-provided buffers, and
 //   (c) launch the rotation kernels against that state.
 //
-// The derived fht_kac quantities (trunc_dim, fac, log_n) are recomputed from
+// The derived fht_kac quantities (trunc_dim, fac, log_dim) are recomputed from
 // the padded dimension on every launch, so nothing has to be cached.
 //
 
@@ -40,7 +37,7 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 // ---------------------------------------------------------------------------
 
 /// Padded working dimension: `dim` rounded up to a multiple of 32. Both
-/// rotator kinds operate on padded rows of this width.
+/// rotator kinds implicitly zero-extend shorter input rows to this width.
 [[nodiscard]] int64_t padded_dim(int64_t dim);
 
 /// Bytes of flip-bit state the fht_kac rotator consumes at padded dimension
@@ -65,11 +62,11 @@ void init_state_fht_kac(cudaStream_t stream,
                         raft::device_vector_view<uint8_t, int64_t> flip_out);
 
 // ---------------------------------------------------------------------------
-// Launchers. `in` and `out` are N x D row-major float matrices.
-// In-place aliasing (`in == out`) is permitted for fht_kac only.
+// Launchers. `in` is n_rows x dim (dim <= D); `out` is n_rows x D, both row-major.
+// In-place aliasing (`in == out`) requires dim == D and fht_kac.
 // ---------------------------------------------------------------------------
 
-/// out = P * in, computed with the cuBLAS handle carried by `res` (which is
+/// out_i = P * pad(in_i), computed with the cuBLAS handle carried by `res` (which is
 /// bound to `res`'s stream). `P` is D x D, row-major.
 void rotate_matmul(raft::resources const& res,
                    raft::device_matrix_view<const float, int64_t, raft::row_major> P,
@@ -80,8 +77,9 @@ void rotate_matmul(raft::resources const& res,
 ///
 /// `D` is the padded row width, and the truncated-FHT segment size is derived
 /// from it (trunc_dim = 2^floor_log2(D)) — the padded width is what the flip bits
-/// and the kernels operate on. The transform therefore depends only on `D`; the
-/// original unpadded dimension is not needed here.
+/// and the kernels operate on. The transform depends only on `D`; the input
+/// width determines the row pitch and which coordinates to load before
+/// zero-extending to `D`.
 void rotate_fht_kac(cudaStream_t stream,
                     raft::device_vector_view<const uint8_t, int64_t> flip,
                     raft::device_matrix_view<const float, int64_t, raft::row_major> in,
@@ -98,8 +96,11 @@ void rotate_fht_kac(cudaStream_t stream,
   return rot.kind == rotator_kind::fht_kac;
 }
 
-/// Dispatch to rotate_fht_kac / rotate_matmul according to `rot.kind`.
-/// Runs on `raft::resource::get_cuda_stream(res)` in both cases.
+/// Zero-pad input rows to `rot.padded_dim` if needed, then dispatch according to `rot.kind`.
+/// Input width must be in [1, rot.padded_dim]; output width must be rot.padded_dim.
+/// Input and output must be disjoint unless already padded and using fht_kac.
+/// Runs on `raft::resource::get_cuda_stream(res)` in both cases. Padding is
+/// implicit in GEMM's reduction dimension or fused into the FHT loads.
 void rotate(raft::resources const& res,
             rotator_view<const float> rot,
             raft::device_matrix_view<const float, int64_t, raft::row_major> in,

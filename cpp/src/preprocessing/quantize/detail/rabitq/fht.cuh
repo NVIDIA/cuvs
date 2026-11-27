@@ -1,13 +1,16 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
  */
 
 /******************************************************************************
  * Fast Hadamard Transform + Kac's-walk rotation kernels (CUDA).
+ *
+ * `n_rows` is the batch size; `input_dim` is the logical input row width and
+ * pitch in floats. Missing coordinates are zero-filled during input loads.
+ * Power-of-two kernels specialize on kLogDim, with padded width 1 << kLogDim;
+ * runtime dispatch selects the matching compiled specialization. Non-power-of-two
+ * kernels receive padded_dim or specialize on kP32 = padded_dim / 32.
  *
  * Two execution strategies share one butterfly network. Both apply the
  * transform levels in ascending element-bit order with identical arithmetic
@@ -35,6 +38,7 @@
 #include <cuda_runtime.h>
 #include <raft/core/error.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/pow2_utils.cuh>
 #include <type_traits>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
@@ -44,8 +48,6 @@ namespace fht {
 // ============================================================================
 // Compile-time helpers
 // ============================================================================
-
-constexpr __host__ __device__ int clog2(int val) { return val > 1 ? 1 + clog2(val >> 1) : 0; }
 
 /// Threads used by the cooperative kernels for a transform of 2^log_len
 /// elements: length/4 clamped to [32, 256], except 512 for the largest size
@@ -59,18 +61,18 @@ constexpr int coop_log_threads(int log_len)
   return t;
 }
 
-/// Generic compile-time dispatch: converts a runtime log_N (3..15) into a
+/// Generic compile-time dispatch: converts a runtime log_dim (3..15) into a
 /// template parameter by recursive if-constexpr.
-/// Usage: dispatch_log_n(log_N, [&](auto K) { launch<K.value>(...); });
+/// Usage: dispatch_log_dim(log_dim, [&](auto K) { launch<K.value>(...); });
 template <int kCur = 3, int kMax = 15, typename Func>
-inline void dispatch_log_n(int log_n, Func&& func)
+inline void dispatch_log_dim(int log_dim, Func&& func)
 {
-  if (log_n == kCur) {
+  if (log_dim == kCur) {
     func(std::integral_constant<int, kCur>{});
   } else if constexpr (kCur < kMax) {
-    dispatch_log_n<kCur + 1, kMax>(log_n, std::forward<Func>(func));
+    dispatch_log_dim<kCur + 1, kMax>(log_dim, std::forward<Func>(func));
   } else {
-    RAFT_FAIL("fht::dispatch_log_n: unsupported log_N=%d", log_n);
+    RAFT_FAIL("fht::dispatch_log_dim: unsupported log_dim=%d", log_dim);
   }
 }
 
@@ -100,8 +102,8 @@ __device__ __forceinline__ float flip_sign_bit(float v, uint32_t bit)
 //
 // Each warp holds one full (padded) vector in registers, so all butterfly
 // levels are either in-thread ops or warp shuffles: no shared memory and no
-// __syncthreads(). Used when N is large enough that one-warp-per-vector
-// saturates the GPU (see kWarpPathMinN); small batches use the cooperative
+// __syncthreads(). Used when n_rows is large enough that one-warp-per-vector
+// saturates the GPU (see kWarpPathMinRows); small batches use the cooperative
 // kernels below, which spread a single vector across more threads.
 // ============================================================================
 
@@ -110,31 +112,49 @@ __device__ __forceinline__ float flip_sign_bit(float v, uint32_t bit)
 // 128*c + 4*l, i.e. element-index bits [1:0] select within the float4,
 // bits [6:2] the lane, bits [7+] the chunk register.
 // ----------------------------------------------------------------------------
-template <int kLogN>
+template <int kLogDim>
 __global__ void fht_kac_rotate_warp_kernel(
   const float* input,  // no __restrict__: in-place rotation allowed
   float* output,
   const uint8_t* __restrict__ flip,
-  int N,
+  int n_rows,
+  int input_dim,
   float total_scale)
 {
-  constexpr int kDim           = 1 << kLogN;
+  constexpr int kDim           = 1 << kLogDim;
   constexpr int kC             = kDim / 128;  // float4 registers per lane
-  constexpr int kLogC          = clog2(kC);
+  constexpr int kLogC          = raft::Pow2<kC>::Log2;
   constexpr int kWordsPerRound = kDim / 32;
-  static_assert(kLogN >= 7, "warp kernel needs at least one float4 per lane");
+  static_assert(kLogDim >= 7, "warp kernel needs at least one float4 per lane");
 
   const int lane   = threadIdx.x & 31;
   const int vec_id = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
-  if (vec_id >= N) return;
+  if (vec_id >= n_rows) return;
 
   const uint32_t* flip32 = reinterpret_cast<const uint32_t*>(flip);
 
-  const float4* vin = reinterpret_cast<const float4*>(input + (size_t)vec_id * kDim);
+  const float* vin = input + (size_t)vec_id * input_dim;
   float4 x[kC];
+  if (input_dim == kDim) {
+    const float4* vin4 = reinterpret_cast<const float4*>(vin);
 #pragma unroll
-  for (int c = 0; c < kC; ++c)
-    x[c] = vin[c * 32 + lane];
+    for (int c = 0; c < kC; ++c)
+      x[c] = vin4[c * 32 + lane];
+  } else {
+#pragma unroll
+    for (int c = 0; c < kC; ++c) {
+      const int col = 128 * c + 4 * lane;
+      // Compact rows need not be float4-aligned, and the last group may be partial.
+      if ((reinterpret_cast<uintptr_t>(vin) % alignof(float4)) == 0 && col + 3 < input_dim) {
+        x[c] = reinterpret_cast<const float4*>(vin)[col / 4];
+      } else {
+        x[c] = make_float4(col < input_dim ? vin[col] : 0.0f,
+                           col + 1 < input_dim ? vin[col + 1] : 0.0f,
+                           col + 2 < input_dim ? vin[col + 2] : 0.0f,
+                           col + 3 < input_dim ? vin[col + 3] : 0.0f);
+      }
+    }
+  }
 
   const int bit_shift = 4 * (lane & 7);  // this lane's 4 flip bits inside the word
   const int word_off  = lane >> 3;
@@ -249,7 +269,8 @@ __global__ void fht_kac_rotate_warp_nonpow2_kernel(
   const float* input,  // no __restrict__: in-place rotation allowed
   float* output,
   const uint8_t* __restrict__ flip,
-  int N,
+  int n_rows,
+  int input_dim,
   float fac,
   float final_scale)
 {
@@ -264,15 +285,15 @@ __global__ void fht_kac_rotate_warp_nonpow2_kernel(
 
   const int lane   = threadIdx.x & 31;
   const int vec_id = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5);
-  if (vec_id >= N) return;
+  if (vec_id >= n_rows) return;
 
   const uint32_t* flip32 = reinterpret_cast<const uint32_t*>(flip);
 
-  const float* vin = input + (size_t)vec_id * kP;
+  const float* vin = input + (size_t)vec_id * input_dim;
   float x[kE];
 #pragma unroll
   for (int j = 0; j < kE; ++j)
-    x[j] = vin[lane + 32 * j];
+    x[j] = lane + 32 * j < input_dim ? vin[lane + 32 * j] : 0.0f;
 
 #pragma unroll
   for (int round = 0; round < 4; ++round) {
@@ -365,18 +386,19 @@ __global__ void fht_kac_rotate_warp_nonpow2_kernel(
 // conflict-free stride-1 accesses, no ownership exchange.
 // ============================================================================
 
-template <int kLogN>
-__global__ void __launch_bounds__(1 << coop_log_threads(kLogN))
+template <int kLogDim>
+__global__ void __launch_bounds__(1 << coop_log_threads(kLogDim))
   fht_kac_rotate_coop_kernel(const float* input,  // no __restrict__: in-place rotation allowed
                              float* output,
                              const uint8_t* __restrict__ flip,
-                             int N,
+                             int n_rows,
+                             int input_dim,
                              float total_scale)
 {
-  constexpr int kDim   = 1 << kLogN;
-  constexpr int kLogT  = coop_log_threads(kLogN);
-  constexpr int kLogW  = kLogT - 5;      // log2(warps per block)
-  constexpr int kLogS  = kLogN - kLogW;  // slice = 2^kLogS elements
+  constexpr int kDim   = 1 << kLogDim;
+  constexpr int kLogT  = coop_log_threads(kLogDim);
+  constexpr int kLogW  = kLogT - 5;        // log2(warps per block)
+  constexpr int kLogS  = kLogDim - kLogW;  // slice = 2^kLogS elements
   constexpr int kS     = 1 << kLogS;
   constexpr int kE     = (kS >= 32) ? (kS / 32) : 1;  // registers per lane
   constexpr int kShfl  = (kLogS < 5) ? kLogS : 5;
@@ -386,19 +408,20 @@ __global__ void __launch_bounds__(1 << coop_log_threads(kLogN))
   const int lane   = threadIdx.x & 31;
   const int w      = threadIdx.x >> 5;
   const int vec_id = blockIdx.x;
-  if (vec_id >= N) return;
+  if (vec_id >= n_rows) return;
 
   extern __shared__ float s_vec[];  // kDim floats when kW > 1
 
   const uint32_t* flip32 = reinterpret_cast<const uint32_t*>(flip);
-  const float* vin       = input + (size_t)vec_id * kDim;
+  const float* vin       = input + (size_t)vec_id * input_dim;
   float* vout            = output + (size_t)vec_id * kDim;
   const int sbase        = w * kS;
 
   float x[kE];
 #pragma unroll
   for (int j = 0; j < kE; ++j)
-    x[j] = (kS >= 32 || lane < kS) ? vin[sbase + lane + 32 * j] : 0.f;
+    x[j] = (kS >= 32 || lane < kS) && sbase + lane + 32 * j < input_dim ? vin[sbase + lane + 32 * j]
+                                                                        : 0.f;
 
   for (int round = 0; round < 4; ++round) {
 // Sign flip in registers; flip bit index of element e is
@@ -440,7 +463,7 @@ __global__ void __launch_bounds__(1 << coop_log_threads(kLogN))
       }
     }
 
-    // Levels kLogS..kLogN-1: cross-slice, one level at a time. Publish
+    // Levels kLogS..kLogDim-1: cross-slice, one level at a time. Publish
     // this slice to the shared mirror, then combine with the partner
     // slice's value at the same (lane, register) position.
     if constexpr (kLogW > 0) {
@@ -480,7 +503,8 @@ __global__ void __launch_bounds__(1 << coop_log_threads(kLogTrunc))
     const float* input,  // no __restrict__: in-place rotation allowed
     float* output,
     const uint8_t* __restrict__ flip,
-    int N,
+    int n_rows,
+    int input_dim,
     int padded_dim,
     float fac,
     float final_scale)
@@ -500,7 +524,7 @@ __global__ void __launch_bounds__(1 << coop_log_threads(kLogTrunc))
   const int w      = threadIdx.x >> 5;
   const int tid    = threadIdx.x;
   const int vec_id = blockIdx.x;
-  if (vec_id >= N) return;
+  if (vec_id >= n_rows) return;
 
   // padded_dim floats for the vector, kTrunc scratch floats used as the
   // alternate publish target of the cross-slice levels (one barrier per
@@ -518,9 +542,9 @@ __global__ void __launch_bounds__(1 << coop_log_threads(kLogTrunc))
   for (int i = tid; i < 4 * words; i += kNThreads)
     s_flip[i] = flip32[i];
 
-  const float* vin = input + (size_t)vec_id * P;
+  const float* vin = input + (size_t)vec_id * input_dim;
   for (int i = tid; i < P; i += kNThreads)
-    s_vec[i] = vin[i];
+    s_vec[i] = i < input_dim ? vin[i] : 0.0f;
   __syncthreads();
 
   for (int round = 0; round < 4; ++round) {
@@ -622,53 +646,52 @@ __global__ void __launch_bounds__(1 << coop_log_threads(kLogTrunc))
 // Launch helpers + dispatch policy
 // ============================================================================
 
-/// Batch size at which the warp-per-vector kernels overtake the cooperative
-/// kernels. Below this, one-block-per-vector wins by spreading a vector
-/// across more threads (better latency at tiny batches); above it, warp
-/// kernels win on removed barriers/smem traffic. Measured on RTX PRO 6000
-/// Blackwell: warp path is >=1.16x at N=1000 for every dim in [96, 2048];
-/// the cooperative path is faster for D >= 512 at N <= 100. Override with
-/// env RABITQ_FHT_WARP_MIN_N (testing/tuning only).
-constexpr int kWarpPathMinN = 1000;
+/// Batch-size threshold for the warp-per-vector kernels. Cooperative kernels
+/// spread each vector across more threads to reduce latency for small batches;
+/// warp kernels avoid barriers and shared-memory traffic for larger batches.
+/// Override with RABITQ_FHT_WARP_MIN_N (testing/tuning only).
+constexpr int kWarpPathMinRows = 1000;
 
-inline int warp_path_min_n()
+inline int warp_path_min_rows()
 {
   const char* e = std::getenv("RABITQ_FHT_WARP_MIN_N");
-  return e ? std::atoi(e) : kWarpPathMinN;
+  return e ? std::atoi(e) : kWarpPathMinRows;
 }
 
 constexpr int kWarpKernelBlock = 256;  // 8 vectors per block
 
-template <int kLogN>
+template <int kLogDim>
 inline void launch_warp_rotate(const float* input,
                                float* output,
                                const uint8_t* flip,
-                               int N,
+                               int n_rows,
+                               int input_dim,
                                float total_scale,
                                cudaStream_t stream)
 {
   const int vecs_per_block = kWarpKernelBlock / 32;
-  const int grid           = (N + vecs_per_block - 1) / vecs_per_block;
-  fht_kac_rotate_warp_kernel<kLogN>
-    <<<grid, kWarpKernelBlock, 0, stream>>>(input, output, flip, N, total_scale);
+  const int grid           = (n_rows + vecs_per_block - 1) / vecs_per_block;
+  fht_kac_rotate_warp_kernel<kLogDim>
+    <<<grid, kWarpKernelBlock, 0, stream>>>(input, output, flip, n_rows, input_dim, total_scale);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
-template <int kLogN>
+template <int kLogDim>
 inline void launch_coop_rotate(const float* input,
                                float* output,
                                const uint8_t* flip,
-                               int N,
+                               int n_rows,
+                               int input_dim,
                                float total_scale,
                                cudaStream_t stream)
 {
-  constexpr int kThreads = 1 << coop_log_threads(kLogN);
-  constexpr int kLogW    = coop_log_threads(kLogN) - 5;
-  const int smem         = (kLogW > 0) ? (1 << kLogN) * (int)sizeof(float) : 0;
-  auto kernel            = &fht_kac_rotate_coop_kernel<kLogN>;
+  constexpr int kThreads = 1 << coop_log_threads(kLogDim);
+  constexpr int kLogW    = coop_log_threads(kLogDim) - 5;
+  const int smem         = (kLogW > 0) ? (1 << kLogDim) * (int)sizeof(float) : 0;
+  auto kernel            = &fht_kac_rotate_coop_kernel<kLogDim>;
   if (smem >= 48 * 1024)
     RAFT_CUDA_TRY(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
-  kernel<<<N, kThreads, smem, stream>>>(input, output, flip, N, total_scale);
+  kernel<<<n_rows, kThreads, smem, stream>>>(input, output, flip, n_rows, input_dim, total_scale);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -676,7 +699,8 @@ template <int kLogTrunc>
 inline void launch_coop_rotate_nonpow2(const float* input,
                                        float* output,
                                        const uint8_t* flip,
-                                       int N,
+                                       int n_rows,
+                                       int input_dim,
                                        int padded_dim,
                                        float fac,
                                        float final_scale,
@@ -688,7 +712,8 @@ inline void launch_coop_rotate_nonpow2(const float* input,
   auto kernel = &fht_kac_rotate_coop_nonpow2_kernel<kLogTrunc>;
   if (smem >= 48 * 1024)
     RAFT_CUDA_TRY(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
-  kernel<<<N, kThreads, smem, stream>>>(input, output, flip, N, padded_dim, fac, final_scale);
+  kernel<<<n_rows, kThreads, smem, stream>>>(
+    input, output, flip, n_rows, input_dim, padded_dim, fac, final_scale);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -706,52 +731,54 @@ inline bool warp_nonpow2_eligible(int log_trunc, int padded_dim)
 inline void dispatch_fused_rotate(const float* input,
                                   float* output,
                                   const uint8_t* flip,
-                                  int N,
-                                  int log_N,
+                                  int n_rows,
+                                  int input_dim,
+                                  int log_dim,
                                   float total_scale,
                                   cudaStream_t stream)
 {
-  if (N <= 0) return;
-  if (log_N >= 7 && log_N <= 11 && N >= warp_path_min_n()) {
-    dispatch_log_n<7, 11>(log_N, [&](auto K) {
-      launch_warp_rotate<K.value>(input, output, flip, N, total_scale, stream);
+  if (n_rows <= 0) return;
+  if (log_dim >= 7 && log_dim <= 11 && n_rows >= warp_path_min_rows()) {
+    dispatch_log_dim<7, 11>(log_dim, [&](auto K) {
+      launch_warp_rotate<K.value>(input, output, flip, n_rows, input_dim, total_scale, stream);
     });
     return;
   }
-  dispatch_log_n(log_N, [&](auto K) {
-    launch_coop_rotate<K.value>(input, output, flip, N, total_scale, stream);
+  dispatch_log_dim(log_dim, [&](auto K) {
+    launch_coop_rotate<K.value>(input, output, flip, n_rows, input_dim, total_scale, stream);
   });
 }
 
 inline void dispatch_fused_rotate_nonpow2(const float* input,
                                           float* output,
                                           const uint8_t* flip,
-                                          int N,
+                                          int n_rows,
+                                          int input_dim,
                                           int log_trunc,
                                           int padded_dim,
                                           float fac,
                                           float final_scale,
                                           cudaStream_t stream)
 {
-  if (N <= 0) return;
-  if (warp_nonpow2_eligible(log_trunc, padded_dim) && N >= warp_path_min_n()) {
-    dispatch_log_n<5, 10>(log_trunc, [&](auto KT) {
+  if (n_rows <= 0) return;
+  if (warp_nonpow2_eligible(log_trunc, padded_dim) && n_rows >= warp_path_min_rows()) {
+    dispatch_log_dim<5, 10>(log_trunc, [&](auto KT) {
       constexpr int kLogT   = KT.value;
       constexpr int kMinP32 = (1 << kLogT) / 32 + 1;
       constexpr int kMaxP32 = (1 << kLogT) / 16;
       dispatch_p32<kMinP32, kMaxP32>(padded_dim / 32, [&](auto KP) {
         const int vecs_per_block = kWarpKernelBlock / 32;
-        const int grid           = (N + vecs_per_block - 1) / vecs_per_block;
-        fht_kac_rotate_warp_nonpow2_kernel<kLogT, KP.value>
-          <<<grid, kWarpKernelBlock, 0, stream>>>(input, output, flip, N, fac, final_scale);
+        const int grid           = (n_rows + vecs_per_block - 1) / vecs_per_block;
+        fht_kac_rotate_warp_nonpow2_kernel<kLogT, KP.value><<<grid, kWarpKernelBlock, 0, stream>>>(
+          input, output, flip, n_rows, input_dim, fac, final_scale);
         RAFT_CUDA_TRY(cudaGetLastError());
       });
     });
     return;
   }
-  dispatch_log_n(log_trunc, [&](auto K) {
+  dispatch_log_dim(log_trunc, [&](auto K) {
     launch_coop_rotate_nonpow2<K.value>(
-      input, output, flip, N, padded_dim, fac, final_scale, stream);
+      input, output, flip, n_rows, input_dim, padded_dim, fac, final_scale, stream);
   });
 }
 

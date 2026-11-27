@@ -1,22 +1,9 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
- * except that the launchers request only the shared memory they use and opt in
- * to more than the default limit, the full-factor launcher forwards the
- * rescale sample counts, and the block sums use cub::BlockReduce (a different
- * summation order, so results can differ in the last bits).
  */
 
-//
-// Fused RaBitQ scalar quantization kernels operating on pre-computed residuals.
-//
-// Extracted from IVF-RaBitQ-GPU-main/inc/gpu_index/quantizer_standalone.cu —
-// only the fused warp-cooperative path (sa_quantize_fused_kernel +
-// sa_compute_delta_vl_kernel) is kept, plus the free-function entry points
-// referenced by the benchmark.
-//
+// Packed RaBitQ quantization and per-vector factors on rotated residuals.
 
 #include "../../../../neighbors/detail/smem_utils.cuh"
 #include "quantize.cuh"
@@ -24,6 +11,7 @@
 #include "rescale_search.cuh"
 #include "tight_start_constants.cuh"
 
+#include <algorithm>
 #include <cstdint>
 #include <cuda_runtime.h>
 #include <raft/core/error.hpp>
@@ -55,27 +43,27 @@ static __device__ __forceinline__ float evaluate_rescale_sample(
 
 // ---------------------------------------------------------------------------
 // Fused rescale search + quantize + factor kernel (fast and non-fast paths).
-// The per-vector factors are accumulated during the final quantize loop while
-// the codes are still in registers, so no second pass over the residual and
-// codes is needed. kFullFactors selects the factor set:
+// Accumulate per-vector factors while the quantized values are in registers;
+// packing then reads only the low-bit codes in shared memory. kFullFactors
+// selects the factor set:
 //   false: (delta, vl) via d_delta / d_vl / delta_mode
 //   true : (f_add, f_rescale, f_error) via d_centroid / d_factors
 // ---------------------------------------------------------------------------
-template <typename CodeT, int kBlockSize, bool kFullFactors>
-__global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
-                                         CodeT* __restrict__ d_total_code,
-                                         int N,
-                                         int padded_dim,
-                                         int ex_bits,
-                                         float const_scaling_factor,
-                                         bool use_fast,
-                                         int n_coarse_samples,
-                                         int n_fine_samples,
-                                         float* __restrict__ d_delta,
-                                         float* __restrict__ d_vl,
-                                         int delta_mode,
-                                         const float* __restrict__ d_centroid,
-                                         float* __restrict__ d_factors)
+template <int kBlockSize, bool kFullFactors>
+__global__ void quantize_fused_kernel(const float* __restrict__ d_residual,
+                                      packed_codes_output codes,
+                                      int n_rows,
+                                      int padded_dim,
+                                      int ex_bits,
+                                      float const_scaling_factor,
+                                      bool use_fast,
+                                      int n_coarse_samples,
+                                      int n_fine_samples,
+                                      float* __restrict__ d_delta,
+                                      float* __restrict__ d_vl,
+                                      int delta_mode,
+                                      const float* __restrict__ d_centroid,
+                                      float* __restrict__ d_factors)
 {
   constexpr int kNWarps = kBlockSize / 32;
   constexpr float kEps  = 1e-5f;
@@ -91,13 +79,15 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
   float* s_warp_t   = s_warp_ip + kNWarps;
 
   int vec_id = blockIdx.x;
-  if (vec_id >= N) return;
+  if (vec_id >= n_rows) return;
 
   int warp_id = threadIdx.x / 32;
   int lane_id = threadIdx.x % 32;
 
   const float* res = d_residual + (size_t)vec_id * padded_dim;
-  CodeT* code      = d_total_code + (size_t)vec_id * padded_dim;
+  // Scale search is finished before quantization starts, so its scratch can
+  // also hold the low-bit codes awaiting packing.
+  uint8_t* code = reinterpret_cast<uint8_t*>(smem);
 
   // norm (fused block reduction; result in every thread)
   float norm_sum[1] = {0.0f};
@@ -219,54 +209,36 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
   int offset = 1 << ex_bits;
   float cb   = -((float)(1 << ex_bits) - 0.5f);
 
-  if constexpr (!kFullFactors) {
-    // sums = { |u+cb|^2, res . (u+cb) }
-    float sums[2] = {0.0f, 0.0f};
-    for (int i = threadIdx.x; i < padded_dim; i += kBlockSize) {
-      float r       = res[i];
-      float abs_val = fabsf(r) * inv_norm;
-      int k         = __float2int_rd(t * abs_val + kEps);
-      if (k > mask) k = mask;
-      int total = (r >= 0.0f) ? (k + offset) : (mask - k);
-      code[i]   = static_cast<CodeT>(total);
-      float u   = (float)total + cb;
+  // Reconstruction uses { |u|^2, res . u }; distance factors use
+  // { res . u, centroid . u, |u|^2 }. Quantization and output stores are shared.
+  constexpr int kNumSums = kFullFactors ? 3 : 2;
+  float sums[kNumSums]   = {};
+  for (int i = threadIdx.x; i < padded_dim; i += kBlockSize) {
+    float r       = res[i];
+    float abs_val = fabsf(r) * inv_norm;
+    int k         = __float2int_rd(t * abs_val + kEps);
+    if (k > mask) k = mask;
+    int total = (r >= 0.0f) ? (k + offset) : (mask - k);
+    if (ex_bits == 8) {
+      codes.extra_bits[static_cast<size_t>(vec_id) * padded_dim + i] = total & mask;
+    } else if (ex_bits > 0) {
+      code[i] = static_cast<uint8_t>(total & mask);
+    }
+    uint32_t signs = __brev(__ballot_sync(0xffffffff, r >= 0.0f));
+    if (lane_id == 0) { codes.signs[(i / 32) * codes.sign_stride + vec_id] = signs; }
+    float u = (float)total + cb;
+    if constexpr (kFullFactors) {
+      sums[0] += r * u;
+      sums[1] += d_centroid[i] * u;
+      sums[2] += u * u;
+    } else {
       sums[0] += u * u;
       sums[1] += r * u;
     }
-    blockred::blockReduceSum<kBlockSize>(sums);
-    if (threadIdx.x == 0) {
-      float norm_res = sqrtf(norm_sum[0]);
-      float norm_ucb = sqrtf(sums[0]);
-      float cos_sim  = sums[1] / (norm_res * norm_ucb + 1e-30f);
-
-      float ratio = norm_res / (norm_ucb + 1e-30f);
-      float delta;
-      if (delta_mode == 1)
-        delta = ratio / (cos_sim + 1e-30f);
-      else if (delta_mode == 2)
-        delta = ratio;
-      else
-        delta = ratio * cos_sim;
-      d_delta[vec_id] = delta;
-      d_vl[vec_id]    = delta * cb;
-    }
-  } else {
-    // sums = { res . xu, cent . xu, |xu|^2 };  |res|^2 is norm_sum[0]
-    float sums[3] = {0.0f, 0.0f, 0.0f};
-    for (int i = threadIdx.x; i < padded_dim; i += kBlockSize) {
-      float r       = res[i];
-      float abs_val = fabsf(r) * inv_norm;
-      int k         = __float2int_rd(t * abs_val + kEps);
-      if (k > mask) k = mask;
-      int total   = (r >= 0.0f) ? (k + offset) : (mask - k);
-      code[i]     = static_cast<CodeT>(total);
-      float xu_cb = (float)total + cb;
-      sums[0] += r * xu_cb;
-      sums[1] += d_centroid[i] * xu_cb;
-      sums[2] += xu_cb * xu_cb;
-    }
-    blockred::blockReduceSum<kBlockSize>(sums);
-    if (threadIdx.x == 0) {
+  }
+  blockred::blockReduceSum<kBlockSize>(sums);
+  if (threadIdx.x == 0) {
+    if constexpr (kFullFactors) {
       constexpr float kEpsilon = 1.9f;
       float l2_sq              = norm_sum[0];
       float ip_resi_xucb       = sums[0];
@@ -287,6 +259,40 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
       factors[0]     = f_add;
       factors[1]     = f_rescale;
       factors[2]     = f_error;
+    } else {
+      float norm_res = sqrtf(norm_sum[0]);
+      float norm_ucb = sqrtf(sums[0]);
+      float cos_sim  = sums[1] / (norm_res * norm_ucb + 1e-30f);
+
+      float ratio = norm_res / (norm_ucb + 1e-30f);
+      float delta;
+      if (delta_mode == 1)
+        delta = ratio / (cos_sim + 1e-30f);
+      else if (delta_mode == 2)
+        delta = ratio;
+      else
+        delta = ratio * cos_sim;
+      d_delta[vec_id] = delta;
+      d_vl[vec_id]    = delta * cb;
+    }
+  }
+
+  // For 1–7 extra bits, quantization leaves one code byte per dimension in
+  // shared memory. Each thread packs a complete destination byte so stores
+  // cannot race.
+  if (ex_bits > 0 && ex_bits < 8) {
+    __syncthreads();
+    const int bytes_per_row = padded_dim * ex_bits / 8;
+    uint8_t* out            = codes.extra_bits + static_cast<size_t>(vec_id) * bytes_per_row;
+    for (int byte = threadIdx.x; byte < bytes_per_row; byte += kBlockSize) {
+      uint8_t packed = 0;
+      for (int bit = 0; bit < 8; ++bit) {
+        int position = byte * 8 + bit;
+        int dim      = position / ex_bits;
+        int shift    = ex_bits - 1 - position % ex_bits;
+        packed |= ((code[dim] >> shift) & 1u) << (7 - bit);
+      }
+      out[byte] = packed;
     }
   }
 }
@@ -296,52 +302,58 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
 // ---------------------------------------------------------------------------
 // Keys the shared-memory state per kernel. Both output modes have the same signature but not the
 // same static shared memory, so one must not be raised to the other's limit.
-template <typename CodeT, bool kFullFactors>
+template <bool kFullFactors>
 struct quantize_smem_key {};
 
-template <typename CodeT>
-static void launch_quantize_fused(cudaStream_t stream,
-                                  const float* d_residual,
-                                  size_t N,
-                                  uint32_t padded_dim,
-                                  size_t ex_bits,
-                                  float const_scaling_factor,
-                                  bool use_fast,
-                                  int delta_mode,
-                                  int coarse_samples,
-                                  int fine_samples,
-                                  CodeT* d_total_code,
-                                  float* d_delta,
-                                  float* d_vl)
+template <bool kFullFactors>
+static void launch_quantize(cudaStream_t stream,
+                            const float* d_residual,
+                            size_t n_rows,
+                            uint32_t padded_dim,
+                            size_t ex_bits,
+                            float const_scaling_factor,
+                            bool use_fast,
+                            int delta_mode,
+                            int coarse_samples,
+                            int fine_samples,
+                            packed_codes_output codes,
+                            float* d_delta,
+                            float* d_vl,
+                            const float* d_centroid,
+                            float* d_factors)
 {
   constexpr int block  = 256;
-  int iN               = static_cast<int>(N);
+  int rows             = static_cast<int>(n_rows);
   int iD               = static_cast<int>(padded_dim);
   int iB               = static_cast<int>(ex_bits);
   constexpr int nwarps = block / 32;
 
-  // The kernel only reads its shared memory while searching for a per-vector scale.
-  const size_t q_smem = (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
-  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, false>;
+  // Reuse scale-search scratch for packing. Zero and eight extra bits write
+  // directly to their final buffers and need no packing scratch.
+  const size_t search_smem =
+    (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
+  const size_t packing_smem = ex_bits > 0 && ex_bits < 8 ? padded_dim : 0;
+  const size_t q_smem       = std::max(search_smem, packing_smem);
+  auto kernel               = &quantize_fused_kernel<block, kFullFactors>;
   cudaKernel_t cuda_kernel;
   RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<CodeT, false>>(
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<kFullFactors>>(
     static_cast<std::uint32_t>(q_smem),
     [&]() {
-      kernel<<<iN, block, q_smem, stream>>>(d_residual,
-                                            d_total_code,
-                                            iN,
-                                            iD,
-                                            iB,
-                                            const_scaling_factor,
-                                            use_fast,
-                                            coarse_samples,
-                                            fine_samples,
-                                            d_delta,
-                                            d_vl,
-                                            delta_mode,
-                                            nullptr,
-                                            nullptr);
+      kernel<<<rows, block, q_smem, stream>>>(d_residual,
+                                              codes,
+                                              rows,
+                                              iD,
+                                              iB,
+                                              const_scaling_factor,
+                                              use_fast,
+                                              coarse_samples,
+                                              fine_samples,
+                                              d_delta,
+                                              d_vl,
+                                              delta_mode,
+                                              d_centroid,
+                                              d_factors);
     },
     cuda_kernel);
   RAFT_CUDA_TRY(cudaGetLastError());
@@ -353,101 +365,28 @@ void quantize_fused_on_residuals(
   size_t ex_bits,
   float const_scaling_factor,
   bool use_fast,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+  packed_codes_output codes,
   raft::device_vector_view<float, int64_t> delta,
   raft::device_vector_view<float, int64_t> vl,
   int delta_mode,
   int coarse_samples,
   int fine_samples)
 {
-  launch_quantize_fused(stream,
-                        residuals.data_handle(),
-                        static_cast<size_t>(residuals.extent(0)),
-                        static_cast<uint32_t>(residuals.extent(1)),
-                        ex_bits,
-                        const_scaling_factor,
-                        use_fast,
-                        delta_mode,
-                        coarse_samples,
-                        fine_samples,
-                        codes.data_handle(),
-                        delta.data_handle(),
-                        vl.data_handle());
-}
-
-void quantize_fused_on_residuals(
-  cudaStream_t stream,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  size_t ex_bits,
-  float const_scaling_factor,
-  bool use_fast,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-  raft::device_vector_view<float, int64_t> delta,
-  raft::device_vector_view<float, int64_t> vl,
-  int delta_mode,
-  int coarse_samples,
-  int fine_samples)
-{
-  launch_quantize_fused(stream,
-                        residuals.data_handle(),
-                        static_cast<size_t>(residuals.extent(0)),
-                        static_cast<uint32_t>(residuals.extent(1)),
-                        ex_bits,
-                        const_scaling_factor,
-                        use_fast,
-                        delta_mode,
-                        coarse_samples,
-                        fine_samples,
-                        codes.data_handle(),
-                        delta.data_handle(),
-                        vl.data_handle());
-}
-
-template <typename CodeT>
-static void launch_quantize_full(cudaStream_t stream,
-                                 const float* d_residual,
-                                 const float* d_centroid,
-                                 size_t N,
-                                 uint32_t padded_dim,
-                                 size_t ex_bits,
-                                 float const_scaling_factor,
-                                 bool use_fast,
-                                 int coarse_samples,
-                                 int fine_samples,
-                                 CodeT* d_total_code,
-                                 float* d_factors)
-{
-  constexpr int block  = 256;
-  int iN               = static_cast<int>(N);
-  int iD               = static_cast<int>(padded_dim);
-  int iB               = static_cast<int>(ex_bits);
-  constexpr int nwarps = block / 32;
-
-  // The kernel only reads its shared memory while searching for a per-vector scale.
-  const size_t q_smem = (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
-  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, true>;
-  cudaKernel_t cuda_kernel;
-  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<CodeT, true>>(
-    static_cast<std::uint32_t>(q_smem),
-    [&]() {
-      kernel<<<iN, block, q_smem, stream>>>(d_residual,
-                                            d_total_code,
-                                            iN,
-                                            iD,
-                                            iB,
-                                            const_scaling_factor,
-                                            use_fast,
-                                            coarse_samples,
-                                            fine_samples,
-                                            nullptr,
-                                            nullptr,
-                                            0,
-                                            d_centroid,
-                                            d_factors);
-    },
-    cuda_kernel);
-  RAFT_CUDA_TRY(cudaGetLastError());
+  launch_quantize<false>(stream,
+                         residuals.data_handle(),
+                         static_cast<size_t>(residuals.extent(0)),
+                         static_cast<uint32_t>(residuals.extent(1)),
+                         ex_bits,
+                         const_scaling_factor,
+                         use_fast,
+                         delta_mode,
+                         coarse_samples,
+                         fine_samples,
+                         codes,
+                         delta.data_handle(),
+                         vl.data_handle(),
+                         nullptr,
+                         nullptr);
 }
 
 void quantize_full_on_residuals(
@@ -457,49 +396,26 @@ void quantize_full_on_residuals(
   size_t ex_bits,
   float const_scaling_factor,
   bool use_fast,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+  packed_codes_output codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors,
   int coarse_samples,
   int fine_samples)
 {
-  launch_quantize_full(stream,
-                       residuals.data_handle(),
-                       centroid.data_handle(),
-                       static_cast<size_t>(residuals.extent(0)),
-                       static_cast<uint32_t>(residuals.extent(1)),
-                       ex_bits,
-                       const_scaling_factor,
-                       use_fast,
-                       coarse_samples,
-                       fine_samples,
-                       codes.data_handle(),
-                       factors.data_handle());
-}
-
-void quantize_full_on_residuals(
-  cudaStream_t stream,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  raft::device_vector_view<const float, int64_t> centroid,
-  size_t ex_bits,
-  float const_scaling_factor,
-  bool use_fast,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-  raft::device_matrix_view<float, int64_t, raft::row_major> factors,
-  int coarse_samples,
-  int fine_samples)
-{
-  launch_quantize_full(stream,
-                       residuals.data_handle(),
-                       centroid.data_handle(),
-                       static_cast<size_t>(residuals.extent(0)),
-                       static_cast<uint32_t>(residuals.extent(1)),
-                       ex_bits,
-                       const_scaling_factor,
-                       use_fast,
-                       coarse_samples,
-                       fine_samples,
-                       codes.data_handle(),
-                       factors.data_handle());
+  launch_quantize<true>(stream,
+                        residuals.data_handle(),
+                        static_cast<size_t>(residuals.extent(0)),
+                        static_cast<uint32_t>(residuals.extent(1)),
+                        ex_bits,
+                        const_scaling_factor,
+                        use_fast,
+                        0,
+                        coarse_samples,
+                        fine_samples,
+                        codes,
+                        nullptr,
+                        nullptr,
+                        centroid.data_handle(),
+                        factors.data_handle());
 }
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail

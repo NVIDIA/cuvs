@@ -35,8 +35,8 @@ using out_matrix_mdspan_type = raft::device_matrix_view<float, int64_t, raft::ro
 /** Writable `n_rows` float vector output: `delta`, `vl`. */
 using out_vector_mdspan_type = raft::device_vector_view<float, int64_t>;
 
-template <typename CodeT>
-using codes_mdspan_type = raft::device_matrix_view<CodeT, int64_t, raft::row_major>;
+using signs_mdspan_type      = raft::device_matrix_view<uint32_t, int64_t, raft::row_major>;
+using extra_bits_mdspan_type = raft::device_matrix_view<uint8_t, int64_t, raft::row_major>;
 
 /** Translate the C params struct into its C++ peer. */
 rabitq::params _convert_params(cuvsRabitqQuantizerParams_t params)
@@ -101,6 +101,15 @@ void _expect_float32(DLManagedTensor* tensor, char const* name)
   _expect_float32_dtype(tensor, name);
 }
 
+/** Both output tensors have fixed unsigned element types; from_dlpack validates them. */
+rabitq::packed_codes_view _packed_codes(DLManagedTensor* signs, DLManagedTensor* extra_bits)
+{
+  _expect_device(signs, "signs");
+  _expect_device(extra_bits, "extra_bits");
+  return {cuvs::core::from_dlpack<signs_mdspan_type>(signs),
+          cuvs::core::from_dlpack<extra_bits_mdspan_type>(extra_bits)};
+}
+
 /**
  * Calls `fn` with `dataset` as a device view when it is device-accessible
  * (pinned and managed memory included, read in place) and as a host view
@@ -144,13 +153,13 @@ std::optional<centroid_mdspan_type> _optional_centroid(DLManagedTensor* centroid
   return cuvs::core::from_dlpack<centroid_mdspan_type>(centroid_tensor);
 }
 
-template <typename CodeT>
 void _transform(cuvsResources_t res,
                 cuvsRabitqEncoder_t encoder,
                 cuvsRabitqRotator_t rotator,
                 DLManagedTensor* dataset_tensor,
                 DLManagedTensor* centroid_tensor,
-                DLManagedTensor* codes_tensor,
+                DLManagedTensor* signs_tensor,
+                DLManagedTensor* extra_bits_tensor,
                 DLManagedTensor* delta_tensor,
                 DLManagedTensor* vl_tensor)
 {
@@ -160,7 +169,6 @@ void _transform(cuvsResources_t res,
 
   _expect_float32(delta_tensor, "delta");
   _expect_float32(vl_tensor, "vl");
-  _expect_device(codes_tensor, "codes");
 
   _with_dataset(dataset_tensor, [&](auto dataset) {
     rabitq::transform(*res_ptr,
@@ -168,19 +176,19 @@ void _transform(cuvsResources_t res,
                       *r,
                       dataset,
                       _optional_centroid(centroid_tensor, "centroid"),
-                      cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
+                      _packed_codes(signs_tensor, extra_bits_tensor),
                       cuvs::core::from_dlpack<out_vector_mdspan_type>(delta_tensor),
                       cuvs::core::from_dlpack<out_vector_mdspan_type>(vl_tensor));
   });
 }
 
-template <typename CodeT>
 void _transform_full(cuvsResources_t res,
                      cuvsRabitqEncoder_t encoder,
                      cuvsRabitqRotator_t rotator,
                      DLManagedTensor* dataset_tensor,
                      DLManagedTensor* centroid_tensor,
-                     DLManagedTensor* codes_tensor,
+                     DLManagedTensor* signs_tensor,
+                     DLManagedTensor* extra_bits_tensor,
                      DLManagedTensor* factors_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
@@ -188,7 +196,6 @@ void _transform_full(cuvsResources_t res,
   auto* r      = _rotator_ptr(rotator);
 
   _expect_float32(factors_tensor, "factors");
-  _expect_device(codes_tensor, "codes");
 
   _with_dataset(dataset_tensor, [&](auto dataset) {
     rabitq::transform(*res_ptr,
@@ -196,16 +203,16 @@ void _transform_full(cuvsResources_t res,
                       *r,
                       dataset,
                       _optional_centroid(centroid_tensor, "centroid"),
-                      cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
+                      _packed_codes(signs_tensor, extra_bits_tensor),
                       cuvs::core::from_dlpack<out_matrix_mdspan_type>(factors_tensor));
   });
 }
 
-template <typename CodeT>
 void _transform_residuals(cuvsResources_t res,
                           cuvsRabitqEncoder_t encoder,
                           DLManagedTensor* residuals_tensor,
-                          DLManagedTensor* codes_tensor,
+                          DLManagedTensor* signs_tensor,
+                          DLManagedTensor* extra_bits_tensor,
                           DLManagedTensor* delta_tensor,
                           DLManagedTensor* vl_tensor)
 {
@@ -215,22 +222,21 @@ void _transform_residuals(cuvsResources_t res,
   _expect_float32(residuals_tensor, "residuals");
   _expect_float32(delta_tensor, "delta");
   _expect_float32(vl_tensor, "vl");
-  _expect_device(codes_tensor, "codes");
 
   rabitq::transform_residuals(*res_ptr,
                               *q,
                               cuvs::core::from_dlpack<in_matrix_mdspan_type>(residuals_tensor),
-                              cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
+                              _packed_codes(signs_tensor, extra_bits_tensor),
                               cuvs::core::from_dlpack<out_vector_mdspan_type>(delta_tensor),
                               cuvs::core::from_dlpack<out_vector_mdspan_type>(vl_tensor));
 }
 
-template <typename CodeT>
 void _transform_residuals_full(cuvsResources_t res,
                                cuvsRabitqEncoder_t encoder,
                                DLManagedTensor* residuals_tensor,
                                DLManagedTensor* rotated_centroid_tensor,
-                               DLManagedTensor* codes_tensor,
+                               DLManagedTensor* signs_tensor,
+                               DLManagedTensor* extra_bits_tensor,
                                DLManagedTensor* factors_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
@@ -238,15 +244,13 @@ void _transform_residuals_full(cuvsResources_t res,
 
   _expect_float32(residuals_tensor, "residuals");
   _expect_float32(factors_tensor, "factors");
-  _expect_device(codes_tensor, "codes");
 
-  rabitq::transform_residuals(
-    *res_ptr,
-    *q,
-    cuvs::core::from_dlpack<in_matrix_mdspan_type>(residuals_tensor),
-    _optional_centroid(rotated_centroid_tensor, "rotated_centroid"),
-    cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
-    cuvs::core::from_dlpack<out_matrix_mdspan_type>(factors_tensor));
+  rabitq::transform_residuals(*res_ptr,
+                              *q,
+                              cuvs::core::from_dlpack<in_matrix_mdspan_type>(residuals_tensor),
+                              _optional_centroid(rotated_centroid_tensor, "rotated_centroid"),
+                              _packed_codes(signs_tensor, extra_bits_tensor),
+                              cuvs::core::from_dlpack<out_matrix_mdspan_type>(factors_tensor));
 }
 
 }  // namespace
@@ -329,8 +333,8 @@ extern "C" cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
         RAFT_EXPECTS(D > 0 && D % 32 == 0 && ext.extent(1) == D,
                      "matmul state must be a padded_dim x padded_dim matrix, padded_dim a "
                      "positive multiple of 32");
-        ret->kind            = rabitq::rotator_kind::matmul;
-        ret->padded_dim      = D;
+        ret->kind       = rabitq::rotator_kind::matmul;
+        ret->padded_dim = D;
         ret->rotation_matrix =
           raft::make_device_matrix<float, int64_t, raft::row_major>(*res_ptr, D, D);
         raft::copy(ret->rotation_matrix.data_handle(), src, D * D, stream);
@@ -420,35 +424,21 @@ extern "C" cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
                                            cuvsRabitqRotator_t rotator,
                                            DLManagedTensor* dataset_tensor,
                                            DLManagedTensor* centroid_tensor,
-                                           DLManagedTensor* codes_tensor,
+                                           DLManagedTensor* signs_tensor,
+                                           DLManagedTensor* extra_bits_tensor,
                                            DLManagedTensor* delta_tensor,
                                            DLManagedTensor* vl_tensor)
 {
   return cuvs::core::translate_exceptions([=] {
-    if (codes_tensor == nullptr) { RAFT_FAIL("codes must not be NULL"); }
-    auto codes = codes_tensor->dl_tensor;
-    if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
-      _transform<uint8_t>(res,
-                          encoder,
-                          rotator,
-                          dataset_tensor,
-                          centroid_tensor,
-                          codes_tensor,
-                          delta_tensor,
-                          vl_tensor);
-    } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
-      _transform<uint16_t>(res,
-                           encoder,
-                           rotator,
-                           dataset_tensor,
-                           centroid_tensor,
-                           codes_tensor,
-                           delta_tensor,
-                           vl_tensor);
-    } else {
-      RAFT_FAIL(
-        "Unsupported codes DLtensor dtype: %d and bits: %d", codes.dtype.code, codes.dtype.bits);
-    }
+    _transform(res,
+               encoder,
+               rotator,
+               dataset_tensor,
+               centroid_tensor,
+               signs_tensor,
+               extra_bits_tensor,
+               delta_tensor,
+               vl_tensor);
   });
 }
 
@@ -457,45 +447,33 @@ extern "C" cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
                                                cuvsRabitqRotator_t rotator,
                                                DLManagedTensor* dataset_tensor,
                                                DLManagedTensor* centroid_tensor,
-                                               DLManagedTensor* codes_tensor,
+                                               DLManagedTensor* signs_tensor,
+                                               DLManagedTensor* extra_bits_tensor,
                                                DLManagedTensor* factors_tensor)
 {
   return cuvs::core::translate_exceptions([=] {
-    if (codes_tensor == nullptr) { RAFT_FAIL("codes must not be NULL"); }
-    auto codes = codes_tensor->dl_tensor;
-    if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
-      _transform_full<uint8_t>(
-        res, encoder, rotator, dataset_tensor, centroid_tensor, codes_tensor, factors_tensor);
-    } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
-      _transform_full<uint16_t>(
-        res, encoder, rotator, dataset_tensor, centroid_tensor, codes_tensor, factors_tensor);
-    } else {
-      RAFT_FAIL(
-        "Unsupported codes DLtensor dtype: %d and bits: %d", codes.dtype.code, codes.dtype.bits);
-    }
+    _transform_full(res,
+                    encoder,
+                    rotator,
+                    dataset_tensor,
+                    centroid_tensor,
+                    signs_tensor,
+                    extra_bits_tensor,
+                    factors_tensor);
   });
 }
 
 extern "C" cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
                                                     cuvsRabitqEncoder_t encoder,
                                                     DLManagedTensor* residuals_tensor,
-                                                    DLManagedTensor* codes_tensor,
+                                                    DLManagedTensor* signs_tensor,
+                                                    DLManagedTensor* extra_bits_tensor,
                                                     DLManagedTensor* delta_tensor,
                                                     DLManagedTensor* vl_tensor)
 {
   return cuvs::core::translate_exceptions([=] {
-    if (codes_tensor == nullptr) { RAFT_FAIL("codes must not be NULL"); }
-    auto codes = codes_tensor->dl_tensor;
-    if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
-      _transform_residuals<uint8_t>(
-        res, encoder, residuals_tensor, codes_tensor, delta_tensor, vl_tensor);
-    } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
-      _transform_residuals<uint16_t>(
-        res, encoder, residuals_tensor, codes_tensor, delta_tensor, vl_tensor);
-    } else {
-      RAFT_FAIL(
-        "Unsupported codes DLtensor dtype: %d and bits: %d", codes.dtype.code, codes.dtype.bits);
-    }
+    _transform_residuals(
+      res, encoder, residuals_tensor, signs_tensor, extra_bits_tensor, delta_tensor, vl_tensor);
   });
 }
 
@@ -503,30 +481,18 @@ extern "C" cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
                                                         cuvsRabitqEncoder_t encoder,
                                                         DLManagedTensor* residuals_tensor,
                                                         DLManagedTensor* rotated_centroid_tensor,
-                                                        DLManagedTensor* codes_tensor,
+                                                        DLManagedTensor* signs_tensor,
+                                                        DLManagedTensor* extra_bits_tensor,
                                                         DLManagedTensor* factors_tensor)
 {
   return cuvs::core::translate_exceptions([=] {
-    if (codes_tensor == nullptr) { RAFT_FAIL("codes must not be NULL"); }
-    auto codes = codes_tensor->dl_tensor;
-    if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
-      _transform_residuals_full<uint8_t>(res,
-                                         encoder,
-                                         residuals_tensor,
-                                         rotated_centroid_tensor,
-                                         codes_tensor,
-                                         factors_tensor);
-    } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
-      _transform_residuals_full<uint16_t>(res,
-                                          encoder,
-                                          residuals_tensor,
-                                          rotated_centroid_tensor,
-                                          codes_tensor,
-                                          factors_tensor);
-    } else {
-      RAFT_FAIL(
-        "Unsupported codes DLtensor dtype: %d and bits: %d", codes.dtype.code, codes.dtype.bits);
-    }
+    _transform_residuals_full(res,
+                              encoder,
+                              residuals_tensor,
+                              rotated_centroid_tensor,
+                              signs_tensor,
+                              extra_bits_tensor,
+                              factors_tensor);
   });
 }
 

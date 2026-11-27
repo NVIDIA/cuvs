@@ -77,7 +77,7 @@ struct cuvsRabitqQuantizerParams {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `ex_bits` | `uint32_t` | Number of *extended* bits per dimension. The total code width is `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common 4-bit configuration. `ex_bits = 8` needs `uint16` codes; `uint8` codes are rejected.<br /><br />Possible value range: [0, 8]. |
+| `ex_bits` | `uint32_t` | Number of *extended* bits per dimension. The total code width is `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common 4-bit configuration. Signs and extra bits are packed separately for all widths.<br /><br />Possible value range: [0, 8]. |
 | `rotator` | [`enum cuvsRabitqRotatorKind`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqrotatorkind) | Random-rotation implementation. |
 | `seed` | `uint64_t` | Seed for the RNGs that draw the rotation state and the random probe vectors used to estimate the constant scaling factor. |
 | `delta_mode` | [`enum cuvsRabitqDeltaKind`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqdeltakind) | Rule used to derive the per-vector `delta` / `vl` pair. |
@@ -360,7 +360,7 @@ There is deliberately no opaque quantizer handle: the C++ `quantizer` struct is 
 <a id="cuvsrabitqrotate"></a>
 ### cuvsRabitqRotate
 
-Applies the random rotation to already-padded rows.
+Zero-pads rows if needed and applies the random rotation.
 
 ```c
 cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
@@ -369,7 +369,9 @@ DLManagedTensor* in,
 DLManagedTensor* out);
 ```
 
-Both `in` and `out` must be `n_rows x padded_dim` row-major float32 device matrices (see cuvsRabitqRotatorGetPaddedDim); this entry point does not pad. In-place operation (`in` and `out` pointing at the same buffer) is supported by ::CUVS_RABITQ_ROTATOR_KIND_FHT_KAC only.
+Input must be an `n_rows x dim` row-major float32 device matrix, with `1 <= dim <= padded_dim` (see cuvsRabitqRotatorGetPaddedDim); missing columns are zero-filled before rotation. Output must be `n_rows x padded_dim`. In-place operation (`in` and `out` pointing at the same buffer) requires already-padded input and is supported only by ::CUVS_RABITQ_ROTATOR_KIND_FHT_KAC.
+
+Zero-padding is implicit in the matrix multiplication or fused into the FHT input loads; no separate padding kernel or temporary buffer is needed.
 
 Use this to rotate queries or externally computed centroids so that they live in the same rotated space as the codes.
 
@@ -379,7 +381,7 @@ Use this to rotate queries or externally computed centroids so that they live in
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | raft resource |
 | `rotator` | in | [`cuvsRabitqRotator_t`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqrotator) | a RaBitQ rotator |
-| `in` | in | `DLManagedTensor*` | a row-major `n_rows x padded_dim` float32 device matrix |
+| `in` | in | `DLManagedTensor*` | a row-major `n_rows x dim` float32 device matrix; `dim` must be in `[1, padded_dim]` |
 | `out` | out | `DLManagedTensor*` | a row-major `n_rows x padded_dim` float32 device matrix |
 
 **Returns**
@@ -397,12 +399,13 @@ cuvsRabitqEncoder_t encoder,
 cuvsRabitqRotator_t rotator,
 DLManagedTensor* dataset,
 DLManagedTensor* centroid,
-DLManagedTensor* codes,
+DLManagedTensor* signs,
+DLManagedTensor* extra_bits,
 DLManagedTensor* delta,
 DLManagedTensor* vl);
 ```
 
-Performs the whole chain: zero-pad `dim -> padded_dim`, rotate, optionally subtract the rotated centroid, then quantize the residuals. One code element is written per padded dimension; each holds an unsigned `cuvsRabitqQuantizerParams::ex_bits + 1` bit value, so `codes` must be `n_rows x padded_dim`.
+Performs the whole chain: zero-pad `dim -> padded_dim`, rotate, optionally subtract the rotated centroid, then quantize the residuals into separate packed signs and extra bits, using the layout consumed by IVF RaBitQ.
 
 Rows are processed in internal batches. A temporary float buffer is used internally to store the rotated residuals. This is allocated from the workspace resource. (A pool workspace resource is recommended.)
 
@@ -417,7 +420,8 @@ Rows are processed in internal batches. A temporary float buffer is used interna
 | `rotator` | in | [`cuvsRabitqRotator_t`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqrotator) | the rotator whose padded dim matches the encoder |
 | `dataset` | in | `DLManagedTensor*` | a row-major `n_rows x dim` float32 host or device matrix |
 | `centroid` | in | `DLManagedTensor*` | optional un-rotated `dim` float32 device vector; when non-NULL, codes are computed on the residuals w.r.t. this centroid. Pass NULL to skip centering. |
-| `codes` | out | `DLManagedTensor*` | a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes |
+| `signs` | out | `DLManagedTensor*` | a row-major `padded_dim / 32 x n_rows` uint32 device matrix; word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31. A set bit denotes a nonnegative residual, including zero. |
+| `extra_bits` | out | `DLManagedTensor*` | a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device matrix. Values are packed most significant bit first; negative residuals store the complemented magnitude within `ex_bits` bits. The second extent is zero when `ex_bits == 0`; the tensor must still be supplied. |
 | `delta` | out | `DLManagedTensor*` | per-vector scale, an `n_rows` float32 device vector |
 | `vl` | out | `DLManagedTensor*` | per-vector offset (`delta * -(2^ex_bits - 0.5)`), an `n_rows` float32 device vector |
 
@@ -436,7 +440,8 @@ cuvsRabitqEncoder_t encoder,
 cuvsRabitqRotator_t rotator,
 DLManagedTensor* dataset,
 DLManagedTensor* centroid,
-DLManagedTensor* codes,
+DLManagedTensor* signs,
+DLManagedTensor* extra_bits,
 DLManagedTensor* factors);
 ```
 
@@ -455,7 +460,8 @@ The rotated centroid is an internal temporary as well. A search implementation t
 | `rotator` | in | [`cuvsRabitqRotator_t`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqrotator) | the rotator whose padded dim matches the encoder |
 | `dataset` | in | `DLManagedTensor*` | a row-major `n_rows x dim` float32 host or device matrix |
 | `centroid` | in | `DLManagedTensor*` | optional un-rotated `dim` float32 device vector; treated as zero when NULL |
-| `codes` | out | `DLManagedTensor*` | a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes |
+| `signs` | out | `DLManagedTensor*` | a row-major `padded_dim / 32 x n_rows` uint32 device matrix; word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31. A set bit denotes a nonnegative residual, including zero. |
+| `extra_bits` | out | `DLManagedTensor*` | a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device matrix. Values are packed most significant bit first; negative residuals store the complemented magnitude within `ex_bits` bits. The second extent is zero when `ex_bits == 0`; the tensor must still be supplied. |
 | `factors` | out | `DLManagedTensor*` | a row-major `n_rows x 3` float32 device matrix |
 
 **Returns**
@@ -471,7 +477,8 @@ Quantizes pre-rotated residuals, emitting per-vector `(delta, vl)` factors.
 cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
 cuvsRabitqEncoder_t encoder,
 DLManagedTensor* residuals,
-DLManagedTensor* codes,
+DLManagedTensor* signs,
+DLManagedTensor* extra_bits,
 DLManagedTensor* delta,
 DLManagedTensor* vl);
 ```
@@ -485,7 +492,8 @@ The rotator is not needed here: `residuals` must already be rotated, padded to t
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | raft resource |
 | `encoder` | in | [`cuvsRabitqEncoder_t`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqencoder) | a RaBitQ encoder |
 | `residuals` | in | `DLManagedTensor*` | a row-major `n_rows x padded_dim` float32 device matrix, rotated and centered |
-| `codes` | out | `DLManagedTensor*` | a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes |
+| `signs` | out | `DLManagedTensor*` | a row-major `padded_dim / 32 x n_rows` uint32 device matrix; word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31. A set bit denotes a nonnegative residual, including zero. |
+| `extra_bits` | out | `DLManagedTensor*` | a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device matrix. Values are packed most significant bit first; negative residuals store the complemented magnitude within `ex_bits` bits. The second extent is zero when `ex_bits == 0`; the tensor must still be supplied. |
 | `delta` | out | `DLManagedTensor*` | per-vector scale, an `n_rows` float32 device vector |
 | `vl` | out | `DLManagedTensor*` | per-vector offset (`delta * -(2^ex_bits - 0.5)`), an `n_rows` float32 device vector |
 
@@ -503,7 +511,8 @@ cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
 cuvsRabitqEncoder_t encoder,
 DLManagedTensor* residuals,
 DLManagedTensor* rotated_centroid,
-DLManagedTensor* codes,
+DLManagedTensor* signs,
+DLManagedTensor* extra_bits,
 DLManagedTensor* factors);
 ```
 
@@ -517,7 +526,8 @@ As above, `residuals` must already be rotated, padded to the encoder's padded di
 | `encoder` | in | [`cuvsRabitqEncoder_t`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqencoder) | a RaBitQ encoder |
 | `residuals` | in | `DLManagedTensor*` | a row-major `n_rows x padded_dim` float32 device matrix, rotated and centered |
 | `rotated_centroid` | in | `DLManagedTensor*` | optional rotated, padded centroid (a `padded_dim` float32 device vector); treated as zero when NULL |
-| `codes` | out | `DLManagedTensor*` | a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes |
+| `signs` | out | `DLManagedTensor*` | a row-major `padded_dim / 32 x n_rows` uint32 device matrix; word `w` stores dimensions `[32*w, 32*w+32)`, first dimension in bit 31. A set bit denotes a nonnegative residual, including zero. |
+| `extra_bits` | out | `DLManagedTensor*` | a row-major `n_rows x (padded_dim * ex_bits / 8)` uint8 device matrix. Values are packed most significant bit first; negative residuals store the complemented magnitude within `ex_bits` bits. The second extent is zero when `ex_bits == 0`; the tensor must still be supplied. |
 | `factors` | out | `DLManagedTensor*` | a row-major `n_rows x 3` float32 device matrix |
 
 **Returns**
@@ -628,7 +638,7 @@ cuvsError_t cuvsRabitqEncoderGetPaddedDim(cuvsRabitqEncoder_t encoder,
 int64_t* padded_dim);
 ```
 
-This is the number of code elements emitted per vector, i.e. the second extent that the `codes` tensor must have.
+This determines the packed output extents: `padded_dim / 32` sign words and `padded_dim * ex_bits / 8` extra-bit bytes per vector.
 
 **Parameters**
 
