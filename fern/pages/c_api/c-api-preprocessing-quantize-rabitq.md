@@ -360,7 +360,7 @@ There is deliberately no opaque quantizer handle: the C++ `quantizer` struct is 
 <a id="cuvsrabitqrotate"></a>
 ### cuvsRabitqRotate
 
-Applies the random rotation to already-padded rows.
+Zero-pads rows if needed and applies the random rotation.
 
 ```c
 cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
@@ -369,7 +369,9 @@ DLManagedTensor* in,
 DLManagedTensor* out);
 ```
 
-Both `in` and `out` must be `n_rows x padded_dim` row-major float32 device matrices (see cuvsRabitqRotatorGetPaddedDim); this entry point does not pad. In-place operation (`in` and `out` pointing at the same buffer) is supported by ::CUVS_RABITQ_ROTATOR_KIND_FHT_KAC only.
+Input must be an `n_rows x dim` row-major float32 device matrix, with `1 <= dim <= padded_dim` (see cuvsRabitqRotatorGetPaddedDim); missing columns are zero-filled before rotation. Output must be `n_rows x padded_dim`. In-place operation (`in` and `out` pointing at the same buffer) requires already-padded input and is supported only by ::CUVS_RABITQ_ROTATOR_KIND_FHT_KAC.
+
+Zero-padding is implicit in the matrix multiplication or fused into the FHT input loads; no separate padding kernel or temporary buffer is needed.
 
 Use this to rotate queries or externally computed centroids so that they live in the same rotated space as the codes.
 
@@ -379,7 +381,7 @@ Use this to rotate queries or externally computed centroids so that they live in
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | raft resource |
 | `rotator` | in | [`cuvsRabitqRotator_t`](/api-reference/c-api-preprocessing-quantize-rabitq#cuvsrabitqrotator) | a RaBitQ rotator |
-| `in` | in | `DLManagedTensor*` | a row-major `n_rows x padded_dim` float32 device matrix |
+| `in` | in | `DLManagedTensor*` | a row-major `n_rows x dim` float32 device matrix; `dim` must be in `[1, padded_dim]` |
 | `out` | out | `DLManagedTensor*` | a row-major `n_rows x padded_dim` float32 device matrix |
 
 **Returns**

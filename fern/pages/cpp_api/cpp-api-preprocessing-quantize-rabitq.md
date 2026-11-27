@@ -155,7 +155,7 @@ struct rotator {
 | --- | --- | --- |
 | `kind` | [`rotator_kind`](/api-reference/cpp-api-preprocessing-quantize-rabitq#preprocessing-quantize-rabitq-rotator-kind) | Which implementation the state below belongs to. |
 | `padded_dim` | `int64_t` | Working dimension: `dim` rounded up to a multiple of 32.<br /><br />This is the rotator's full identity alongside `kind` and the state below — both transforms operate purely on the padded width (`fht_kac` derives its segment size as `2^floor_log2(padded_dim)`), so the original unpadded `dim` is not part of the rotator. |
-| `rotation_matrix` | `raft::device_matrix<T, int64_t, raft::row_major>` | `padded_dim x padded_dim` row-major random orthogonal matrix `R`; rotate() maps each row `x` to `R x`. Empty unless `kind == rotator_kind::matmul`. |
+| `rotation_matrix` | `raft::device_matrix<T, int64_t, raft::row_major>` | `padded_dim x padded_dim` row-major random orthogonal matrix `R`; rotate() maps each row `x` to `R pad(x)`. Empty unless `kind == rotator_kind::matmul`. |
 | `flip_bits` | `raft::device_vector<uint8_t, int64_t>` | Packed sign bits of the four Kac's-walk passes (`4 * padded_dim / 8` bytes). Empty unless `kind == rotator_kind::fht_kac`. |
 
 <a id="preprocessing-quantize-rabitq-rotator-rotator"></a>
@@ -428,7 +428,7 @@ Usage example:
 <a id="preprocessing-quantize-rabitq-rotate"></a>
 ### preprocessing::quantize::rabitq::rotate
 
-Applies the random rotation to already-padded rows.
+Zero-pads rows if needed and applies the random rotation.
 
 ```cpp
 void rotate(raft::resources const& res,
@@ -437,7 +437,9 @@ raft::device_matrix_view<const float, int64_t, raft::row_major> in,
 raft::device_matrix_view<float, int64_t, raft::row_major> out);
 ```
 
-Both `in` and `out` must be `n_rows x rotator::padded_dim`; this entry point does not pad. In-place operation (`in.data_handle() == out.data_handle()`) is supported by `rotator_kind::fht_kac` only.
+Input must be `n_rows x dim`, with `1 <= dim <= rotator::padded_dim`; missing columns are zero-filled before rotation. Output must be `n_rows x rotator::padded_dim`. In-place operation (`in.data_handle() == out.data_handle()`) requires already-padded input and is supported by `rotator_kind::fht_kac` only.
+
+Zero-padding is implicit in the matrix multiplication or fused into the FHT input loads; no separate padding kernel or temporary buffer is needed.
 
 Use this to rotate queries or externally computed centroids so that they live in the same rotated space as the codes.
 
@@ -449,7 +451,7 @@ Usage example:
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
 | `rotator` | in | [`rotator<float> const&`](/api-reference/cpp-api-preprocessing-quantize-rabitq#preprocessing-quantize-rabitq-rotator) | a RaBitQ rotator |
-| `in` | in | `raft::device_matrix_view<const float, int64_t, raft::row_major>` | a row-major `n_rows x padded_dim` matrix view on device |
+| `in` | in | `raft::device_matrix_view<const float, int64_t, raft::row_major>` | a row-major `n_rows x dim` matrix view on device, `1 <= dim <= padded_dim` |
 | `out` | out | `raft::device_matrix_view<float, int64_t, raft::row_major>` | a row-major `n_rows x padded_dim` matrix view on device |
 
 **Returns**
@@ -605,7 +607,7 @@ Same chain as the `(delta, vl)` overload, but the per-vector factors are the one
 
 Rows are processed in internal batches. A temporary float buffer is used internally to store the rotated residuals. This is allocated from the workspace resource. (A pool workspace resource is recommended.) As for the `(delta, vl)` overload, `dataset` may also be on host.
 
-The rotated centroid is an internal temporary as well. A search implementation that needs it can reproduce it exactly by zero-padding `centroid` to `padded_dim` and calling rotate() with the same rotator.
+The rotated centroid is an internal temporary as well. A search implementation that needs it can reproduce it exactly by calling rotate() on `centroid` viewed as a one-row matrix with the same rotator.
 
 Usage example:
 

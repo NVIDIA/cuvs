@@ -161,7 +161,7 @@ struct rotator {
   int64_t padded_dim = 0;
   /**
    * `padded_dim x padded_dim` row-major random orthogonal matrix `R`; rotate()
-   * maps each row `x` to `R x`. Empty unless `kind == rotator_kind::matmul`.
+   * maps each row `x` to `R pad(x)`. Empty unless `kind == rotator_kind::matmul`.
    */
   raft::device_matrix<T, int64_t, raft::row_major> rotation_matrix;
   /**
@@ -343,11 +343,16 @@ template <typename T = float>
 auto make_quantizer(raft::resources const& res, params const& params, int64_t dim) -> quantizer<T>;
 
 /**
- * @brief Applies the random rotation to already-padded rows.
+ * @brief Zero-pads rows if needed and applies the random rotation.
  *
- * Both `in` and `out` must be `n_rows x rotator::padded_dim`; this entry point
- * does not pad. In-place operation (`in.data_handle() == out.data_handle()`) is
- * supported by `rotator_kind::fht_kac` only.
+ * Input must be `n_rows x dim`, with `1 <= dim <= rotator::padded_dim`;
+ * missing columns are zero-filled before rotation. Output must be
+ * `n_rows x rotator::padded_dim`. In-place operation
+ * (`in.data_handle() == out.data_handle()`) requires already-padded input and
+ * is supported by `rotator_kind::fht_kac` only.
+ *
+ * Zero-padding is implicit in the matrix multiplication or fused into the FHT
+ * input loads; no separate padding kernel or temporary buffer is needed.
  *
  * Use this to rotate queries or externally computed centroids so that they live
  * in the same rotated space as the codes.
@@ -355,12 +360,12 @@ auto make_quantizer(raft::resources const& res, params const& params, int64_t di
  * Usage example:
  * @code{.cpp}
  * auto rotated = raft::make_device_matrix<float, int64_t>(res, n_queries, rotator.padded_dim);
- * cuvs::preprocessing::quantize::rabitq::rotate(res, rotator, padded_queries, rotated.view());
+ * cuvs::preprocessing::quantize::rabitq::rotate(res, rotator, queries, rotated.view());
  * @endcode
  *
  * @param[in] res raft resource
  * @param[in] rotator a RaBitQ rotator
- * @param[in] in a row-major `n_rows x padded_dim` matrix view on device
+ * @param[in] in a row-major `n_rows x dim` matrix view on device, `1 <= dim <= padded_dim`
  * @param[out] out a row-major `n_rows x padded_dim` matrix view on device
  *
  */
@@ -465,8 +470,8 @@ void transform(raft::resources const& res,
  * As for the `(delta, vl)` overload, `dataset` may also be on host.
  *
  * The rotated centroid is an internal temporary as well. A search implementation
- * that needs it can reproduce it exactly by zero-padding `centroid` to
- * `padded_dim` and calling rotate() with the same rotator.
+ * that needs it can reproduce it exactly by calling rotate() on `centroid`
+ * viewed as a one-row matrix with the same rotator.
  *
  * Usage example:
  * @code{.cpp}

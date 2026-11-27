@@ -115,17 +115,13 @@ void check_factors(int64_t n_rows,
 /**
  * Calculate the number of rows per internal transform() batch.
  *
- * Every stage after the input read (pad, rotate, centroid subtraction, quantize)
- * sweeps the batch's `batch x padded_dim` residual scratch, so a batch whose
- * scratch fits in ~3/8 of the L2 cache keeps those passes in L2 instead of DRAM:
- * 1.1-1.7x faster than one unbatched call for fht_kac on an RTX PRO 6000 (128 MB
- * L2). Below 2K rows the fixed per-batch cost outweighs that, and beyond 64K rows
- * (32K for a narrow matmul) nothing more is gained. A matmul rotator wider than
- * 256 is GEMM-bound instead and runs best on large batches. As in
- * IVF-PQ's extend, the batch is then halved until its scratch fits the free
- * workspace, here half of it: the rest covers the smaller temporaries (rotated
- * centroid, padding) and fragmentation. Host input adds `staging_row_bytes` per
- * row for the buffers its rows are copied into.
+ * Rotation, centroid subtraction and quantization sweep the batch's
+ * `batch x padded_dim` residual scratch. Keeping it within a fraction of L2
+ * lets these stages reuse cached data. Small batches incur more launch overhead;
+ * wider matmul rotations are GEMM-bound and benefit from larger batches.
+ * As in IVF-PQ's extend, halve the batch until its scratch fits within half
+ * the free workspace, leaving room for the rotated centroid and fragmentation.
+ * Host input adds `staging_row_bytes` per row for the input staging buffers.
  */
 [[nodiscard]] auto get_transform_batch_size(raft::resources const& res,
                                             rabitq::encoder const& q,
@@ -151,10 +147,8 @@ void check_factors(int64_t n_rows,
       batch *= 2;
     }
   }
-  // matmul pads into a second batch x padded_dim temporary (pad_and_rotate).
-  const size_t row_bytes =
-    row_floats * sizeof(float) * (matmul && q.dim != q.padded_dim ? 2 : 1) + staging_row_bytes;
-  const size_t budget = raft::resource::get_workspace_free_bytes(res) / 2;
+  const size_t row_bytes = row_floats * sizeof(float) + staging_row_bytes;
+  const size_t budget    = raft::resource::get_workspace_free_bytes(res) / 2;
   while (batch > kMinWorkspaceRows && static_cast<size_t>(batch) * row_bytes > budget) {
     batch /= 2;
   }
@@ -486,13 +480,16 @@ void rotate(raft::resources const& res,
   const int64_t n_rows = in.extent(0);
   check_rows(n_rows);
   RAFT_EXPECTS(out.extent(0) == n_rows, "rabitq::rotate: in and out must have the same row count");
-  RAFT_EXPECTS(in.extent(1) == rotator.padded_dim && out.extent(1) == rotator.padded_dim,
-               "rabitq::rotate: in and out must be n_rows x rotator.padded_dim (pad the rows "
-               "yourself; rotate() does not pad)");
-  auto view = rotator.view();
-  RAFT_EXPECTS(in.data_handle() != out.data_handle() || detail::supports_inplace_rotate(view),
-               "rabitq::rotate: in-place rotation is only supported by rotator_kind::fht_kac");
+  RAFT_EXPECTS(in.extent(1) > 0 && in.extent(1) <= rotator.padded_dim,
+               "rabitq::rotate: input width must be in [1, rotator.padded_dim]");
+  RAFT_EXPECTS(out.extent(1) == rotator.padded_dim,
+               "rabitq::rotate: output width must equal rotator.padded_dim");
   if (n_rows == 0) { return; }
+  auto view = rotator.view();
+  RAFT_EXPECTS(in.data_handle() != out.data_handle() ||
+                 (in.extent(1) == rotator.padded_dim && detail::supports_inplace_rotate(view)),
+               "rabitq::rotate: in-place rotation requires already-padded input and "
+               "rotator_kind::fht_kac");
   detail::rotate(res, view, in, out);
 }
 

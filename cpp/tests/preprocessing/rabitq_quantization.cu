@@ -358,14 +358,43 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
                    raft::logic_error);
     }
 
-    // rotate() does not pad: an unpadded view must be rejected.
-    if (ps_.dim != pd) {
-      auto unpadded = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-        (const float*)in.data_handle(), n, static_cast<int64_t>(ps_.dim));
-      auto unpadded_out = raft::make_device_matrix_view<float, int64_t, raft::row_major>(
-        out.data_handle(), n, static_cast<int64_t>(ps_.dim));
-      EXPECT_THROW(rotate(handle_, rot, unpadded, unpadded_out), raft::logic_error);
+    // Compare automatic padding with explicitly zero-padded rows. Keep the
+    // row count unchanged so matmul uses the same GEMM shape in both calls.
+    const int64_t dim = static_cast<int64_t>(ps_.dim) - 1;
+    auto unpadded     = raft::make_device_matrix<float, int64_t>(handle_, n, dim);
+    auto automatic    = raft::make_device_matrix<float, int64_t>(handle_, n, pd);
+    std::vector<float> h_unpadded(n * dim);
+    std::vector<float> h_padded(n * pd, 0.0f);
+    for (int64_t row = 0; row < n; ++row) {
+      for (int64_t col = 0; col < dim; ++col) {
+        h_unpadded[row * dim + col] = h_padded[row * pd + col] = h_in[row * pd + col];
+      }
     }
+    raft::update_device(unpadded.data_handle(), h_unpadded.data(), h_unpadded.size(), stream_);
+    raft::update_device(in.data_handle(), h_padded.data(), h_padded.size(), stream_);
+    rotate(handle_, rot, raft::make_const_mdspan(in.view()), out.view());
+    rotate(handle_, rot, raft::make_const_mdspan(unpadded.view()), automatic.view());
+    ASSERT_TRUE(devArrMatch(out.data_handle(),
+                            automatic.data_handle(),
+                            out.size(),
+                            cuvs::CompareApprox<float>(1e-5f),
+                            stream_));
+
+    auto unpadded_out = raft::make_device_matrix_view<float, int64_t>(out.data_handle(), n, dim);
+    EXPECT_THROW(rotate(handle_, rot, raft::make_const_mdspan(unpadded.view()), unpadded_out),
+                 raft::logic_error);
+    // Expanding tightly packed rows in place would overwrite unread input rows.
+    auto aliased_in =
+      raft::make_device_matrix_view<const float, int64_t>(out.data_handle(), n, dim);
+    EXPECT_THROW(rotate(handle_, rot, aliased_in, out.view()), raft::logic_error);
+    auto too_wide =
+      raft::make_device_matrix_view<const float, int64_t>(in.data_handle(), n, pd + 1);
+    EXPECT_THROW(rotate(handle_, rot, too_wide, out.view()), raft::logic_error);
+    auto zero_width = raft::make_device_matrix_view<const float, int64_t>(in.data_handle(), n, 0);
+    EXPECT_THROW(rotate(handle_, rot, zero_width, out.view()), raft::logic_error);
+    auto fewer_rows = raft::make_device_matrix_view<float, int64_t>(out.data_handle(), n - 1, pd);
+    EXPECT_THROW(rotate(handle_, rot, raft::make_const_mdspan(in.view()), fewer_rows),
+                 raft::logic_error);
   }
 
   // -------------------------------------------------------------------------
@@ -712,6 +741,13 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
                             delta.view(),
                             vl.view()));
   raft::resource::sync_stream(handle);
+  auto unpadded = raft::make_device_matrix<float, int64_t>(handle, 0, kDim - 1);
+  auto rotated  = raft::make_device_matrix<float, int64_t>(handle, 0, kDim);
+  for (auto kind : {rotator_kind::matmul, rotator_kind::fht_kac}) {
+    p.rotator = kind;
+    auto rot  = make_rotator(handle, p, kDim);
+    EXPECT_NO_THROW(rotate(handle, rot, raft::make_const_mdspan(unpadded.view()), rotated.view()));
+  }
 }
 
 /**

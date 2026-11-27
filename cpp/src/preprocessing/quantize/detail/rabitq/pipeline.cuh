@@ -1,28 +1,24 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
  */
 
 //
 // One-call RaBitQ quantization pipeline.
 //
 // This layer only orchestrates the two underlying components — the rotator
-// (rotator.cuh) and the quantizer (quantize.cuh) — plus two trivial glue
-// kernels (row padding, centroid subtraction). It adds no quantization logic
-// of its own; use the components directly for custom pipelines (e.g.
-// externally computed residuals).
+// (rotator.cuh, including padding) and the quantizer (quantize.cuh) — plus
+// centroid subtraction. It adds no quantization logic of its own; use the
+// components directly for custom pipelines (e.g. externally computed residuals).
 //
-// Pipeline: pad(dim -> rotator.padded_dim) -> rotate -> [subtract rotated
+// Pipeline: rotate (including implicit zero-padding) -> [subtract rotated
 // centroid] -> fused quantization on the rotated residuals.
 //
 // Design note: the centroid is rotated with a separate 1-row rotate() call
-// rather than appended to the data batch (as cuVS does). Appending is only
+// rather than appended to the data batch (as IVF-RaBitQ does). Appending is only
 // free when a gather/copy pass over the data exists anyway; for contiguous
-// input it would cost a full extra N x D copy, while a 1-row rotate is a
-// single tiny launch.
+// input it would cost a full extra n_rows x padded_dim copy, while rotating the
+// centroid needs only one output row.
 //
 // The rotator state is NOT owned here: callers pass a non-owning rotator_view
 // that borrows the buffers held by the public `rabitq::rotator` struct.
@@ -45,14 +41,14 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// Quantize raw (unrotated, unpadded) vectors end to end, emitting per-vector
 /// scalar factors (delta, vl).
 ///
-/// data                N x dim on device.
+/// data                n_rows x dim on device.
 /// centroid            optional dim floats on device, UNrotated.
 ///                     When given, residuals = rotate(pad(data)) -
 ///                     rotate(pad(centroid)) and rotated_centroid receives the
 ///                     rotated centroid (D floats).
 ///                     When absent, residuals = rotate(pad(data)) and
 ///                     rotated_centroid is not used (it may be empty).
-/// residuals           N x D output (D = rotator.padded_dim): the rotated
+/// residuals           n_rows x D output (D = rotator.padded_dim): the rotated
 ///                     residuals that the emitted codes refer to.
 /// Remaining parameters mirror quantize_fused_on_residuals.
 template <typename CodeT>
