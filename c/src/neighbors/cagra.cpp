@@ -756,12 +756,11 @@ static void update_dataset(raft::resources* res_ptr,
   }
 }
 
-static void _set_graph_build_params(
-  cuvs::neighbors::cagra::graph_build_params_t& out_params,
-  cuvsCagraIndexParams& params,
-  cuvsCagraGraphBuildAlgo algo,
-  int64_t n_rows,
-  int64_t dim)
+static void _set_graph_build_params(cuvs::neighbors::cagra::graph_build_params_t& out_params,
+                                    cuvsCagraIndexParams& params,
+                                    cuvsCagraGraphBuildAlgo algo,
+                                    int64_t n_rows,
+                                    int64_t dim)
 
 {
   auto metric = static_cast<cuvs::distance::DistanceType>((int)params.metric);

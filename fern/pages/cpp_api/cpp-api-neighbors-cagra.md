@@ -77,7 +77,8 @@ graph_build_params::ivf_pq_params,
 graph_build_params::nn_descent_params,
 graph_build_params::ace_params,
 graph_build_params::iterative_search_params,
-graph_build_params::brute_force_params>;
+graph_build_params::brute_force_params,
+graph_build_params::gpipnn_params>;
 ```
 
 <a id="neighbors-cagra-hnsw-heuristic-type"></a>

@@ -284,6 +284,9 @@ enum class graph_build_algo {
   ITERATIVE_CAGRA_SEARCH,
   /* Use exact brute-force kNN graph construction */
   BRUTE_FORCE,
+  /* Experimental, build the graph with GPiPNN. Needs sm_80 or newer; CAGRA falls back to
+     NN-descent where it cannot run, so cases using this still pass on older devices. */
+  GPIPNN,
   /* Choose default automatically */
   AUTO
 };
@@ -338,7 +341,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
     {search_algo::AUTO, "auto"}                   //
   };
   std::vector<std::string> build_algo = {
-    "IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "BRUTE_FORCE", "AUTO"};
+    "IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "BRUTE_FORCE", "GPIPNN", "AUTO"};
   std::vector<std::string> merge_strategy = {"PHYSICAL", "LOGICAL"};
   os << "{n_queries=" << p.n_queries << ", dataset shape=" << p.n_rows << "x" << p.dim
      << ", degree=" << p.graph_degree << ", k=" << p.k << ", " << algo_name[p.algo]
@@ -349,7 +352,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
   if ((int)p.build_algo == 0 && p.ivf_pq_search_refine_ratio) {
     os << "(refine_rate=" << *p.ivf_pq_search_refine_ratio << ')';
   }
-  os << '}' << std::endl;
+  os << '}';
   return os;
 }
 
@@ -391,6 +394,16 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // Dataset size must be larger than 33 for NN Descent
     if (ps.build_algo == graph_build_algo::NN_DESCENT &&
         ((ps.n_rows < 33) || raft::round_up_safe(ps.n_rows, 32) <= ps.graph_degree * 3))
@@ -453,6 +466,10 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
           case graph_build_algo::BRUTE_FORCE:
             index_params.graph_build_params = graph_build_params::brute_force_params{};
             break;
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
+            break;
+          }
           case graph_build_algo::AUTO:
             // do nothing
             break;
@@ -611,6 +628,16 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -684,6 +711,10 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
           case graph_build_algo::BRUTE_FORCE:
             index_params.graph_build_params = graph_build_params::brute_force_params{};
             break;
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
+            break;
+          }
           case graph_build_algo::AUTO:
             // do nothing
             break;
@@ -827,6 +858,16 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -906,6 +947,10 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
           case graph_build_algo::BRUTE_FORCE:
             index_params.graph_build_params = graph_build_params::brute_force_params{};
             break;
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
+            break;
+          }
           case graph_build_algo::AUTO:
             // do nothing
             break;
@@ -1217,6 +1262,16 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1321,6 +1376,10 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
           case graph_build_algo::BRUTE_FORCE:
             index_params.graph_build_params = graph_build_params::brute_force_params{};
             break;
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
+            break;
+          }
           case graph_build_algo::AUTO:
             // do nothing
             break;
@@ -1477,6 +1536,16 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, an even dimension, and contiguous
+    // rows, and supports only L2 and cosine. These fixtures build from a CAGRA-padded view, so a
+    // `dim` that is not already row-aligned for `DataT` reaches it with a padded stride.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree || ps.dim % 2 != 0 ||
+         cuvs::neighbors::cagra_required_row_width<DataT>(static_cast<uint32_t>(ps.dim)) !=
+           static_cast<uint32_t>(ps.dim) ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1499,6 +1568,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
     if (ps.build_algo == graph_build_algo::NN_DESCENT &&
         ((database1_size < 33) ||
          raft::round_up_safe(database1_size, 32lu) <= ps.graph_degree * 3lu))
+      GTEST_SKIP();
+    // Each half is built independently, so GPiPNN's row requirement applies to the smaller one.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        std::min(database0_size, database1_size) <= static_cast<std::size_t>(ps.graph_degree))
       GTEST_SKIP();
 
     // Avoid splitting datasets with a size of 0
@@ -1565,6 +1638,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           case graph_build_algo::BRUTE_FORCE:
             index_params.graph_build_params = graph_build_params::brute_force_params{};
             break;
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
+            break;
+          }
           case graph_build_algo::AUTO:
             // do nothing
             break;
@@ -2023,6 +2100,34 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {0.99});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
+  // GPiPNN graph build, restricted to what it accepts: the metrics it supports,
+  // `n_rows > graph_degree`, and a device-resident dataset with contiguous rows and an even `dim`.
+  // These fixtures build from a CAGRA-padded view, so only a `dim` that already meets the 16-byte
+  // row alignment arrives contiguous -- and this sweep runs for every `DataT` the fixture is
+  // instantiated with, down to one-byte types, hence multiples of 16. Shapes outside the
+  // requirements are covered by the rejection tests in ann_cagra/test_float_uint32_t.cu.
+  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
+    {100},
+    {1000},
+    {16, 64},  // dim, row-aligned for every DataT as GPiPNN requires
+    {16},      // k
+    {32},      // degree
+    {graph_build_algo::GPIPNN},
+    {search_algo::SINGLE_CTA, search_algo::MULTI_CTA},
+    {0},   // query size
+    {0},   // team_size
+    {64},  // itopk
+    {1},
+    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::CosineExpanded},
+    {false},  // host_dataset: these fixtures only build from a host view for ACE, so for GPiPNN
+              // this axis only duplicates cases. Host rejection is covered by HostDatasetRejected.
+    {true},   // include_serialized_dataset
+    {false},  // use_source_indices
+    {0.995},  // min_recall
+    {std::optional<float>{std::nullopt}},
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
   return inputs;
 }
 
@@ -2174,7 +2279,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
      << ", k=" << p.k << ", num_partitions=" << p.num_partitions
      << ", split=" << (p.split == partition_split::EVEN ? "even" : "skewed") << ", "
      << algo_name[p.algo] << ", itopk_size=" << p.itopk_size << ", metric=" << metric_str(p.metric)
-     << ", max_queries=" << p.max_queries << '}' << std::endl;
+     << ", max_queries=" << p.max_queries << '}';
   return os;
 }
 
@@ -2256,6 +2361,9 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
       case graph_build_algo::NN_DESCENT:
         index_params.graph_build_params = graph_build_params::nn_descent_params(
           index_params.intermediate_graph_degree, index_params.metric);
+        break;
+      case graph_build_algo::GPIPNN:
+        index_params.graph_build_params = graph_build_params::gpipnn_params();
         break;
       case graph_build_algo::IVF_PQ:
       case graph_build_algo::ITERATIVE_CAGRA_SEARCH:
