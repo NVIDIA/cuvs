@@ -24,7 +24,7 @@ struct packed_codes_output {
   int64_t sign_stride;
 };
 
-/// Quantize pre-computed, rotated residuals into RaBitQ scalar codes.
+/// Quantize pre-computed, rotated residuals into packed RaBitQ codes.
 ///
 /// stream      : the caller owns the stream. Every one of these entry points
 ///               only enqueues kernel launches on it and is therefore
