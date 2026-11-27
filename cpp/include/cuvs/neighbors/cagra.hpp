@@ -8,6 +8,7 @@
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/gpipnn.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
@@ -256,6 +257,7 @@ using graph_build_params_t = std::variant<std::monostate,
                                           graph_build_params::nn_descent_params,
                                           graph_build_params::ace_params,
                                           graph_build_params::iterative_search_params,
+                                          graph_build_params::brute_force_params,
                                           graph_build_params::gpipnn_params>;
 
 /**
@@ -345,7 +347,10 @@ struct index_params : cuvs::neighbors::index_params {
    * params.graph_build_params =
    * cagra::graph_build_params::iterative_search_params();
    *
-   * // 5. Choose GPiPNN, which builds the graph without searching it  [Experimental]
+   * // 5. Choose exact brute-force kNN construction (float and half datasets)
+   * params.graph_build_params = cagra::graph_build_params::brute_force_params{};
+   *
+   * // 6. Choose GPiPNN, which builds the graph without searching it  [Experimental]
    * params.graph_build_params = cagra::graph_build_params::gpipnn_params();
    * @endcode
    *
@@ -4571,6 +4576,90 @@ void distribute(
   const std::string& filename,
   cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>*
     index);
+
+/**
+ * @brief Build an exact kNN graph using brute-force search.
+ * @ingroup cagra_cpp_index_build
+ *
+ * Each row of the output contains the nearest neighbor indices for the corresponding dataset
+ * point, ordered by distance and excluding the point itself. The graph is stored in host memory.
+ * The dataset is processed in chunks, allowing graphs larger than available device memory to be
+ * built.
+ *
+ * @param[in] res RAFT resources.
+ * @param[in] dataset Row-major host dataset of float values, with shape [n_rows, dim].
+ * @param[out] knn_graph Host output with shape [n_rows, degree], where degree is in [1, n_rows -
+ * 1].
+ * @param[in] build_params Brute-force index and search parameters. Supported metrics are
+ * L2Expanded, L2SqrtExpanded, InnerProduct and CosineExpanded.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
+
+/**
+ * @brief Build an exact kNN graph using brute-force search.
+ * @ingroup cagra_cpp_index_build
+ *
+ * Each row of the output contains the nearest neighbor indices for the corresponding dataset
+ * point, ordered by distance and excluding the point itself. The graph is stored in host memory.
+ * The dataset is processed in chunks, allowing graphs larger than available device memory to be
+ * built.
+ *
+ * @param[in] res RAFT resources.
+ * @param[in] dataset Row-major device dataset of float values, with shape [n_rows, dim].
+ * @param[out] knn_graph Host output with shape [n_rows, degree], where degree is in [1, n_rows -
+ * 1].
+ * @param[in] build_params Brute-force index and search parameters. Supported metrics are
+ * L2Expanded, L2SqrtExpanded, InnerProduct and CosineExpanded.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
+
+/**
+ * @brief Build an exact kNN graph using brute-force search.
+ * @ingroup cagra_cpp_index_build
+ *
+ * Each row of the output contains the nearest neighbor indices for the corresponding dataset
+ * point, ordered by distance and excluding the point itself. The graph is stored in host memory.
+ * The dataset is processed in chunks, allowing graphs larger than available device memory to be
+ * built.
+ *
+ * @param[in] res RAFT resources.
+ * @param[in] dataset Row-major host dataset of half values, with shape [n_rows, dim].
+ * @param[out] knn_graph Host output with shape [n_rows, degree], where degree is in [1, n_rows -
+ * 1].
+ * @param[in] build_params Brute-force index and search parameters. Supported metrics are
+ * L2Expanded, L2SqrtExpanded, InnerProduct and CosineExpanded.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::host_matrix_view<const half, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
+
+/**
+ * @brief Build an exact kNN graph using brute-force search.
+ * @ingroup cagra_cpp_index_build
+ *
+ * Each row of the output contains the nearest neighbor indices for the corresponding dataset
+ * point, ordered by distance and excluding the point itself. The graph is stored in host memory.
+ * The dataset is processed in chunks, allowing graphs larger than available device memory to be
+ * built.
+ *
+ * @param[in] res RAFT resources.
+ * @param[in] dataset Row-major device dataset of half values, with shape [n_rows, dim].
+ * @param[out] knn_graph Host output with shape [n_rows, degree], where degree is in [1, n_rows -
+ * 1].
+ * @param[in] build_params Brute-force index and search parameters. Supported metrics are
+ * L2Expanded, L2SqrtExpanded, InnerProduct and CosineExpanded.
+ */
+void build_knn_graph(raft::resources const& res,
+                     raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
+                     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+                     graph_build_params::brute_force_params build_params);
 
 /**
  * @brief Build a kNN graph using IVF-PQ.

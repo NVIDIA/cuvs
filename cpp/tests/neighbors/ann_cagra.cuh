@@ -282,6 +282,8 @@ enum class graph_build_algo {
   NN_DESCENT,
   /* Experimental, iteratively execute CAGRA's search() and optimize() */
   ITERATIVE_CAGRA_SEARCH,
+  /* Use exact brute-force kNN graph construction */
+  BRUTE_FORCE,
   /* Experimental, build the graph with GPiPNN. Needs sm_80 or newer; CAGRA falls back to
      NN-descent where it cannot run, so cases using this still pass on older devices. */
   GPIPNN,
@@ -339,7 +341,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
     {search_algo::AUTO, "auto"}                   //
   };
   std::vector<std::string> build_algo = {
-    "IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "GPIPNN", "AUTO"};
+    "IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "BRUTE_FORCE", "GPIPNN", "AUTO"};
   std::vector<std::string> merge_strategy = {"PHYSICAL", "LOGICAL"};
   os << "{n_queries=" << p.n_queries << ", dataset shape=" << p.n_rows << "x" << p.dim
      << ", degree=" << p.graph_degree << ", k=" << p.k << ", " << algo_name[p.algo]
@@ -369,6 +371,11 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
   template <typename SearchIdxT = IdxT>
   void testCagra()
   {
+    if constexpr (!std::is_same_v<DataT, float> && !std::is_same_v<DataT, half>) {
+      if (ps.build_algo == graph_build_algo::BRUTE_FORCE) {
+        GTEST_SKIP() << "Brute-force kNN graph construction supports only float and half";
+      }
+    }
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -456,6 +463,9 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
             break;
           }
+          case graph_build_algo::BRUTE_FORCE:
+            index_params.graph_build_params = graph_build_params::brute_force_params{};
+            break;
           case graph_build_algo::GPIPNN: {
             index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
@@ -605,6 +615,11 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
  protected:
   void testCagra()
   {
+    if constexpr (!std::is_same_v<DataT, float> && !std::is_same_v<DataT, half>) {
+      if (ps.build_algo == graph_build_algo::BRUTE_FORCE) {
+        GTEST_SKIP() << "Brute-force kNN graph construction supports only float and half";
+      }
+    }
     if (ps.metric == cuvs::distance::DistanceType::L1 &&
         ps.build_algo != graph_build_algo::ITERATIVE_CAGRA_SEARCH)
       GTEST_SKIP();
@@ -693,6 +708,9 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
             break;
           }
+          case graph_build_algo::BRUTE_FORCE:
+            index_params.graph_build_params = graph_build_params::brute_force_params{};
+            break;
           case graph_build_algo::GPIPNN: {
             index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
@@ -827,6 +845,11 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
  protected:
   void testCagra()
   {
+    if constexpr (!std::is_same_v<DataT, float> && !std::is_same_v<DataT, half>) {
+      if (ps.build_algo == graph_build_algo::BRUTE_FORCE) {
+        GTEST_SKIP() << "Brute-force kNN graph construction supports only float and half";
+      }
+    }
     if (ps.metric == cuvs::distance::DistanceType::L1 &&
         ps.build_algo != graph_build_algo::ITERATIVE_CAGRA_SEARCH)
       GTEST_SKIP();
@@ -921,6 +944,9 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
             break;
           }
+          case graph_build_algo::BRUTE_FORCE:
+            index_params.graph_build_params = graph_build_params::brute_force_params{};
+            break;
           case graph_build_algo::GPIPNN: {
             index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
@@ -1223,6 +1249,11 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
   template <typename SearchIdxT = IdxT>
   void testCagra()
   {
+    if constexpr (!std::is_same_v<DataT, float> && !std::is_same_v<DataT, half>) {
+      if (ps.build_algo == graph_build_algo::BRUTE_FORCE) {
+        GTEST_SKIP() << "Brute-force kNN graph construction supports only float and half";
+      }
+    }
     if (ps.metric == cuvs::distance::DistanceType::L1 &&
         ps.build_algo != graph_build_algo::ITERATIVE_CAGRA_SEARCH)
       GTEST_SKIP();
@@ -1342,6 +1373,9 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
             index_params.graph_build_params = graph_build_params::iterative_search_params();
             break;
           }
+          case graph_build_algo::BRUTE_FORCE:
+            index_params.graph_build_params = graph_build_params::brute_force_params{};
+            break;
           case graph_build_algo::GPIPNN: {
             index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
@@ -1489,6 +1523,11 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
   template <typename SearchIdxT = IdxT>
   void testCagra()
   {
+    if constexpr (!std::is_same_v<DataT, float> && !std::is_same_v<DataT, half>) {
+      if (ps.build_algo == graph_build_algo::BRUTE_FORCE) {
+        GTEST_SKIP() << "Brute-force kNN graph construction supports only float and half";
+      }
+    }
     if (ps.metric == cuvs::distance::DistanceType::L1 &&
         ps.build_algo != graph_build_algo::ITERATIVE_CAGRA_SEARCH)
       GTEST_SKIP();
@@ -1596,6 +1635,9 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
             break;
           }
+          case graph_build_algo::BRUTE_FORCE:
+            index_params.graph_build_params = graph_build_params::brute_force_params{};
+            break;
           case graph_build_algo::GPIPNN: {
             index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
@@ -2038,6 +2080,26 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
+  // Add two small exact-builder cases instead of expanding the parameter sweep.
+  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
+    {16},   // queries
+    {256},  // rows
+    {16},   // dimensions
+    {8},    // k
+    {32},   // graph degree
+    {graph_build_algo::BRUTE_FORCE},
+    {search_algo::SINGLE_CTA},
+    {0},   // max queries
+    {0},   // team size
+    {64},  // itopk size
+    {1},   // search width
+    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
+    {false},  // device dataset
+    {true},   // include serialized dataset
+    {false},  // source indices
+    {0.99});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
   // GPiPNN graph build, restricted to what it accepts: the metrics it supports,
   // `n_rows > graph_degree`, and a device-resident dataset with contiguous rows and an even `dim`.
   // These fixtures build from a CAGRA-padded view, so only a `dim` that already meets the 16-byte
@@ -2293,6 +2355,9 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
     index_params.graph_degree              = 64;
     index_params.intermediate_graph_degree = 128;
     switch (ps.build_algo) {
+      case graph_build_algo::BRUTE_FORCE:
+        index_params.graph_build_params = graph_build_params::brute_force_params{};
+        break;
       case graph_build_algo::NN_DESCENT:
         index_params.graph_build_params = graph_build_params::nn_descent_params(
           index_params.intermediate_graph_degree, index_params.metric);
