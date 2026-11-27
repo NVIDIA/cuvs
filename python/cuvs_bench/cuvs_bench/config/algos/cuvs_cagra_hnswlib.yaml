@@ -1,23 +1,18 @@
 name: cuvs_cagra_hnswlib
 constraints:
-  build: cuvs_bench.config.algos.constraints.cuvs_cagra_build
   search: cuvs_bench.config.algos.constraints.hnswlib_search
 groups:
   base:
     build:
-      graph_degree: [32, 64, 96, 128]
-      intermediate_graph_degree: [32, 64, 96, 128]
-      graph_build_algo: ["NN_DESCENT"]
-      hierarchy: ["none", "cpu"]
+      M: [12, 16, 24, 36]
       ef_construction: [64, 128, 256, 512]
+      hierarchy: ["none", "cpu", "gpu"]
     search:
       ef: [10, 20, 40, 60, 80, 120, 200, 400, 600, 800]
   test:
     build:
-      graph_degree: [32]
-      intermediate_graph_degree: [32]
-      graph_build_algo: ["NN_DESCENT"]
-      hierarchy: ["none", "cpu"]
+      M: [12]
       ef_construction: [64]
+      hierarchy: ["none", "cpu", "gpu"]
     search:
       ef: [10, 20]
