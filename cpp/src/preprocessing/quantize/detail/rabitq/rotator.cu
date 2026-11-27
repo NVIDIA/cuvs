@@ -17,16 +17,12 @@
 #include "fht.cuh"
 #include "rotator.cuh"
 
-#include <raft/core/cublas_macros.hpp>
 #include <raft/core/error.hpp>
-#include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/linalg/gemm.cuh>
 #include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
 
-#include <cublas_v2.h>
-
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -51,7 +47,7 @@ struct fht_kac_derived {
 
 inline fht_kac_derived derive_fht_kac(int64_t D)
 {
-  const int64_t bottom_log = std::bit_width(static_cast<uint64_t>(D)) - 1;
+  const int64_t bottom_log = raft::log2(D);
   const int64_t trunc_dim  = int64_t{1} << bottom_log;
   return fht_kac_derived{
     trunc_dim, static_cast<int>(bottom_log), 1.0f / std::sqrt(static_cast<float>(trunc_dim))};
@@ -118,24 +114,23 @@ void rotate_matmul(raft::resources const& res,
   if (N <= 0) { return; }
   const float alpha = 1.0f;
   const float beta  = 0.0f;
-  auto cublas_h     = raft::resource::get_cublas_handle(res);
-  RAFT_CUBLAS_TRY(cublasSetStream(cublas_h, raft::resource::get_cuda_stream(res).get()));
-  // Row-major row-of-A (size D) is reinterpreted as column-of-A in column-major,
-  // and row-major P reads as P^T; compute C = P · A by transposing it back.
-  RAFT_CUBLAS_TRY(cublasSgemm(cublas_h,
-                              CUBLAS_OP_T,
-                              CUBLAS_OP_N,
-                              static_cast<int>(D),
-                              static_cast<int>(N),
-                              static_cast<int>(D),
-                              &alpha,
-                              P.data_handle(),
-                              static_cast<int>(D),
-                              in.data_handle(),
-                              static_cast<int>(D),
-                              &beta,
-                              out.data_handle(),
-                              static_cast<int>(D)));
+  // Row-major P and input rows are viewed as columns; transpose P back to
+  // compute out_i = P * in_i.
+  raft::linalg::gemm(res,
+                     true,
+                     false,
+                     static_cast<int>(D),
+                     static_cast<int>(N),
+                     static_cast<int>(D),
+                     &alpha,
+                     P.data_handle(),
+                     static_cast<int>(D),
+                     in.data_handle(),
+                     static_cast<int>(D),
+                     &beta,
+                     out.data_handle(),
+                     static_cast<int>(D),
+                     raft::resource::get_cuda_stream(res).get());
 }
 
 void rotate_fht_kac(cudaStream_t stream,

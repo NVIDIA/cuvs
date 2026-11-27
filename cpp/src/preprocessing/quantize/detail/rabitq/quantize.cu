@@ -299,20 +299,22 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
 template <typename CodeT, bool kFullFactors>
 struct quantize_smem_key {};
 
-template <typename CodeT>
-static void launch_quantize_fused(cudaStream_t stream,
-                                  const float* d_residual,
-                                  size_t N,
-                                  uint32_t padded_dim,
-                                  size_t ex_bits,
-                                  float const_scaling_factor,
-                                  bool use_fast,
-                                  int delta_mode,
-                                  int coarse_samples,
-                                  int fine_samples,
-                                  CodeT* d_total_code,
-                                  float* d_delta,
-                                  float* d_vl)
+template <typename CodeT, bool kFullFactors>
+static void launch_quantize(cudaStream_t stream,
+                            const float* d_residual,
+                            size_t N,
+                            uint32_t padded_dim,
+                            size_t ex_bits,
+                            float const_scaling_factor,
+                            bool use_fast,
+                            int delta_mode,
+                            int coarse_samples,
+                            int fine_samples,
+                            CodeT* d_total_code,
+                            float* d_delta,
+                            float* d_vl,
+                            const float* d_centroid,
+                            float* d_factors)
 {
   constexpr int block  = 256;
   int iN               = static_cast<int>(N);
@@ -322,10 +324,11 @@ static void launch_quantize_fused(cudaStream_t stream,
 
   // The kernel only reads its shared memory while searching for a per-vector scale.
   const size_t q_smem = (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
-  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, false>;
+  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, kFullFactors>;
   cudaKernel_t cuda_kernel;
   RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<CodeT, false>>(
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<
+    quantize_smem_key<CodeT, kFullFactors>>(
     static_cast<std::uint32_t>(q_smem),
     [&]() {
       kernel<<<iN, block, q_smem, stream>>>(d_residual,
@@ -340,109 +343,6 @@ static void launch_quantize_fused(cudaStream_t stream,
                                             d_delta,
                                             d_vl,
                                             delta_mode,
-                                            nullptr,
-                                            nullptr);
-    },
-    cuda_kernel);
-  RAFT_CUDA_TRY(cudaGetLastError());
-}
-
-void quantize_fused_on_residuals(
-  cudaStream_t stream,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  size_t ex_bits,
-  float const_scaling_factor,
-  bool use_fast,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-  raft::device_vector_view<float, int64_t> delta,
-  raft::device_vector_view<float, int64_t> vl,
-  int delta_mode,
-  int coarse_samples,
-  int fine_samples)
-{
-  launch_quantize_fused(stream,
-                        residuals.data_handle(),
-                        static_cast<size_t>(residuals.extent(0)),
-                        static_cast<uint32_t>(residuals.extent(1)),
-                        ex_bits,
-                        const_scaling_factor,
-                        use_fast,
-                        delta_mode,
-                        coarse_samples,
-                        fine_samples,
-                        codes.data_handle(),
-                        delta.data_handle(),
-                        vl.data_handle());
-}
-
-void quantize_fused_on_residuals(
-  cudaStream_t stream,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  size_t ex_bits,
-  float const_scaling_factor,
-  bool use_fast,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-  raft::device_vector_view<float, int64_t> delta,
-  raft::device_vector_view<float, int64_t> vl,
-  int delta_mode,
-  int coarse_samples,
-  int fine_samples)
-{
-  launch_quantize_fused(stream,
-                        residuals.data_handle(),
-                        static_cast<size_t>(residuals.extent(0)),
-                        static_cast<uint32_t>(residuals.extent(1)),
-                        ex_bits,
-                        const_scaling_factor,
-                        use_fast,
-                        delta_mode,
-                        coarse_samples,
-                        fine_samples,
-                        codes.data_handle(),
-                        delta.data_handle(),
-                        vl.data_handle());
-}
-
-template <typename CodeT>
-static void launch_quantize_full(cudaStream_t stream,
-                                 const float* d_residual,
-                                 const float* d_centroid,
-                                 size_t N,
-                                 uint32_t padded_dim,
-                                 size_t ex_bits,
-                                 float const_scaling_factor,
-                                 bool use_fast,
-                                 int coarse_samples,
-                                 int fine_samples,
-                                 CodeT* d_total_code,
-                                 float* d_factors)
-{
-  constexpr int block  = 256;
-  int iN               = static_cast<int>(N);
-  int iD               = static_cast<int>(padded_dim);
-  int iB               = static_cast<int>(ex_bits);
-  constexpr int nwarps = block / 32;
-
-  // The kernel only reads its shared memory while searching for a per-vector scale.
-  const size_t q_smem = (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
-  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, true>;
-  cudaKernel_t cuda_kernel;
-  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<CodeT, true>>(
-    static_cast<std::uint32_t>(q_smem),
-    [&]() {
-      kernel<<<iN, block, q_smem, stream>>>(d_residual,
-                                            d_total_code,
-                                            iN,
-                                            iD,
-                                            iB,
-                                            const_scaling_factor,
-                                            use_fast,
-                                            coarse_samples,
-                                            fine_samples,
-                                            nullptr,
-                                            nullptr,
-                                            0,
                                             d_centroid,
                                             d_factors);
     },
@@ -450,32 +350,38 @@ static void launch_quantize_full(cudaStream_t stream,
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
-void quantize_full_on_residuals(
+template <typename CodeT>
+void quantize_fused_on_residuals(
   cudaStream_t stream,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  raft::device_vector_view<const float, int64_t> centroid,
   size_t ex_bits,
   float const_scaling_factor,
   bool use_fast,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-  raft::device_matrix_view<float, int64_t, raft::row_major> factors,
+  raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+  raft::device_vector_view<float, int64_t> delta,
+  raft::device_vector_view<float, int64_t> vl,
+  int delta_mode,
   int coarse_samples,
   int fine_samples)
 {
-  launch_quantize_full(stream,
-                       residuals.data_handle(),
-                       centroid.data_handle(),
-                       static_cast<size_t>(residuals.extent(0)),
-                       static_cast<uint32_t>(residuals.extent(1)),
-                       ex_bits,
-                       const_scaling_factor,
-                       use_fast,
-                       coarse_samples,
-                       fine_samples,
-                       codes.data_handle(),
-                       factors.data_handle());
+  launch_quantize<CodeT, false>(stream,
+                                residuals.data_handle(),
+                                static_cast<size_t>(residuals.extent(0)),
+                                static_cast<uint32_t>(residuals.extent(1)),
+                                ex_bits,
+                                const_scaling_factor,
+                                use_fast,
+                                delta_mode,
+                                coarse_samples,
+                                fine_samples,
+                                codes.data_handle(),
+                                delta.data_handle(),
+                                vl.data_handle(),
+                                nullptr,
+                                nullptr);
 }
 
+template <typename CodeT>
 void quantize_full_on_residuals(
   cudaStream_t stream,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
@@ -483,23 +389,76 @@ void quantize_full_on_residuals(
   size_t ex_bits,
   float const_scaling_factor,
   bool use_fast,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+  raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors,
   int coarse_samples,
   int fine_samples)
 {
-  launch_quantize_full(stream,
-                       residuals.data_handle(),
-                       centroid.data_handle(),
-                       static_cast<size_t>(residuals.extent(0)),
-                       static_cast<uint32_t>(residuals.extent(1)),
-                       ex_bits,
-                       const_scaling_factor,
-                       use_fast,
-                       coarse_samples,
-                       fine_samples,
-                       codes.data_handle(),
-                       factors.data_handle());
+  launch_quantize<CodeT, true>(stream,
+                               residuals.data_handle(),
+                               static_cast<size_t>(residuals.extent(0)),
+                               static_cast<uint32_t>(residuals.extent(1)),
+                               ex_bits,
+                               const_scaling_factor,
+                               use_fast,
+                               0,
+                               coarse_samples,
+                               fine_samples,
+                               codes.data_handle(),
+                               nullptr,
+                               nullptr,
+                               centroid.data_handle(),
+                               factors.data_handle());
 }
+
+template void quantize_fused_on_residuals<uint8_t>(
+  cudaStream_t,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint8_t, int64_t, raft::row_major>,
+  raft::device_vector_view<float, int64_t>,
+  raft::device_vector_view<float, int64_t>,
+  int,
+  int,
+  int);
+
+template void quantize_fused_on_residuals<uint16_t>(
+  cudaStream_t,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint16_t, int64_t, raft::row_major>,
+  raft::device_vector_view<float, int64_t>,
+  raft::device_vector_view<float, int64_t>,
+  int,
+  int,
+  int);
+
+template void quantize_full_on_residuals<uint8_t>(
+  cudaStream_t,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  raft::device_vector_view<const float, int64_t>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint8_t, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  int,
+  int);
+
+template void quantize_full_on_residuals<uint16_t>(
+  cudaStream_t,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  raft::device_vector_view<const float, int64_t>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint16_t, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  int,
+  int);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail

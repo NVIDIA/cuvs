@@ -35,6 +35,7 @@
 #include <cuda_runtime.h>
 #include <raft/core/error.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
+#include <raft/util/pow2_utils.cuh>
 #include <type_traits>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
@@ -44,8 +45,6 @@ namespace fht {
 // ============================================================================
 // Compile-time helpers
 // ============================================================================
-
-constexpr __host__ __device__ int clog2(int val) { return val > 1 ? 1 + clog2(val >> 1) : 0; }
 
 /// Threads used by the cooperative kernels for a transform of 2^log_len
 /// elements: length/4 clamped to [32, 256], except 512 for the largest size
@@ -120,7 +119,7 @@ __global__ void fht_kac_rotate_warp_kernel(
 {
   constexpr int kDim           = 1 << kLogN;
   constexpr int kC             = kDim / 128;  // float4 registers per lane
-  constexpr int kLogC          = clog2(kC);
+  constexpr int kLogC          = raft::Pow2<kC>::Log2;
   constexpr int kWordsPerRound = kDim / 32;
   static_assert(kLogN >= 7, "warp kernel needs at least one float4 per lane");
 

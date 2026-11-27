@@ -36,26 +36,14 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// Writes N × padded_dim codes, plus a per-vector (delta, vl) pair.
 ///
 /// delta_mode: 0 = RECONSTRUCTION, 1 = UNBIASED, 2 = PLAIN.
+template <typename CodeT>
 void quantize_fused_on_residuals(
   cudaStream_t stream,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   size_t ex_bits,
   float const_scaling_factor,
   bool use_fast,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-  raft::device_vector_view<float, int64_t> delta,
-  raft::device_vector_view<float, int64_t> vl,
-  int delta_mode     = 0,
-  int coarse_samples = 64,
-  int fine_samples   = 64);
-
-void quantize_fused_on_residuals(
-  cudaStream_t stream,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  size_t ex_bits,
-  float const_scaling_factor,
-  bool use_fast,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+  raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
   raft::device_vector_view<float, int64_t> delta,
   raft::device_vector_view<float, int64_t> vl,
   int delta_mode     = 0,
@@ -73,6 +61,7 @@ void quantize_fused_on_residuals(
 ///               zero-filled buffer when there is no centroid.
 /// factors     : N × 3 floats on device — layout
 ///               [f_add, f_rescale, f_error] per vector.
+template <typename CodeT>
 void quantize_full_on_residuals(
   cudaStream_t stream,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
@@ -80,19 +69,7 @@ void quantize_full_on_residuals(
   size_t ex_bits,
   float const_scaling_factor,
   bool use_fast,
-  raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-  raft::device_matrix_view<float, int64_t, raft::row_major> factors,
-  int coarse_samples,
-  int fine_samples);
-
-void quantize_full_on_residuals(
-  cudaStream_t stream,
-  raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
-  raft::device_vector_view<const float, int64_t> centroid,
-  size_t ex_bits,
-  float const_scaling_factor,
-  bool use_fast,
-  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+  raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors,
   int coarse_samples,
   int fine_samples);

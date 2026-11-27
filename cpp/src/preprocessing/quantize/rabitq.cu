@@ -19,8 +19,6 @@
 #include <raft/core/resource/device_properties.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 
-#include <rmm/device_uvector.hpp>
-
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -248,14 +246,13 @@ void transform_impl(raft::resources const& res,
   }
   if (n_rows == 0) { return; }
 
-  auto stream    = raft::resource::get_cuda_stream(res);
   auto workspace = raft::resource::get_workspace_resource_ref(res);
   const int64_t batch =
     get_transform_batch_size(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
-  rmm::device_uvector<float> residuals(
-    static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
-  rmm::device_uvector<float> rotated_centroid(
-    centroid.has_value() ? static_cast<size_t>(q.padded_dim) : 0, stream, workspace);
+  auto residuals = raft::make_device_mdarray<float, int64_t>(
+    res, workspace, raft::make_extents<int64_t>(batch, q.padded_dim));
+  auto rotated_centroid = raft::make_device_mdarray<float, int64_t>(
+    res, workspace, raft::make_extents<int64_t>(centroid.has_value() ? q.padded_dim : 0));
 
   // Rows are quantized independently, so batching only bounds the scratch.
   for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
@@ -264,8 +261,7 @@ void transform_impl(raft::resources const& res,
       raft::make_device_matrix_view<const float, int64_t>(rows, n, q.dim),
       rot.view(),
       centroid,
-      raft::make_device_vector_view<float, int64_t>(rotated_centroid.data(),
-                                                    static_cast<int64_t>(rotated_centroid.size())),
+      rotated_centroid.view(),
       static_cast<size_t>(q.params_quantizer.ex_bits),
       q.const_scaling_factor,
       q.params_quantizer.use_fast,
@@ -273,7 +269,7 @@ void transform_impl(raft::resources const& res,
         codes.data_handle() + r0 * q.padded_dim, n, q.padded_dim),
       raft::make_device_vector_view<float, int64_t>(delta.data_handle() + r0, n),
       raft::make_device_vector_view<float, int64_t>(vl.data_handle() + r0, n),
-      raft::make_device_matrix_view<float, int64_t>(residuals.data(), n, q.padded_dim),
+      raft::make_device_matrix_view<float, int64_t>(residuals.data_handle(), n, q.padded_dim),
       static_cast<int>(q.params_quantizer.delta_mode),
       static_cast<int>(q.params_quantizer.coarse_samples),
       static_cast<int>(q.params_quantizer.fine_samples));
@@ -301,15 +297,15 @@ void transform_full_impl(raft::resources const& res,
   }
   if (n_rows == 0) { return; }
 
-  auto stream    = raft::resource::get_cuda_stream(res);
   auto workspace = raft::resource::get_workspace_resource_ref(res);
   const int64_t batch =
     get_transform_batch_size(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
-  rmm::device_uvector<float> residuals(
-    static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
+  auto residuals = raft::make_device_mdarray<float, int64_t>(
+    res, workspace, raft::make_extents<int64_t>(batch, q.padded_dim));
   // The full-factor formula always reads the rotated centroid; the detail layer
   // zero-fills this buffer when no centroid is given.
-  rmm::device_uvector<float> rotated_centroid(static_cast<size_t>(q.padded_dim), stream, workspace);
+  auto rotated_centroid = raft::make_device_mdarray<float, int64_t>(
+    res, workspace, raft::make_extents<int64_t>(q.padded_dim));
 
   // Rows are quantized independently, so batching only bounds the scratch.
   for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
@@ -318,7 +314,7 @@ void transform_full_impl(raft::resources const& res,
       raft::make_device_matrix_view<const float, int64_t>(rows, n, q.dim),
       rot.view(),
       centroid,
-      raft::make_device_vector_view<float, int64_t>(rotated_centroid.data(), q.padded_dim),
+      rotated_centroid.view(),
       static_cast<size_t>(q.params_quantizer.ex_bits),
       q.const_scaling_factor,
       q.params_quantizer.use_fast,
@@ -326,7 +322,7 @@ void transform_full_impl(raft::resources const& res,
         codes.data_handle() + r0 * q.padded_dim, n, q.padded_dim),
       raft::make_device_matrix_view<float, int64_t>(
         factors.data_handle() + r0 * kNumFactors, n, kNumFactors),
-      raft::make_device_matrix_view<float, int64_t>(residuals.data(), n, q.padded_dim),
+      raft::make_device_matrix_view<float, int64_t>(residuals.data_handle(), n, q.padded_dim),
       static_cast<int>(q.params_quantizer.coarse_samples),
       static_cast<int>(q.params_quantizer.fine_samples));
   });
@@ -389,15 +385,17 @@ void transform_residuals_full_impl(
   auto stream    = raft::resource::get_cuda_stream(res);
   auto workspace = raft::resource::get_workspace_resource_ref(res);
   // The kernel always reads a centroid; stand in with zeros when there is none.
-  rmm::device_uvector<float> zero_centroid(
-    rotated_centroid.has_value() ? 0 : static_cast<size_t>(q.padded_dim), stream, workspace);
+  auto zero_centroid = raft::make_device_mdarray<float, int64_t>(
+    res, workspace, raft::make_extents<int64_t>(rotated_centroid.has_value() ? 0 : q.padded_dim));
   const float* d_centroid = nullptr;
   if (rotated_centroid.has_value()) {
     d_centroid = rotated_centroid->data_handle();
   } else {
-    RAFT_CUDA_TRY(cudaMemsetAsync(
-      zero_centroid.data(), 0, static_cast<size_t>(q.padded_dim) * sizeof(float), stream.get()));
-    d_centroid = zero_centroid.data();
+    RAFT_CUDA_TRY(cudaMemsetAsync(zero_centroid.data_handle(),
+                                  0,
+                                  static_cast<size_t>(q.padded_dim) * sizeof(float),
+                                  stream.get()));
+    d_centroid = zero_centroid.data_handle();
   }
 
   detail::quantize_full_on_residuals(

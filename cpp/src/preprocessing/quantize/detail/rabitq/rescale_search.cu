@@ -23,6 +23,7 @@
 #include <curand_kernel.h>
 
 #include <cstdint>
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
@@ -30,8 +31,6 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/reduction.cuh>
-
-#include <rmm/device_uvector.hpp>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
@@ -294,8 +293,10 @@ float get_const_scaling_factor(raft::resources const& res,
   auto stream    = raft::resource::get_cuda_stream(res);
   auto workspace = raft::resource::get_workspace_resource_ref(res);
 
-  rmm::device_uvector<float> d_factors(static_cast<size_t>(kConstNum), stream, workspace);
-  rmm::device_uvector<float> d_sum(1, stream, workspace);
+  auto d_factors = raft::make_device_mdarray<float, size_t>(
+    res, workspace, raft::make_extents<size_t>(static_cast<size_t>(kConstNum)));
+  auto d_sum =
+    raft::make_device_mdarray<float, size_t>(res, workspace, raft::make_extents<size_t>(1));
 
   int block_size = 256;
   if (dim <= 512) block_size = 128;
@@ -316,7 +317,7 @@ float get_const_scaling_factor(raft::resources const& res,
                                           : &launch_rescale_sample_kernel<512>;
   launch(stream.get(),
          shared_mem_size,
-         d_factors.data(),
+         d_factors.data_handle(),
          kConstNum,
          static_cast<int>(dim),
          static_cast<int>(ex_bits),
@@ -325,20 +326,25 @@ float get_const_scaling_factor(raft::resources const& res,
          fine_samples);
 
   size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
-    nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream.get()));
-
-  rmm::device_uvector<char> d_temp_storage(temp_storage_bytes, stream, workspace);
-  RAFT_CUDA_TRY(cub::DeviceReduce::Sum(d_temp_storage.data(),
+  RAFT_CUDA_TRY(cub::DeviceReduce::Sum(nullptr,
                                        temp_storage_bytes,
-                                       d_factors.data(),
-                                       d_sum.data(),
+                                       d_factors.data_handle(),
+                                       d_sum.data_handle(),
+                                       kConstNum,
+                                       stream.get()));
+
+  auto d_temp_storage = raft::make_device_mdarray<char, size_t>(
+    res, workspace, raft::make_extents<size_t>(temp_storage_bytes));
+  RAFT_CUDA_TRY(cub::DeviceReduce::Sum(d_temp_storage.data_handle(),
+                                       temp_storage_bytes,
+                                       d_factors.data_handle(),
+                                       d_sum.data_handle(),
                                        kConstNum,
                                        stream.get()));
 
   float sum;
-  RAFT_CUDA_TRY(
-    cudaMemcpyAsync(&sum, d_sum.data(), sizeof(float), cudaMemcpyDeviceToHost, stream.get()));
+  RAFT_CUDA_TRY(cudaMemcpyAsync(
+    &sum, d_sum.data_handle(), sizeof(float), cudaMemcpyDeviceToHost, stream.get()));
   raft::resource::sync_stream(res);
 
   return sum / kConstNum;

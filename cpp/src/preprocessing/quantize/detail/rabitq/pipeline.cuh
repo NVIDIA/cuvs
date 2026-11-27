@@ -55,6 +55,7 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// residuals           N x D output (D = rotator.padded_dim): the rotated
 ///                     residuals that the emitted codes refer to.
 /// Remaining parameters mirror quantize_fused_on_residuals.
+template <typename CodeT>
 void quantize_data(raft::resources const& res,
                    raft::device_matrix_view<const float, int64_t, raft::row_major> data,
                    rotator_view<const float> rotator,
@@ -63,23 +64,7 @@ void quantize_data(raft::resources const& res,
                    size_t ex_bits,
                    float const_scaling_factor,
                    bool use_fast,
-                   raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-                   raft::device_vector_view<float, int64_t> delta,
-                   raft::device_vector_view<float, int64_t> vl,
-                   raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                   int delta_mode     = 0,
-                   int coarse_samples = 64,
-                   int fine_samples   = 64);
-
-void quantize_data(raft::resources const& res,
-                   raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                   rotator_view<const float> rotator,
-                   std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                   raft::device_vector_view<float, int64_t> rotated_centroid,
-                   size_t ex_bits,
-                   float const_scaling_factor,
-                   bool use_fast,
-                   raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+                   raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
                    raft::device_vector_view<float, int64_t> delta,
                    raft::device_vector_view<float, int64_t> vl,
                    raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
@@ -91,6 +76,7 @@ void quantize_data(raft::resources const& res,
 /// for approximate-distance estimation. rotated_centroid (D floats) is
 /// always required here — it participates in the factor computation — and is
 /// zero-filled when there is no centroid.
+template <typename CodeT>
 void quantize_data_full(raft::resources const& res,
                         raft::device_matrix_view<const float, int64_t, raft::row_major> data,
                         rotator_view<const float> rotator,
@@ -99,21 +85,7 @@ void quantize_data_full(raft::resources const& res,
                         size_t ex_bits,
                         float const_scaling_factor,
                         bool use_fast,
-                        raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> factors,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                        int coarse_samples,
-                        int fine_samples);
-
-void quantize_data_full(raft::resources const& res,
-                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                        rotator_view<const float> rotator,
-                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                        raft::device_vector_view<float, int64_t> rotated_centroid,
-                        size_t ex_bits,
-                        float const_scaling_factor,
-                        bool use_fast,
-                        raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+                        raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
                         raft::device_matrix_view<float, int64_t, raft::row_major> factors,
                         raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                         int coarse_samples,

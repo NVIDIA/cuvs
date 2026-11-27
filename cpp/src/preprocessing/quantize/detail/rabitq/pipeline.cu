@@ -15,6 +15,7 @@
 #include "pipeline.cuh"
 #include "quantize.cuh"
 
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -22,8 +23,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/linewise_op.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
-
-#include <rmm/device_uvector.hpp>
 
 #include <cuda_runtime.h>
 
@@ -55,7 +54,6 @@ void pad_and_rotate(raft::resources const& res,
     rotate(res, rotator, src, dst);
     return;
   }
-  auto stream      = raft::resource::get_cuda_stream(res);
   const size_t N   = static_cast<size_t>(src.extent(0));
   const size_t dim = static_cast<size_t>(src.extent(1));
   const size_t D   = static_cast<size_t>(dst.extent(1));
@@ -63,12 +61,12 @@ void pad_and_rotate(raft::resources const& res,
     pad_rows(res, src.data_handle(), dst.data_handle(), N, dim, D);
     rotate(res, rotator, raft::make_const_mdspan(dst), dst);
   } else {
-    rmm::device_uvector<float> d_tmp(
-      static_cast<size_t>(dst.size()), stream, raft::resource::get_workspace_resource_ref(res));
-    auto tmp =
-      raft::make_device_matrix_view<float, int64_t>(d_tmp.data(), dst.extent(0), dst.extent(1));
+    auto tmp = raft::make_device_mdarray<float, int64_t>(
+      res,
+      raft::resource::get_workspace_resource_ref(res),
+      raft::make_extents<int64_t>(dst.extent(0), dst.extent(1)));
     pad_rows(res, src.data_handle(), tmp.data_handle(), N, dim, D);
-    rotate(res, rotator, raft::make_const_mdspan(tmp), dst);
+    rotate(res, rotator, raft::make_const_mdspan(tmp.view()), dst);
   }
 }
 
@@ -105,22 +103,24 @@ void prepare_residuals(raft::resources const& res,
   }
 }
 
+}  // namespace
+
 template <typename CodeT>
-void quantize_data_impl(raft::resources const& res,
-                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                        rotator_view<const float> rotator,
-                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                        raft::device_vector_view<float, int64_t> rotated_centroid,
-                        size_t ex_bits,
-                        float const_scaling_factor,
-                        bool use_fast,
-                        raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
-                        raft::device_vector_view<float, int64_t> delta,
-                        raft::device_vector_view<float, int64_t> vl,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                        int delta_mode,
-                        int coarse_samples,
-                        int fine_samples)
+void quantize_data(raft::resources const& res,
+                   raft::device_matrix_view<const float, int64_t, raft::row_major> data,
+                   rotator_view<const float> rotator,
+                   std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+                   raft::device_vector_view<float, int64_t> rotated_centroid,
+                   size_t ex_bits,
+                   float const_scaling_factor,
+                   bool use_fast,
+                   raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+                   raft::device_vector_view<float, int64_t> delta,
+                   raft::device_vector_view<float, int64_t> vl,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
+                   int delta_mode,
+                   int coarse_samples,
+                   int fine_samples)
 {
   prepare_residuals(res,
                     data,
@@ -143,19 +143,19 @@ void quantize_data_impl(raft::resources const& res,
 }
 
 template <typename CodeT>
-void quantize_data_full_impl(raft::resources const& res,
-                             raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                             rotator_view<const float> rotator,
-                             std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                             raft::device_vector_view<float, int64_t> rotated_centroid,
-                             size_t ex_bits,
-                             float const_scaling_factor,
-                             bool use_fast,
-                             raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
-                             raft::device_matrix_view<float, int64_t, raft::row_major> factors,
-                             raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                             int coarse_samples,
-                             int fine_samples)
+void quantize_data_full(raft::resources const& res,
+                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
+                        rotator_view<const float> rotator,
+                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+                        raft::device_vector_view<float, int64_t> rotated_centroid,
+                        size_t ex_bits,
+                        float const_scaling_factor,
+                        bool use_fast,
+                        raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
+                        raft::device_matrix_view<float, int64_t, raft::row_major> factors,
+                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
+                        int coarse_samples,
+                        int fine_samples)
 {
   prepare_residuals(res,
                     data,
@@ -176,130 +176,68 @@ void quantize_data_full_impl(raft::resources const& res,
                              fine_samples);
 }
 
-}  // namespace
+template void quantize_data<uint8_t>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  rotator_view<const float>,
+  std::optional<raft::device_vector_view<const float, int64_t>>,
+  raft::device_vector_view<float, int64_t>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint8_t, int64_t, raft::row_major>,
+  raft::device_vector_view<float, int64_t>,
+  raft::device_vector_view<float, int64_t>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  int,
+  int,
+  int);
 
-void quantize_data(raft::resources const& res,
-                   raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                   rotator_view<const float> rotator,
-                   std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                   raft::device_vector_view<float, int64_t> rotated_centroid,
-                   size_t ex_bits,
-                   float const_scaling_factor,
-                   bool use_fast,
-                   raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-                   raft::device_vector_view<float, int64_t> delta,
-                   raft::device_vector_view<float, int64_t> vl,
-                   raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                   int delta_mode,
-                   int coarse_samples,
-                   int fine_samples)
-{
-  quantize_data_impl(res,
-                     data,
-                     rotator,
-                     centroid,
-                     rotated_centroid,
-                     ex_bits,
-                     const_scaling_factor,
-                     use_fast,
-                     codes,
-                     delta,
-                     vl,
-                     residuals,
-                     delta_mode,
-                     coarse_samples,
-                     fine_samples);
-}
+template void quantize_data<uint16_t>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  rotator_view<const float>,
+  std::optional<raft::device_vector_view<const float, int64_t>>,
+  raft::device_vector_view<float, int64_t>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint16_t, int64_t, raft::row_major>,
+  raft::device_vector_view<float, int64_t>,
+  raft::device_vector_view<float, int64_t>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  int,
+  int,
+  int);
 
-void quantize_data(raft::resources const& res,
-                   raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                   rotator_view<const float> rotator,
-                   std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                   raft::device_vector_view<float, int64_t> rotated_centroid,
-                   size_t ex_bits,
-                   float const_scaling_factor,
-                   bool use_fast,
-                   raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-                   raft::device_vector_view<float, int64_t> delta,
-                   raft::device_vector_view<float, int64_t> vl,
-                   raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                   int delta_mode,
-                   int coarse_samples,
-                   int fine_samples)
-{
-  quantize_data_impl(res,
-                     data,
-                     rotator,
-                     centroid,
-                     rotated_centroid,
-                     ex_bits,
-                     const_scaling_factor,
-                     use_fast,
-                     codes,
-                     delta,
-                     vl,
-                     residuals,
-                     delta_mode,
-                     coarse_samples,
-                     fine_samples);
-}
+template void quantize_data_full<uint8_t>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  rotator_view<const float>,
+  std::optional<raft::device_vector_view<const float, int64_t>>,
+  raft::device_vector_view<float, int64_t>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint8_t, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  int,
+  int);
 
-void quantize_data_full(raft::resources const& res,
-                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                        rotator_view<const float> rotator,
-                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                        raft::device_vector_view<float, int64_t> rotated_centroid,
-                        size_t ex_bits,
-                        float const_scaling_factor,
-                        bool use_fast,
-                        raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> factors,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                        int coarse_samples,
-                        int fine_samples)
-{
-  quantize_data_full_impl(res,
-                          data,
-                          rotator,
-                          centroid,
-                          rotated_centroid,
-                          ex_bits,
-                          const_scaling_factor,
-                          use_fast,
-                          codes,
-                          factors,
-                          residuals,
-                          coarse_samples,
-                          fine_samples);
-}
-
-void quantize_data_full(raft::resources const& res,
-                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
-                        rotator_view<const float> rotator,
-                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
-                        raft::device_vector_view<float, int64_t> rotated_centroid,
-                        size_t ex_bits,
-                        float const_scaling_factor,
-                        bool use_fast,
-                        raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> factors,
-                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
-                        int coarse_samples,
-                        int fine_samples)
-{
-  quantize_data_full_impl(res,
-                          data,
-                          rotator,
-                          centroid,
-                          rotated_centroid,
-                          ex_bits,
-                          const_scaling_factor,
-                          use_fast,
-                          codes,
-                          factors,
-                          residuals,
-                          coarse_samples,
-                          fine_samples);
-}
+template void quantize_data_full<uint16_t>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  rotator_view<const float>,
+  std::optional<raft::device_vector_view<const float, int64_t>>,
+  raft::device_vector_view<float, int64_t>,
+  size_t,
+  float,
+  bool,
+  raft::device_matrix_view<uint16_t, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  int,
+  int);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
