@@ -21,6 +21,7 @@
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
+#include <raft/core/resource/device_properties.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/map_then_reduce.cuh>
@@ -112,9 +113,9 @@ void predict(const raft::resources& handle,
 
 /**
  * The pruned assignment (cuvs::distance::pruned_top_1_nn) and what it keeps across iterations: the
- * row norms and the workspace. Float filter rows are prepared per batch.
- * The centroids the 1-NN reads are T: for half rows, a half copy of the float centroids, which is
- * also the filter's.
+ * row norms and the workspace. The filter reads FP16 copies of the centroid prefixes and, for
+ * float input, FP16 copies of the row prefixes prepared per batch. With half input, the filter
+ * and prune use the same FP16 centroid copy.
  */
 template <typename T>
 class pruned_assignment {
@@ -135,7 +136,7 @@ class pruned_assignment {
       n_rows_(X.extent(0)),
       dim_(X.extent(1)),
       n_clusters_(n_clusters),
-      filter_dim_(std::is_same_v<T, half> ? dim_ : pruned_nn::kPartialDim),
+      filter_dim_(std::is_same_v<T, half> ? dim_ : pruned_nn::kFilterCopyDim),
       row_norms_(raft::make_device_mdarray<float, int64_t>(
         handle,
         raft::resource::get_workspace_resource_ref(handle),
@@ -157,7 +158,7 @@ class pruned_assignment {
         handle,
         raft::resource::get_workspace_resource_ref(handle),
         raft::make_extents<int64_t>(
-          cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_, row_batch_size_))))
+          cuvs::distance::pruned_top_1_nn_workspace_size<T>(n_rows_, row_batch_size_))))
   {
     // The input rows do not change between iterations, so cache their filter norms once.
     pruned_nn::squared_norms(
@@ -204,14 +205,29 @@ class pruned_assignment {
                                 raft::device_matrix_view<const T, int64_t> X,
                                 int64_t n_clusters) -> int64_t
   {
-    const auto n_rows = X.extent(0);
+    constexpr int64_t initial_batch_size = 512 * 1024;
+    static_assert(initial_batch_size <= pruned_nn::kMaxPairRows,
+                  "Initial SuperKMeans row batch is too large for packed pair IDs");
+
+    const auto n_rows      = X.extent(0);
+    int64_t rows_per_group = 1;
+#if CUVS_CUTILE_ENABLED
+    if (const auto tile = pruned_nn::filter_tile(); tile) {
+      const auto& device = raft::resource::get_device_properties(handle);
+      // Two CTAs per SM worth of tiles form full waves with either one or two resident CTAs.
+      rows_per_group = int64_t{2} * device.multiProcessorCount * tile->tile_m;
+    }
+#endif
+    const auto aligned_batch_size = initial_batch_size / rows_per_group * rows_per_group;
+    auto batch_size =
+      std::min(n_rows, aligned_batch_size > 0 ? aligned_batch_size : initial_batch_size);
     const auto budget = std::min<std::size_t>(
       (raft::resource::get_workspace_free_bytes(handle) / 10) * 8, std::size_t{1} << 29);
-    const auto fits = [&](int64_t batch_size) {
+    const auto fits = [&](int64_t candidate_size) {
       try {
         const auto stats =
           raft::util::dry_run_execute(handle, [&](const raft::resources& dry_handle) {
-            pruned_assignment candidate(dry_handle, X, n_clusters, batch_size);
+            pruned_assignment candidate(dry_handle, X, n_clusters, candidate_size);
           });
         return stats.device_workspace <= budget;
       } catch (const rmm::bad_alloc&) {
@@ -219,16 +235,32 @@ class pruned_assignment {
       }
     };
 
+    if (fits(batch_size)) { return batch_size; }
+
+    if (rows_per_group > 1) {
+      // Search smaller full waves after the initial batch failed the dry run.
+      int64_t lo = 0;
+      int64_t hi = (batch_size - 1) / rows_per_group;
+      while (lo < hi) {
+        const auto groups = lo + (hi - lo + 1) / 2;
+        if (fits(groups * rows_per_group)) {
+          lo = groups;
+        } else {
+          hi = groups - 1;
+        }
+      }
+      if (lo > 0) { return lo * rows_per_group; }
+    }
+
     constexpr int64_t alignment = pruned_nn::kAlignment / sizeof(float);
     const auto min_batch_size   = std::min(n_rows, alignment);
-    auto batch_size             = n_rows;
-    while (!fits(batch_size)) {
+    do {
       RAFT_EXPECTS(batch_size > min_batch_size,
                    "Insufficient workspace for SuperKMeans pruned assignment");
       const auto half_batch      = raft::ceildiv(batch_size, int64_t{2});
       const int64_t row_multiple = half_batch >= 1024 ? 1024 : alignment;
       batch_size                 = raft::round_up_safe(half_batch, row_multiple);
-    }
+    } while (!fits(batch_size));
     return batch_size;
   }
 
@@ -303,7 +335,7 @@ void fit(const raft::resources& handle,
   };
 
   std::optional<pruned_assignment<T>> pruned_assign;
-  if (pruned) { pruned_assign.emplace(handle, X, n_clusters); }
+  if (pruned && params.n_iters > 1) { pruned_assign.emplace(handle, X, n_clusters); }
 
   for (uint32_t iter = 0; iter < params.n_iters; iter++) {
     if (pruned_assign.has_value() && iter > 0) {

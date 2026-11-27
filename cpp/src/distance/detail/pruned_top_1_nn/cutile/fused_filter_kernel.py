@@ -9,16 +9,8 @@ distance ||row||^2 + ||centroid||^2 - 2 row.centroid over the first d' dims (FP1
 keeps the pairs under the row's threshold best[row] * ratio, where best is the row's
 distance to its current centroid.
 
-Output, for n_rows rows against n_centroids centroids (row_stride >= n_centroids):
-
-  packed  int64, row r's survivors at r * row_stride + 0 .. count[r] - 1, in centroid order (the
-          rest not written); a survivor: (centroid index) << 32 | (the partial distance's float32
-          bits)
-  count   int32 (n_rows, 1): each row's survivor count
-
-A row's region holds every centroid, so it cannot overflow, and a survivor's slot is its rank among
-the row's survivors: the CTA carries each row's count over the centroid tiles, so there is no
-prefix sum across rows.
+The output is a row-major bitmap. Bit b of word w marks centroid 32*w+b in the batch.
+The pair builder enumerates these bits and recomputes partial distances for the pairs it enqueues.
 
 d' is a runtime argument and must be a multiple of TK.
 """
@@ -26,11 +18,6 @@ d' is a runtime argument and must be a multiple of TK.
 import cuda.tile as ct
 
 ConstInt = ct.Constant[int]
-
-# A survivor packed in one int64: the centroid index in the high 32 bits, the partial distance's
-# float32 bits in the low 32. One scatter per survivor is the costly part of the kernel; separate
-# 32-bit scatters per field are much slower.
-ID_SHIFT = 32
 
 
 def kernel_symbol(data_type: str) -> str:
@@ -49,13 +36,10 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
         row_norms,
         centroid_norms,
         best,
-        packed,
-        count,
-        n_rows,
+        bitmap,
         n_centroids,
         ratio,
         dp,
-        row_stride,
         tm: ConstInt,
         tn: ConstInt,
         tk: ConstInt,
@@ -63,18 +47,13 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
         row_tile = ct.bid(0)
         zero_pad = ct.PaddingMode.ZERO
         n_col_tiles = ct.num_tiles(centroids, axis=0, shape=(tn, tk))
-        row_ids = row_tile * tm + ct.arange(tm, dtype=ct.int32)[:, None]
         row_norm = ct.load(
             row_norms, index=(row_tile,), shape=(tm,), padding_mode=zero_pad
         )[:, None]
-        threshold = (
-            ct.load(
-                best, index=(row_tile,), shape=(tm,), padding_mode=zero_pad
-            )[:, None]
-            * ratio
-        )
-        # Each row's survivors so far
-        filled = ct.full((tm, 1), 0, dtype=ct.int32)
+        winners = ct.load(best, index=(row_tile,), shape=(tm,), padding_mode=zero_pad)
+        bits = ct.bitwise_rshift(winners, 32).astype(ct.uint32)
+        threshold = ct.bitcast(bits, ct.float32)[:, None] * ratio
+        shifts = ct.arange(32, dtype=ct.uint32)[None, None, :]
         for centroid_tile in range(n_col_tiles):
             acc = ct.full((tm, tn), 0, dtype=ct.float32)
             for kk in range(dp // tk):
@@ -99,24 +78,15 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
                 padding_mode=zero_pad,
             )[None, :]
             dist = -2.0 * acc + row_norm + centroid_norm
+            # Expanded L2 can round below zero when its terms nearly cancel.
+            dist = ct.where(dist <= 0.0, 0.0, dist)
             centroid_ids = (
                 centroid_tile * tn + ct.arange(tn, dtype=ct.int32)[None, :]
             )
-            keep = (
-                (dist < threshold)
-                & (centroid_ids < n_centroids)
-                & (row_ids < n_rows)
-            )
-            # Slot: the row's region, after its survivors in the earlier tiles, plus the
-            # survivor's rank in this tile
-            keep_i = keep.astype(ct.int32)
-            slot = row_ids * row_stride + filled + ct.cumsum(keep_i, 1) - 1
-            filled = filled + ct.sum(keep_i, axis=1, keepdims=True)
-            # Unsigned widening keeps the distance's sign bit out of the centroid index.
-            index = centroid_ids.astype(ct.int64)
-            dist_bits = ct.bitcast(dist, ct.uint32).astype(ct.int64)
-            value = ct.bitwise_lshift(index, ID_SHIFT) | dist_bits
-            ct.scatter(packed, slot, value, mask=keep)
-        ct.store(count, index=(row_tile, 0), tile=filled)
+            keep = (dist < threshold) & (centroid_ids < n_centroids)
+            # Each group of 32 predicates contributes distinct bits to one bitmap word.
+            mask = ct.reshape(keep, (tm, tn // 32, 32)).astype(ct.uint32)
+            words = ct.sum(ct.bitwise_lshift(mask, shifts), axis=2).astype(ct.uint32)
+            ct.store(bitmap, index=(row_tile, centroid_tile), tile=words)
 
     return fused_filter

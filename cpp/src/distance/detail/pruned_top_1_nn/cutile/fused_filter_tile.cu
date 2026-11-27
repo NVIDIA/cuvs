@@ -67,12 +67,11 @@ void launch_fused_filter(const raft::resources& handle,
                          int dim,
                          const float* row_norms,
                          const float* centroid_norms,
-                         const float* best,
+                         const long long* best,
                          float ratio,
                          int partial_dim,
-                         int64_t* packed,
-                         int* count,
-                         int row_stride)
+                         uint32_t* bitmap,
+                         int bitmap_stride)
 {
   common::nvtx::range<common::nvtx::domain::cuvs> range("pruned_1nn::fused_filter");
   FusedFilterTilePlanner planner;
@@ -93,57 +92,52 @@ void launch_fused_filter(const raft::resources& handle,
                           static_cast<const void*>(row_norms),
                           static_cast<const void*>(centroid_norms),
                           static_cast<const void*>(best),
-                          static_cast<const void*>(packed),
-                          static_cast<const void*>(count)}) {
+                          static_cast<const void*>(bitmap)}) {
     RAFT_EXPECTS(reinterpret_cast<uintptr_t>(ptr) % 16 == 0,
                  "Pruned 1-NN fused filter: buffers must be 16-byte aligned");
   }
-  RAFT_EXPECTS(row_stride >= n_centroids,
-               "Pruned 1-NN fused filter: a row's region must hold every centroid");
-  const int64_t packed_size = int64_t{n_rows} * row_stride;
-  RAFT_EXPECTS(packed_size <= std::numeric_limits<int>::max(),
-               "Pruned 1-NN fused filter: too many rows x centroids in one call");
+  constexpr int kBitsPerWord = 32;
+  RAFT_EXPECTS(tile.tile_n % kBitsPerWord == 0,
+               "Pruned 1-NN filter tiles must contain whole bitmap words");
+  const int64_t centroid_tiles = (int64_t{n_centroids} + tile.tile_n - 1) / tile.tile_n;
+  RAFT_EXPECTS(bitmap_stride >= centroid_tiles * (tile.tile_n / kBitsPerWord),
+               "Pruned 1-NN fused filter: bitmap row stride is too small");
+  RAFT_EXPECTS(int64_t{n_rows} * bitmap_stride <= std::numeric_limits<int>::max(),
+               "Pruned 1-NN fused filter: bitmap is too large for 32-bit indexing");
 
   using fused_filter_kernel_t = void(void*,
                                      int,
                                      int,
                                      int,
-                                     int,
+                                     int,  // rows
                                      void*,
                                      int,
                                      int,
                                      int,
+                                     int,  // centroids
+                                     void*,
                                      int,
+                                     int,  // row norms
+                                     void*,
+                                     int,
+                                     int,  // centroid norms
+                                     void*,
+                                     int,
+                                     int,  // winners
                                      void*,
                                      int,
                                      int,
-                                     void*,
                                      int,
-                                     int,
-                                     void*,
-                                     int,
-                                     int,
-                                     void*,
-                                     int,
-                                     int,
-                                     void*,
-                                     int,
-                                     int,
-                                     int,
-                                     int,
-                                     int,
-                                     int,
+                                     int,  // bitmap
+                                     int,  // n_centroids
                                      float,
-                                     int,
                                      int);
   void* rows_ptr              = const_cast<half*>(rows);
   void* centroids_ptr         = const_cast<half*>(centroids);
   void* row_norms_ptr         = const_cast<float*>(row_norms);
   void* centroid_norms_ptr    = const_cast<float*>(centroid_norms);
-  void* best_ptr              = const_cast<float*>(best);
-  void* packed_ptr            = packed;
-  void* count_ptr             = count;
-  const int packed_len        = static_cast<int>(packed_size);
+  void* best_ptr              = const_cast<long long*>(best);
+  void* bitmap_ptr            = bitmap;
   const int unit              = 1;
 
   dim3 grid((n_rows + tile.tile_m - 1) / tile.tile_m, 1, 1);
@@ -172,19 +166,14 @@ void launch_fused_filter(const raft::resources& handle,
                       best_ptr,
                       int{n_rows},
                       int{unit},
-                      packed_ptr,
-                      int{packed_len},
-                      int{unit},
-                      count_ptr,
+                      bitmap_ptr,
                       int{n_rows},
+                      int{bitmap_stride},
+                      int{bitmap_stride},
                       int{unit},
-                      int{unit},
-                      int{unit},
-                      int{n_rows},
                       int{n_centroids},
                       float{ratio},
-                      int{partial_dim},
-                      int{row_stride});
+                      int{partial_dim});
 }
 
 }  // namespace cuvs::distance::detail::pruned_nn

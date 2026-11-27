@@ -11,14 +11,11 @@
 #include <raft/core/error.hpp>
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/make_blobs.cuh>
 #include <raft/random/rng_state.hpp>
 #include <raft/util/cudart_utils.hpp>
-
-#include <rmm/cuda_stream_pool.hpp>
 
 #include <cuda_fp16.h>
 
@@ -27,7 +24,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -368,22 +364,15 @@ TEST_P(KmeansSuperKMeansPruned, Pruned)
     EXPECT_NEAR(inertia, lloyd_inertia, 0.01 * lloyd_inertia);
   };
 
-  for (bool pooled : {false, true}) {
-    SCOPED_TRACE(pooled ? "two streams" : "one stream");
-    // With a stream pool the row batches alternate between the main stream and the pool's
-    if (pooled) {
-      raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(1));
+  try {
+    check(X);
+    check(raft::make_const_mdspan(X_half.view()));
+  } catch (const raft::logic_error& e) {
+    if (std::string{e.what()}.find("SuperKMeans pruning kernel is unavailable") !=
+        std::string::npos) {
+      GTEST_SKIP() << e.what();
     }
-    try {
-      check(X);
-      check(raft::make_const_mdspan(X_half.view()));
-    } catch (const raft::logic_error& e) {
-      if (std::string{e.what()}.find("SuperKMeans pruning kernel is unavailable") !=
-          std::string::npos) {
-        GTEST_SKIP() << e.what();
-      }
-      throw;
-    }
+    throw;
   }
 }
 

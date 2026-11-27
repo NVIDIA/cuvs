@@ -57,9 +57,9 @@ def _vector(elem_dtype, alias_groups=()):
     )
 
 
-def _counts():
+def _bitmap():
     return ArrayConstraint(
-        ct.int32,
+        ct.uint32,
         ndim=2,
         index_dtype=ct.int32,
         stride_lower_bound_incl=(0, None),
@@ -80,14 +80,11 @@ def _signature(data_type: str, tile_m: int, tile_n: int, tile_k: int):
             _matrix(),  # centroids (n_centroids, d)
             _vector(ct.float32, read_only),  # row_norms over d'
             _vector(ct.float32, read_only),  # centroid_norms over d'
-            _vector(ct.float32, read_only),  # best: current distances
-            _vector(ct.int64),  # packed survivors
-            _counts(),  # count (n_rows, 1)
-            ScalarConstraint(ct.int32),  # n_rows
+            _vector(ct.int64, read_only),  # best: packed winner per row
+            _bitmap(),  # bitmap words per row
             ScalarConstraint(ct.int32),  # n_centroids
             ScalarConstraint(ct.float32),  # ratio
             ScalarConstraint(ct.int32),  # d'
-            ScalarConstraint(ct.int32),  # row_stride
             ConstantConstraint(tile_m),
             ConstantConstraint(tile_n),
             ConstantConstraint(tile_k),
