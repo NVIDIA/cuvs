@@ -317,6 +317,27 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_GPIPNN_FLOAT_UINT32_TEST
+  PATH neighbors/ann_gpipnn/test_float_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_GPIPNN_HALF_UINT32_TEST
+  PATH neighbors/ann_gpipnn/test_half_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_GPIPNN_INT8_UINT32_TEST
+  PATH neighbors/ann_gpipnn/test_int8_t_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_VAMANA_TEST
   PATH neighbors/ann_vamana/test_float_uint32_t.cu neighbors/ann_vamana/test_int8_t_uint32_t.cu
        neighbors/ann_vamana/test_uint8_t_uint32_t.cu neighbors/ann_vamana/test_half_uint32_t.cu
@@ -483,6 +504,7 @@ ConfigureTest(
        preprocessing/binary_quantization.cu
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu
+       preprocessing/rabitq_quantization.cu
        preprocessing/pca.cu
   GPUS 1
   PERCENT 100

@@ -1561,10 +1561,16 @@ if(NOT BUILD_CPU_ONLY)
     ${vamana_build_inst_files}
     src/neighbors/vamana_codebooks.cu
     ${vamana_serialize_inst_files}
+    src/neighbors/gpipnn_build.cu
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
     src/preprocessing/quantize/bbq.cu
+    src/preprocessing/quantize/rabitq.cu
+    src/preprocessing/quantize/detail/rabitq/rotator.cu
+    src/preprocessing/quantize/detail/rabitq/rescale_search.cu
+    src/preprocessing/quantize/detail/rabitq/quantize.cu
+    src/preprocessing/quantize/detail/rabitq/pipeline.cu
     src/preprocessing/spectral/spectral_embedding.cu
     src/preprocessing/pca/pca.cu
     ${select_k_inst_files}
