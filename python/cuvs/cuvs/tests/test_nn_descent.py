@@ -60,8 +60,8 @@ def test_nn_descent(
     assert calc_recall(graph, bfknn_graph) > 0.9
 
 
-@pytest.mark.parametrize("degree", [17, 32])
-def test_nn_descent_edge_distances(degree):
+@pytest.mark.parametrize("degree, iterations", [(17, 1), (32, 1), (32, 20)])
+def test_nn_descent_edge_distances(degree, iterations):
     # Most candidates tie. Unscored slots can survive refinement, and the
     # final neighbor list can differ from the sorted list of candidates.
     x = np.zeros((128, 3), dtype=np.uint8)
@@ -70,7 +70,7 @@ def test_nn_descent_edge_distances(degree):
         metric="sqeuclidean",
         graph_degree=degree,
         intermediate_graph_degree=64,
-        max_iterations=1,
+        max_iterations=iterations,
         return_distances=True,
     )
     index = nn_descent.build(params, x)
