@@ -60,6 +60,25 @@ def test_nn_descent(
     assert calc_recall(graph, bfknn_graph) > 0.9
 
 
+@pytest.mark.parametrize("degree, iterations", [(17, 1), (32, 1), (32, 20)])
+def test_nn_descent_edge_distances(degree, iterations):
+    # Most candidates tie. Unscored slots can survive refinement, and the
+    # final neighbor list can differ from the sorted list of candidates.
+    x = np.zeros((128, 3), dtype=np.uint8)
+    x[-1] = 1
+    params = nn_descent.IndexParams(
+        metric="sqeuclidean",
+        graph_degree=degree,
+        intermediate_graph_degree=64,
+        max_iterations=iterations,
+        return_distances=True,
+    )
+    index = nn_descent.build(params, x)
+    points = x.astype(np.float32)
+    expected = np.square(points[:, None] - points[index.graph]).sum(axis=-1)
+    np.testing.assert_array_equal(index.distances, expected)
+
+
 @pytest.mark.parametrize("n_cols", [2, 17, 32])
 @pytest.mark.parametrize("dist_comp_dtype", ["auto", "fp32", "fp16"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float16])

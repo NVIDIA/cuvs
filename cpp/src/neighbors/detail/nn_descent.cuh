@@ -1931,12 +1931,13 @@ int insert_to_ordered_list(InternalID_t<Index_t>* list,
 // The device-side lists can hold the same id twice: insert_to_global_graph only rejects an
 // incoming element when it compares equal to its immediate sorted neighbours, which misses a
 // second copy that arrived with a different distance.
-template <typename Index_t>
+template <typename Index_t, typename RecordScore>
 void shrink_graph_removing_duplicates(Index_t* out,
                                       const InternalID_t<Index_t>* h_graph,
                                       const size_t nrow,
                                       const size_t in_degree,
-                                      const size_t out_degree)
+                                      const size_t out_degree,
+                                      RecordScore record_score)
 {
   // Copy the output graph while removing duplicates. Each thread keeps a bit-packed "seen"
   // array, one bit per dataset row, to test and mark ids in O(1) as it scans a row's
@@ -1966,6 +1967,7 @@ void shrink_graph_removing_duplicates(Index_t* out,
         // Unfilled slots carry a sentinel id; leave them to the random fill below.
         if (idx >= nrow || idx == i || !test_and_set(idx)) { continue; }
         output_neighbor_list_ptr[out_j] = static_cast<Index_t>(idx);
+        record_score(i, out_j, in_j);
         out_j++;
       }
 
@@ -1980,6 +1982,7 @@ void shrink_graph_removing_duplicates(Index_t* out,
           placed = (idx != i) && test_and_set(idx);
         }
         output_neighbor_list_ptr[j] = static_cast<Index_t>(idx);
+        record_score(i, j, out_degree);
       }
 
       // Unset every bit this row touched so the array is back to all-zero for the next row this
@@ -1993,6 +1996,175 @@ void shrink_graph_removing_duplicates(Index_t* out,
     }
   }
 }
+
+template <typename T>
+auto join_quantizers(cuvs::neighbors::device_bbq_dataset_view<T, int64_t> const& dataset)
+{
+  // Both kernels take the same (document, query) pair, so there is no symmetric/asymmetric split
+  // here: a single quantizer just means the same one on both operands, which is exactly what
+  // SelfJoin encodes. Picking the two quantizers is all that differs.
+  const bool self_join = dataset.quantizers.size() == 1;
+  const bool has_1b    = dataset.has_layout(bbq_code_layout::packed_1b);
+  const bool has_4b    = dataset.has_layout(bbq_code_layout::packed_4b);
+  const bool has_2bt   = dataset.has_layout(bbq_code_layout::transposed_2b);
+  const bool has_4bt   = dataset.has_layout(bbq_code_layout::transposed_4b);
+
+  // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
+  // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
+  // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
+  const bool tc_pair   = has_4b && has_1b;
+  const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
+  RAFT_EXPECTS(self_join || tc_pair || simt_pair,
+               "Unsupported BBQ layout pair for asymmetric local join. Supported: "
+               "packed_1b x packed_4b (tensor core); packed_1b x transposed_2b, "
+               "packed_1b x transposed_4b, transposed_2b x transposed_4b (SIMT).");
+  auto quantizer_query =
+    self_join ? dataset.quantizers[0]
+              : (tc_pair ? dataset.get_quantizer(bbq_code_layout::packed_4b)
+                         : (has_4bt ? dataset.get_quantizer(bbq_code_layout::transposed_4b)
+                                    : dataset.get_quantizer(bbq_code_layout::transposed_2b)));
+  auto quantizer_document = self_join ? dataset.quantizers[0]
+                            : has_1b  ? dataset.get_quantizer(bbq_code_layout::packed_1b)
+                                      : dataset.get_quantizer(bbq_code_layout::transposed_2b);
+  return std::pair{quantizer_document, quantizer_query};
+}
+
+template <typename Index_t, typename Score>
+__global__ void fill_missing_distances(float* distances,
+                                       const Index_t* ids,
+                                       size_t first_row,
+                                       size_t count,
+                                       size_t k,
+                                       size_t stride,
+                                       Score score)
+{
+  auto pos = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (pos < count && distances[pos] == std::numeric_limits<float>::max()) {
+    auto row       = pos / k;
+    distances[pos] = score(static_cast<int>(first_row + row), ids[row * stride + pos % k]);
+  }
+}
+
+template <typename Index_t, typename Score>
+void finalize_graph(raft::resources const& res,
+                    GnndGraph<Index_t>& graph,
+                    BuildConfig const& config,
+                    Index_t* output_graph,
+                    float* output_distances,
+                    Score score,
+                    bool postprocess,
+                    bool reuse_scores = true)
+{
+  const size_t nrow   = graph.nrow;
+  const size_t degree = config.node_degree;
+  const size_t k      = config.output_graph_degree;
+  static_assert(sizeof(DistData_t) >= sizeof(Index_t));
+  auto* ids = reinterpret_cast<Index_t*>(graph.h_dists.data_handle());
+  std::vector<Index_t> scored_ids;
+  if (output_distances == nullptr || k == 0) {
+    shrink_graph_removing_duplicates(
+      ids, graph.h_graph, nrow, graph.node_degree, degree, [](size_t, size_t, size_t) {});
+  } else {
+    // Keep the candidate distances alive while compacting IDs. Within a row,
+    // retained scores only move left, so they can be compacted in place.
+    scored_ids.resize(nrow * degree);
+    ids = scored_ids.data();
+    shrink_graph_removing_duplicates(
+      ids, graph.h_graph, nrow, graph.node_degree, degree, [&](size_t row, size_t dst, size_t src) {
+        if (dst < k) {
+          graph.h_dists(row, dst) = !reuse_scores || src == degree
+                                      ? std::numeric_limits<float>::max()
+                                      : graph.h_dists(row, src);
+        }
+      });
+    auto stream = raft::resource::get_cuda_stream(res).get();
+    RAFT_CUDA_TRY(cudaMemcpy2DAsync(output_distances,
+                                    k * sizeof(float),
+                                    graph.h_dists.data_handle(),
+                                    graph.node_degree * sizeof(float),
+                                    k * sizeof(float),
+                                    nrow,
+                                    cudaMemcpyHostToDevice,
+                                    stream));
+    // Bound device scratch even if ties leave most of the graph unscored.
+    const size_t batch_rows = std::min(nrow, std::max(size_t{1}, (size_t{1} << 18) / degree));
+    rmm::device_uvector<Index_t> device_ids(
+      0, stream, raft::resource::get_workspace_resource_ref(res));
+    for (size_t first = 0; first < nrow; first += batch_rows) {
+      size_t rows  = std::min(batch_rows, nrow - first);
+      bool missing = !reuse_scores;
+      for (size_t i = first; !missing && i < first + rows; ++i) {
+        auto* begin = &graph.h_dists(i, 0);
+        missing     = std::find(begin, begin + k, std::numeric_limits<float>::max()) != begin + k;
+      }
+      if (missing) {
+        device_ids.resize(rows * degree, stream);
+        raft::copy(device_ids.data(), ids + first * degree, rows * degree, stream);
+        fill_missing_distances<<<raft::ceildiv(rows * k, size_t{128}), 128, 0, stream>>>(
+          output_distances + first * k, device_ids.data(), first, rows * k, k, degree, score);
+        RAFT_CUDA_TRY(cudaPeekAtLastError());
+      }
+    }
+    auto view = raft::make_device_vector_view(output_distances, nrow * k);
+    if (postprocess && config.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+      raft::linalg::map(res, view, raft::sqrt_op{}, raft::make_const_mdspan(view));
+    } else if (postprocess && !cuvs::distance::is_min_close(config.metric)) {
+      raft::linalg::map(res, view, raft::mul_const_op<float>(-1), raft::make_const_mdspan(view));
+    }
+    raft::resource::sync_stream(res);
+  }
+  graph.h_graph = nullptr;
+#pragma omp parallel for
+  for (size_t i = 0; i < nrow; ++i) {
+    for (size_t j = 0; j < degree; ++j) {
+      output_graph[i * degree + j] = ids[i * degree + j];
+    }
+  }
+}
+
+template <typename T, typename Epilogue>
+struct dense_edge_score {
+  const T* data;
+  size_t dim;
+  cuvs::distance::DistanceType metric;
+  Epilogue epilogue;
+
+  __device__ float operator()(int row, int neighbor) const
+  {
+    using DT    = cuvs::distance::DistanceType;
+    auto* a     = data + size_t(row) * dim;
+    auto* b     = data + size_t(neighbor) * dim;
+    float value = 0, norm_a = 0, norm_b = 0;
+    for (size_t d = 0; d < dim; ++d) {
+      float x = static_cast<float>(a[d]), y = static_cast<float>(b[d]);
+      if (metric == DT::CosineExpanded || metric == DT::InnerProduct) {
+        value += x * y;
+        if (metric == DT::CosineExpanded) {
+          norm_a += x * x;
+          norm_b += y * y;
+        }
+      } else if (metric == DT::L1) {
+        value += fabsf(x - y);
+      } else if (metric == DT::BitwiseHamming) {
+        if constexpr (std::is_integral_v<T>) {
+          value += __popc(static_cast<uint8_t>(a[d]) ^ static_cast<uint8_t>(b[d]));
+        }
+      } else {
+        value += (x - y) * (x - y);
+      }
+    }
+    constexpr bool identity = std::is_same_v<Epilogue, raft::identity_op>;
+    if (metric == DT::CosineExpanded) {
+      float norm = norm_a * norm_b;
+      value      = norm > 0 ? 1.0f - value / sqrtf(norm) : 0.0f;
+    } else if (identity && metric == DT::InnerProduct) {
+      value = -value;
+    } else if (!identity && metric == DT::L2SqrtExpanded) {
+      value = sqrtf(value);
+    }
+    return epilogue(value, row, neighbor);
+  }
+};
 
 }  // namespace
 
@@ -2352,32 +2524,8 @@ void GNND<Data_t, Index_t>::local_join(
 {
   raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
 
-  // Both kernels take the same (document, query) pair, so there is no symmetric/asymmetric split
-  // here: a single quantizer just means the same one on both operands, which is exactly what
-  // SelfJoin encodes. Picking the two quantizers is all that differs.
-  const bool self_join = dataset.quantizers.size() == 1;
-  const bool has_1b    = dataset.has_layout(bbq_code_layout::packed_1b);
-  const bool has_4b    = dataset.has_layout(bbq_code_layout::packed_4b);
-  const bool has_2bt   = dataset.has_layout(bbq_code_layout::transposed_2b);
-  const bool has_4bt   = dataset.has_layout(bbq_code_layout::transposed_4b);
-
-  // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
-  // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
-  // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
-  const bool tc_pair   = has_4b && has_1b;
-  const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
-  RAFT_EXPECTS(self_join || tc_pair || simt_pair,
-               "Unsupported BBQ layout pair for asymmetric local join. Supported: "
-               "packed_1b x packed_4b (tensor core); packed_1b x transposed_2b, "
-               "packed_1b x transposed_4b, transposed_2b x transposed_4b (SIMT).");
-  auto quantizer_query =
-    self_join ? dataset.quantizers[0]
-              : (tc_pair ? dataset.get_quantizer(bbq_code_layout::packed_4b)
-                         : (has_4bt ? dataset.get_quantizer(bbq_code_layout::transposed_4b)
-                                    : dataset.get_quantizer(bbq_code_layout::transposed_2b)));
-  auto quantizer_document = self_join ? dataset.quantizers[0]
-                            : has_1b  ? dataset.get_quantizer(bbq_code_layout::packed_1b)
-                                      : dataset.get_quantizer(bbq_code_layout::transposed_2b);
+  const bool self_join                       = dataset.quantizers.size() == 1;
+  auto [quantizer_document, quantizer_query] = join_quantizers(dataset);
 
   // stage_tile_simt / stage_promoted_tile cast code buffers to uint32_t*, so every plane stride
   // must be 4-byte aligned.
@@ -2667,56 +2815,21 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   raft::resource::sync_stream(res);
   graph_.sort_lists();
 
-  // Reuse graph_.h_dists as the buffer for shrink the lists in graph
-  static_assert(sizeof(decltype(*(graph_.h_dists.data_handle()))) >= sizeof(Index_t));
-
-  if (return_distances) {
-    auto graph_h_dists = raft::make_host_matrix<DistData_t, int64_t, raft::row_major>(
-      nrow_, build_config_.output_graph_degree);
-
-// slice on host
-#pragma omp parallel for
-    for (size_t i = 0; i < (size_t)nrow_; i++) {
-      for (size_t j = 0; j < build_config_.output_graph_degree; j++) {
-        graph_h_dists(i, j) = graph_.h_dists(i, j);
-      }
-    }
-    raft::copy(
+  auto finish = [&](auto* ptr) {
+    using T = std::remove_cv_t<std::remove_pointer_t<decltype(ptr)>>;
+    finalize_graph(
       res,
-      raft::make_device_vector_view(output_distances, nrow_ * build_config_.output_graph_degree),
-      raft::make_host_vector_view(graph_h_dists.data_handle(),
-                                  nrow_ * build_config_.output_graph_degree));
-
-    auto output_dist_view = raft::make_device_matrix_view<DistData_t, int64_t, raft::row_major>(
-      output_distances, nrow_, build_config_.output_graph_degree);
-    // distance post-processing
-    bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
-    if (build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded &&
-        can_postprocess_dist) {
-      raft::linalg::map(
-        res, output_dist_view, raft::sqrt_op{}, raft::make_const_mdspan(output_dist_view));
-    } else if (!cuvs::distance::is_min_close(build_config_.metric) && can_postprocess_dist) {
-      // revert negated innerproduct
-      raft::linalg::map(res,
-                        output_dist_view,
-                        raft::mul_const_op<DistData_t>(-1),
-                        raft::make_const_mdspan(output_dist_view));
-    }
-    raft::resource::sync_stream(res);
-  }
-
-  Index_t* graph_shrink_buffer = (Index_t*)graph_.h_dists.data_handle();
-
-  shrink_graph_removing_duplicates(
-    graph_shrink_buffer, graph_.h_graph, nrow_, graph_.node_degree, build_config_.node_degree);
-  graph_.h_graph = nullptr;
-
-#pragma omp parallel for
-  for (size_t i = 0; i < (size_t)nrow_; i++) {
-    for (size_t j = 0; j < build_config_.node_degree; j++) {
-      output_graph[i * build_config_.node_degree + j] =
-        graph_shrink_buffer[i * build_config_.node_degree + j];
-    }
+      graph_,
+      build_config_,
+      output_graph,
+      return_distances ? output_distances : nullptr,
+      dense_edge_score<T, DistEpilogue_t>{ptr, ndim_, build_config_.metric, dist_epilogue},
+      std::is_same_v<DistEpilogue_t, raft::identity_op>);
+  };
+  if (downcast_host_data) {
+    finish(static_cast<const half*>(d_data_ptr_));
+  } else {
+    finish(static_cast<const input_t*>(d_data_ptr_));
   }
 }
 
@@ -2797,51 +2910,37 @@ void GNND<Data_t, Index_t>::build(
   raft::resource::sync_stream(res);
   graph_.sort_lists();
 
-  static_assert(sizeof(decltype(*(graph_.h_dists.data_handle()))) >= sizeof(Index_t));
-  if (return_distances) {
-    auto graph_h_dists = raft::make_host_matrix<DistData_t, int64_t, raft::row_major>(
-      nrow_, build_config_.output_graph_degree);
-#pragma omp parallel for
-    for (size_t i = 0; i < nrow_; ++i) {
-      for (size_t j = 0; j < build_config_.output_graph_degree; ++j) {
-        graph_h_dists(i, j) = graph_.h_dists(i, j);
-      }
-    }
-    raft::copy(
-      res,
-      raft::make_device_vector_view(output_distances, nrow_ * build_config_.output_graph_degree),
-      raft::make_host_vector_view(graph_h_dists.data_handle(),
-                                  nrow_ * build_config_.output_graph_degree));
-
-    auto output_dist_view = raft::make_device_matrix_view<DistData_t, int64_t, raft::row_major>(
-      output_distances, nrow_, build_config_.output_graph_degree);
-    const bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
-    if (build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded &&
-        can_postprocess_dist) {
-      raft::linalg::map(
-        res, output_dist_view, raft::sqrt_op{}, raft::make_const_mdspan(output_dist_view));
-    } else if (!cuvs::distance::is_min_close(build_config_.metric) && can_postprocess_dist) {
-      raft::linalg::map(res,
-                        output_dist_view,
-                        raft::mul_const_op<DistData_t>(-1),
-                        raft::make_const_mdspan(output_dist_view));
-    }
-    raft::resource::sync_stream(res);
-  }
-
-  auto* graph_shrink_buffer = reinterpret_cast<Index_t*>(graph_.h_dists.data_handle());
-
-  shrink_graph_removing_duplicates(
-    graph_shrink_buffer, graph_.h_graph, nrow_, graph_.node_degree, build_config_.node_degree);
-  graph_.h_graph = nullptr;
-
-#pragma omp parallel for
-  for (size_t i = 0; i < nrow_; ++i) {
-    for (size_t j = 0; j < build_config_.node_degree; ++j) {
-      output_graph[i * build_config_.node_degree + j] =
-        graph_shrink_buffer[i * build_config_.node_degree + j];
-    }
-  }
+  const auto metric = build_config_.metric;
+  auto quantizers   = join_quantizers(dataset);
+  auto doc          = quantizers.first;
+  auto query        = quantizers.second;
+  auto score        = [=] __device__(int i, int j) {
+    namespace bbq = cuvs::preprocessing::quantize::bbq::detail;
+    auto raw      = bbq::code_inner_product(&doc.codes(i, 0),
+                                       doc.layout,
+                                       &query.codes(j, 0),
+                                       query.layout,
+                                       bbq::get_encoded_row_length(doc));
+    return bbq_calculate_metric(raw,
+                                get_dequant_factors(doc, i),
+                                get_dequant_factors(query, j),
+                                doc,
+                                query,
+                                metric,
+                                dist_epilogue,
+                                i,
+                                j);
+  };
+  // With two encodings a local-join score can come from the reverse edge.
+  // Evaluate the returned orientation (document row, query neighbor) in that case.
+  finalize_graph(res,
+                 graph_,
+                 build_config_,
+                 output_graph,
+                 return_distances ? output_distances : nullptr,
+                 score,
+                 std::is_same_v<DistEpilogue_t, raft::identity_op>,
+                 dataset.quantizers.size() == 1);
 }
 
 template <typename DataT, typename IdxT = uint32_t>
